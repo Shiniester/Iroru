@@ -940,6 +940,7 @@
   "@openWorkDetailFailed": { "placeholders": { "error": { "type": "String" } } },
   "noLocalDownloads": "No local downloads",
   "exitSelection": "Exit selection",
+  "pressBackAgainToExit": "Press back again to exit",
   "reload": "Reload",
   "openFolder": "Open Folder",
 

@@ -531,12 +531,14 @@ class _OfflineFileExplorerWidgetState
     }
   }
 
-  Future<void> _showAudioActionMenu(
+  Future<void> _showFileActionMenu(
     dynamic file,
     String title,
     String parentPath,
-    List<dynamic> audioFiles,
+    {List<dynamic>? audioFiles}
   ) async {
+    final isAudio =
+        _tapResolver.resolve(file) == FileExplorerTapAction.audio;
     await showBottomSheetMenu<void>(
       context: context,
       children: [
@@ -544,52 +546,63 @@ class _OfflineFileExplorerWidgetState
           builder: (sheetContext) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                key: const ValueKey('file-action-add-to-queue'),
-                leading: const Icon(Icons.playlist_add),
-                title: Text(
-                  AudioTapPlaylistMode.addToQueue.localizedName(context),
+              if (isAudio) ...[
+                ListTile(
+                  key: const ValueKey('file-action-add-to-queue'),
+                  leading: const Icon(Icons.playlist_add),
+                  title: Text(
+                    AudioTapPlaylistMode.addToQueue.localizedName(context),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _playAudioFile(
+                      file,
+                      parentPath,
+                      modeOverride: AudioTapPlaylistMode.addToQueue,
+                      audioFiles: audioFiles,
+                    );
+                  },
                 ),
+                ListTile(
+                  key: const ValueKey('file-action-play-next'),
+                  leading: const Icon(Icons.queue_play_next),
+                  title: Text(
+                    AudioTapPlaylistMode.playNext.localizedName(context),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _playAudioFile(
+                      file,
+                      parentPath,
+                      modeOverride: AudioTapPlaylistMode.playNext,
+                      audioFiles: audioFiles,
+                    );
+                  },
+                ),
+                ListTile(
+                  key: const ValueKey('file-action-replace-queue'),
+                  leading: const Icon(Icons.playlist_play),
+                  title: Text(
+                    AudioTapPlaylistMode.replaceQueue.localizedName(context),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _playAudioFile(
+                      file,
+                      parentPath,
+                      modeOverride: AudioTapPlaylistMode.replaceQueue,
+                      audioFiles: audioFiles,
+                    );
+                  },
+                ),
+              ],
+              ListTile(
+                key: const ValueKey('file-action-delete'),
+                leading: const Icon(Icons.delete_outline),
+                title: Text(S.of(context).delete),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
-                  _playAudioFile(
-                    file,
-                    parentPath,
-                    modeOverride: AudioTapPlaylistMode.addToQueue,
-                    audioFiles: audioFiles,
-                  );
-                },
-              ),
-              ListTile(
-                key: const ValueKey('file-action-play-next'),
-                leading: const Icon(Icons.queue_play_next),
-                title: Text(
-                  AudioTapPlaylistMode.playNext.localizedName(context),
-                ),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _playAudioFile(
-                    file,
-                    parentPath,
-                    modeOverride: AudioTapPlaylistMode.playNext,
-                    audioFiles: audioFiles,
-                  );
-                },
-              ),
-              ListTile(
-                key: const ValueKey('file-action-replace-queue'),
-                leading: const Icon(Icons.playlist_play),
-                title: Text(
-                  AudioTapPlaylistMode.replaceQueue.localizedName(context),
-                ),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _playAudioFile(
-                    file,
-                    parentPath,
-                    modeOverride: AudioTapPlaylistMode.replaceQueue,
-                    audioFiles: audioFiles,
-                  );
+                  _deleteFile(file, parentPath);
                 },
               ),
               ListTile(
@@ -862,6 +875,8 @@ class _OfflineFileExplorerWidgetState
       expandedFolders: _expandedFolders,
       onToggleFolder: _toggleFolder,
       onFileTap: _handleFileTap,
+      onFileLongPress: (file, title, path) =>
+          _showFileActionMenu(file, title, path),
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
       audioMetadataBuilder: _buildFileMetadata,
@@ -893,7 +908,7 @@ class _OfflineFileExplorerWidgetState
       audioDurationBuilder: _buildAudioDuration,
       audioTrailingBuilder: _buildFileActions,
       onAudioLongPress: (file, title, path, files) =>
-          _showAudioActionMenu(file, title, path, files),
+          _showFileActionMenu(file, title, path, audioFiles: files),
       onPlayVideo: (file, path) => unawaited(_playVideo(file, path)),
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,

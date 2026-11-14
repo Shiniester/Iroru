@@ -702,6 +702,7 @@
   "openWorkDetailFailed": "作品詳細を開けませんでした: {error}",
   "noLocalDownloads": "ローカルダウンロードなし",
   "exitSelection": "選択を終了",
+  "pressBackAgainToExit": "もう一度戻ると終了します",
   "reload": "再読み込み",
   "openFolder": "フォルダを開く",
 

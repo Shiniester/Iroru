@@ -702,6 +702,7 @@
   "openWorkDetailFailed": "打开作品详情失败: {error}",
   "noLocalDownloads": "暂无本地下载",
   "exitSelection": "退出选择",
+  "pressBackAgainToExit": "再次点击即可退出",
   "reload": "重载",
   "openFolder": "打开文件夹",
 

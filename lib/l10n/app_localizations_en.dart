@@ -2072,6 +2072,9 @@ class SEn extends S {
   String get exitSelection => 'Exit selection';
 
   @override
+  String get pressBackAgainToExit => 'Press back again to exit';
+
+  @override
   String get reload => 'Reload';
 
   @override

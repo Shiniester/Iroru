@@ -3850,6 +3850,12 @@ abstract class S {
   /// **'Exit selection'**
   String get exitSelection;
 
+  /// No description provided for @pressBackAgainToExit.
+  ///
+  /// In en, this message translates to:
+  /// **'Press back again to exit'**
+  String get pressBackAgainToExit;
+
   /// No description provided for @reload.
   ///
   /// In en, this message translates to:

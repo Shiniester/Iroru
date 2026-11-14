@@ -1,6 +1,7 @@
 import 'package:ffi/ffi.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart';
@@ -145,31 +146,71 @@ void main() {
     skip: library == null,
   );
 
-  test(
-    'seek history reset rewrites the scene graph to clear stateful filters',
-    () async {
-      final sceneSettings = AudioEffectsSettings(
-        sceneEnabled: true,
-        scene: AudioScene.bathroom,
-        sceneAmount: 100,
+  test('seek keeps playing after scene history reset', () async {
+    final ready = Completer<void>();
+    final player = Player(
+      configuration: PlayerConfiguration(ready: ready.complete),
+    );
+    await ready.future.timeout(const Duration(seconds: 10));
+    final native = player.platform as NativePlayer;
+    final statuses = <AudioEffectsStatus>[];
+    final controller = NativeAudioEffects(statuses.add);
+    final directory = await Directory.systemTemp.createTemp(
+      'kiko-effects-scene-seek-',
+    );
+    final source = File('${directory.path}/source.wav');
+    final output = File('${directory.path}/capture.pcm');
+    const rate = 48000;
+    final frames = List.generate(rate * 4, (n) {
+      final sample = (12000 * math.sin(2 * math.pi * 1000 * n / rate)).round();
+      return (sample, sample);
+    });
+    await source.writeAsBytes(audioEffectsWav(frames, rate));
+    try {
+      for (final entry in {
+        'ao': 'pcm',
+        'ao-pcm-waveheader': 'no',
+        'ao-pcm-append': 'yes',
+        'ao-pcm-file': output.path,
+        'audio-format': 'float',
+        'audio-samplerate': '$rate',
+        'audio-channels': 'stereo',
+        'demuxer-lavf-format': 'wav',
+        'gapless-audio': 'no',
+      }.entries) {
+        await native.setProperty(entry.key, entry.value);
+      }
+      await controller.configure(
+        native,
+        AudioEffectsSettings(
+          sceneEnabled: true,
+          scene: AudioScene.bathroom,
+          sceneAmount: 100,
+        ),
+        false,
       );
-      await _captureInitialEffects(
-        audioEffectsWav(List.generate(4800, (n) => (0, 0)), 48000),
-        sceneSettings,
-        duringPlayback: (controller, native) async {
-          final before = await native.getProperty('af');
-          expect(before, contains('@kiko_bathroom'));
-          expect(before, isNot(contains('kiko_reset')));
-          controller.resetHistory();
-          final after = await native.getProperty('af');
-          expect(after, contains('@kiko_bathroom'));
-          expect(after, contains('kiko_reset'));
-          expect(after, isNot(equals(before)));
-        },
-      );
-    },
-    skip: library == null,
-  );
+      native.onLoadHooks.add(() async {
+        final chain = await native.getProperty('af');
+        const clock = 'asetnsamples=n=128:p=0,arealtime';
+        await native.setProperty(
+          'af',
+          '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$chain',
+        );
+      });
+      final completed = player.stream.completed.firstWhere((done) => done);
+      await player.open(Media(source.path));
+      await _waitForOutput(output);
+      expect(await native.getProperty('af'), contains('@kiko_bathroom'));
+      await player.seek(const Duration(seconds: 2));
+      controller.resetHistory();
+      await completed.timeout(const Duration(seconds: 15));
+      expect(statuses, isNot(contains(AudioEffectsStatus.unavailable)));
+    } finally {
+      await controller.dispose();
+      await player.dispose();
+      await directory.delete(recursive: true);
+    }
+  }, skip: library == null);
 
   test('neutral effects preserve all six channels of 5.1 PCM', () async {
     const frameCount = 4817;
@@ -798,6 +839,15 @@ Future<void> _waitForNativePosition(NativePlayer player, double seconds) async {
     }
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
+}
+
+Future<void> _waitForOutput(File output) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (DateTime.now().isBefore(deadline)) {
+    if (output.existsSync() && output.lengthSync() > 0) return;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  throw TimeoutException('Native playback did not produce output');
 }
 
 Future<List<(double, double)>> _finishPcmCapture(

@@ -337,6 +337,14 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     return _settleVerticalGesture(showRoute: showRoute);
   }
 
+  /// Completes a pre-warmed entrance without a release decision.
+  Future<bool> completeVerticalOpenGesture() {
+    if (!_verticalGestureInProgress || !_verticalGestureOpening) {
+      return Future<bool>.value(false);
+    }
+    return _settleVerticalGesture(showRoute: true);
+  }
+
   @override
   void endVerticalDismissGesture({
     required double velocity,

@@ -1,7 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../l10n/app_localizations.dart';
+import '../utils/snackbar_util.dart';
 import '../widgets/app_navigation_scope.dart';
 import '../widgets/tab_page_motion.dart';
 import 'audio_screen.dart';
@@ -24,7 +28,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   AppNavigationController? _navigation;
   bool _reduceMotion = false;
   int _currentIndex = 0;
+  DateTime? _lastExitBackAt;
   late final List<Widget> _screens;
+
+  static const _exitBackInterval = Duration(seconds: 2);
 
   @override
   void initState() {
@@ -103,37 +110,70 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                 child: ValueListenableBuilder<int?>(
                   valueListenable: _selection,
                   child: _screens[i],
-                  builder: (context, index, child) => HeroMode(
-                    enabled: index == i,
-                    child: NavigatorPopHandler<void>(
-                      enabled: navigation.selectedIndex == i,
-                      onPopWithResult: (_) {
-                        if (navigation.selectedIndex == i) {
-                          navigation.tabNavigator(i)?.maybePop<void>();
+                  builder: (context, index, child) {
+                    final tabCanPop =
+                        navigation.tabNavigator(i)?.canPop() ?? false;
+                    return PopScope(
+                      canPop:
+                          index != i ||
+                          tabCanPop ||
+                          defaultTargetPlatform != TargetPlatform.android,
+                      onPopInvokedWithResult: (didPop, _) {
+                        if (didPop || index != i) return;
+                        if (tabCanPop) {
+                          _lastExitBackAt = null;
+                          return;
                         }
+                        _handleExitBack();
                       },
-                      child: ExcludeFocus(
-                        excluding: index != i,
-                        child: Navigator(
-                          key: navigation.tabNavigatorKey(i),
-                          observers: [
-                            navigation.tabObserver(i),
-                            navigation.tabHeroController(i),
-                          ],
-                          onGenerateRoute: (settings) =>
-                              MaterialPageRoute<void>(
-                                settings: settings,
-                                builder: (_) => child!,
-                              ),
+                      child: HeroMode(
+                        enabled: index == i,
+                        child: NavigatorPopHandler<void>(
+                          enabled: navigation.selectedIndex == i,
+                          onPopWithResult: (_) {
+                            if (navigation.selectedIndex == i) {
+                              navigation.tabNavigator(i)?.maybePop<void>();
+                            }
+                          },
+                          child: ExcludeFocus(
+                            excluding: index != i,
+                            child: Navigator(
+                              key: navigation.tabNavigatorKey(i),
+                              observers: [
+                                navigation.tabObserver(i),
+                                navigation.tabHeroController(i),
+                              ],
+                              onGenerateRoute: (settings) =>
+                                  MaterialPageRoute<void>(
+                                    settings: settings,
+                                    builder: (_) => child!,
+                                  ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                 ),
               ),
           ],
         ),
       ),
+    );
+  }
+
+  void _handleExitBack() {
+    final now = DateTime.now();
+    final lastBackAt = _lastExitBackAt;
+    if (lastBackAt != null && now.difference(lastBackAt) < _exitBackInterval) {
+      SystemNavigator.pop();
+      return;
+    }
+    _lastExitBackAt = now;
+    SnackBarUtil.showInfo(
+      context,
+      S.of(context).pressBackAgainToExit,
+      duration: _exitBackInterval,
     );
   }
 }

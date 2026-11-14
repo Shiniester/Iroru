@@ -2016,6 +2016,9 @@ class SJa extends S {
   String get exitSelection => '選択を終了';
 
   @override
+  String get pressBackAgainToExit => 'もう一度戻ると終了します';
+
+  @override
   String get reload => '再読み込み';
 
   @override

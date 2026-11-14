@@ -59,7 +59,6 @@ class AudioEffectsGraph {
   static String render(
     AudioEffectsSettings settings, {
     required bool systemLibrary,
-    int? resetToken,
   }) {
     final modules = activeModules(settings);
     if (modules.isEmpty) return '';
@@ -89,11 +88,7 @@ class AudioEffectsGraph {
       ),
       for (final name in sceneNames) name: templates[name]!,
     };
-    return 'format=channels=stereo,${modules.map((name) {
-      final graph = resetToken == null ? graphs[name]! : '${graphs[name]}'
-                ';[out]volume@kiko_reset$resetToken=1:precision=double[reset]';
-      return '@kiko_$name:lavfi=o=[threads=1]:graph=%${graph.length}%$graph';
-    }).join(',')}';
+    return 'format=channels=stereo,${modules.map((name) => '@kiko_$name:lavfi=o=[threads=1]:graph=%${graphs[name]!.length}%${graphs[name]}').join(',')}';
   }
 
   static List<List<String>> controls(
@@ -174,7 +169,6 @@ class NativeAudioEffects {
   AudioEffectsSettings _settings = AudioEffectsSettings();
   AudioEffectsSettings? _appliedSettings;
   List<String> _installedModules = const [];
-  int _resetGeneration = 0;
   bool _graphInstalled = false;
   bool _passthrough = false;
   bool _failed = false;
@@ -252,18 +246,17 @@ class NativeAudioEffects {
     // The stereo DSP chain changes the layout of a neutral multichannel source.
     final modules = AudioEffectsGraph.activeModules(_settings);
     final installGraph = !_passthrough && modules.isNotEmpty;
-    // A seek must change each active lavfi graph so mpv recreates stateful filters.
-    final resetToken = mayReuseFilters && installGraph
-        ? ++_resetGeneration
-        : null;
+    // Clearing the chain makes mpv recreate stateful filters from the same graph.
+    if (mayReuseFilters && _graphInstalled && installGraph) {
+      if (_setAf(player, '') < 0) {
+        _markUnavailable();
+        return;
+      }
+    }
     final result = _setAf(
       player,
       installGraph
-          ? AudioEffectsGraph.render(
-              _settings,
-              systemLibrary: false,
-              resetToken: resetToken,
-            )
+          ? AudioEffectsGraph.render(_settings, systemLibrary: false)
           : '',
     );
     if (result < 0) {

@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:kikoeru_flutter/src/comics/ui/comic_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_screen.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
@@ -2678,6 +2679,47 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.byType(AudioScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'root back shows exit hint before leaving',
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+      final l10n = S.of(tester.element(find.byType(AudioScreen)));
+      final exitCalls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'SystemNavigator.pop') exitCalls.add(call);
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+
+      expect(find.text(l10n.pressBackAgainToExit), findsOneWidget);
+      expect(find.byType(AudioScreen), findsOneWidget);
+      expect(exitCalls, isEmpty);
+
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+
+      expect(exitCalls, hasLength(1));
       expect(tester.takeException(), isNull);
     },
   );

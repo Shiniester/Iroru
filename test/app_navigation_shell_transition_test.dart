@@ -2749,24 +2749,33 @@ void main() {
                   image.dispose();
                 }
               }))!;
+          // Ignore sub-perceptual compositing shifts; a moving rail changes
+          // whole icons and text, far above this threshold.
+          bool railPixelChanged(int a, int b) {
+            for (var shift = 0; shift < 32; shift += 8) {
+              if ((((a >> shift) & 0xFF) - ((b >> shift) & 0xFF)).abs() > 8) {
+                return true;
+              }
+            }
+            return false;
+          }
 
           final before = await readRail();
           await tester.tap(find.byKey(ValueKey(target)));
           for (final elapsed in [0, 16, 16, 16]) {
             await tester.pump(Duration(milliseconds: elapsed));
-            expect(navigation.audioPlayerRoute, isNotNull);
-            expect(
-              navigation.audioPlayerNavigationTransition!.value,
-              lessThan(0.5),
-            );
+            // Tap entry pre-warms the player off-screen before the root route
+            // exists, so the navigation must stay untouched until the handoff.
+            expect(navigation.audioPlayerRoute, isNull);
             final actual = await readRail();
             final changed = [
               for (var i = 0; i < actual.length; i++)
-                if (actual[i] != before[i]) i,
+                if (railPixelChanged(actual[i], before[i])) i,
             ];
             expect(changed, isEmpty, reason: 'after $elapsed ms');
           }
           await tester.pumpAndSettle();
+          expect(navigation.audioPlayerRoute, isNotNull);
           navigation.navigator!.pop();
           await tester.pumpAndSettle();
           expect(tester.takeException(), isNull);
