@@ -534,11 +534,10 @@ class _OfflineFileExplorerWidgetState
   Future<void> _showFileActionMenu(
     dynamic file,
     String title,
-    String parentPath,
-    {List<dynamic>? audioFiles}
-  ) async {
-    final isAudio =
-        _tapResolver.resolve(file) == FileExplorerTapAction.audio;
+    String parentPath, {
+    List<dynamic>? audioFiles,
+  }) async {
+    final isAudio = _tapResolver.resolve(file) == FileExplorerTapAction.audio;
     await showBottomSheetMenu<void>(
       context: context,
       children: [

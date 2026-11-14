@@ -111,16 +111,14 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   valueListenable: _selection,
                   child: _screens[i],
                   builder: (context, index, child) {
-                    final tabCanPop =
-                        navigation.tabNavigator(i)?.canPop() ?? false;
                     return PopScope(
                       canPop:
                           index != i ||
-                          tabCanPop ||
                           defaultTargetPlatform != TargetPlatform.android,
                       onPopInvokedWithResult: (didPop, _) {
                         if (didPop || index != i) return;
-                        if (tabCanPop) {
+                        if (navigation.handlePlayerLaunchBack() ||
+                            (navigation.tabNavigator(i)?.canPop() ?? false)) {
                           _lastExitBackAt = null;
                           return;
                         }

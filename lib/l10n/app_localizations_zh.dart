@@ -2010,7 +2010,7 @@ class SZh extends S {
   String get exitSelection => '退出选择';
 
   @override
-  String get pressBackAgainToExit => '再次点击即可退出';
+  String get pressBackAgainToExit => '再按一次返回键退出';
 
   @override
   String get reload => '重载';
@@ -6953,7 +6953,7 @@ class SZhHant extends SZh {
   String get exitSelection => '退出選擇';
 
   @override
-  String get pressBackAgainToExit => '再次點擊即可退出';
+  String get pressBackAgainToExit => '再按一次返回鍵退出';
 
   @override
   String get reload => '重新載入';

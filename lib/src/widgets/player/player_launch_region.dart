@@ -62,11 +62,22 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
   double _latestExtent = 1;
   _InteractivePlayerOpenSession? _interactiveSession;
   int _sessionGeneration = 0;
+  AppNavigationController? _navigationController;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final navigation = AppNavigationScope.maybeOf(context);
+    if (identical(navigation, _navigationController)) return;
+    _navigationController?.removePlayerLaunchBackHandler(_handleBack);
+    _navigationController = navigation;
+    navigation?.addPlayerLaunchBackHandler(_handleBack);
   }
 
   @override
@@ -88,10 +99,7 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
     if (!mounted || _launchInProgress) return;
     final session = MediaQuery.disableAnimationsOf(context)
         ? null
-        : _startInteractiveSession(
-            initialSurface: initialSurface,
-            hideNavigation: false,
-          );
+        : _startInteractiveSession(initialSurface: initialSurface);
     if (session == null) {
       await _pushSurface(initialSurface);
       return;
@@ -218,7 +226,6 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
 
   _InteractivePlayerOpenSession? _startInteractiveSession({
     PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
-    bool hideNavigation = true,
   }) {
     if (!mounted || _interactiveSession != null || _launchInProgress) {
       return null;
@@ -242,7 +249,7 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
     );
     _interactiveSession = session;
     session.update(distance: _latestOpenDistance, extent: _latestExtent);
-    unawaited(session.start(hideNavigation: hideNavigation));
+    unawaited(session.start());
     return session;
   }
 
@@ -294,18 +301,19 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
     _clearPointer();
   }
 
-  @override
-  Future<bool> didPopRoute() async {
+  bool _handleBack() {
     final session = _interactiveSession;
     if (session == null || session.isDisposed) return false;
     // The cancel settle waits for the next frame, so resolve at once and let
     // the following frames tear the preview down.
     unawaited(_cancelInteractiveSession(session));
+    _clearPointer();
     return true;
   }
 
   @override
   void dispose() {
+    _navigationController?.removePlayerLaunchBackHandler(_handleBack);
     WidgetsBinding.instance.removeObserver(this);
     _abortInteractiveSession();
     _clearPointer();
@@ -344,10 +352,10 @@ class _InteractivePlayerOpenSession {
   bool _playerLaunchPreviewActive = false;
   bool canceled = false;
 
-  Future<void> start({bool hideNavigation = true}) async {
+  Future<void> start() async {
     if (_started || _disposed) return;
     _started = true;
-    if (hideNavigation && navigationController?.navigationVisible == true) {
+    if (navigationController?.navigationVisible == true) {
       navigationController?.setPlayerLaunchPreview(true);
       _playerLaunchPreviewActive = true;
     }

@@ -67,6 +67,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   int _selectedIndex = 0;
   bool _navigationVisible = true;
   bool _playerLaunchPreviewActive = false;
+  final List<bool Function()> _playerLaunchBackHandlers = [];
   Animation<double>? _fullscreenTransition;
   TransitionRoute<dynamic>? _audioPlayerNavigationRoute;
   EdgeInsets? _audioPlayerLandscapeInsets;
@@ -275,6 +276,22 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
       _audioPlayerLandscapeInsets = null;
     }
     _refresh(forceNotify: true);
+  }
+
+  void addPlayerLaunchBackHandler(bool Function() handler) {
+    _playerLaunchBackHandlers.add(handler);
+  }
+
+  void removePlayerLaunchBackHandler(bool Function() handler) {
+    _playerLaunchBackHandlers.remove(handler);
+  }
+
+  /// Returns true when an in-progress Mini Player launch consumed the back.
+  bool handlePlayerLaunchBack() {
+    for (final handler in _playerLaunchBackHandlers) {
+      if (handler()) return true;
+    }
+    return false;
   }
 
   void _captureAudioPlayerLandscapeInsets() {

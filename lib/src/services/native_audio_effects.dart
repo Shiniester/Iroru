@@ -88,7 +88,13 @@ class AudioEffectsGraph {
       ),
       for (final name in sceneNames) name: templates[name]!,
     };
-    return 'format=channels=stereo,${modules.map((name) => '@kiko_$name:lavfi=o=[threads=1]:graph=%${graphs[name]!.length}%${graphs[name]}').join(',')}';
+    final chain = modules
+        .map(
+          (name) =>
+              '@kiko_$name:lavfi=o=[threads=1]:graph=%${graphs[name]!.length}%${graphs[name]}',
+        )
+        .join(',');
+    return 'format=channels=stereo,$chain';
   }
 
   static List<List<String>> controls(

@@ -5,7 +5,6 @@ import 'dart:ui' as ui;
 import 'package:kikoeru_flutter/src/comics/ui/comic_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_screen.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
@@ -2724,6 +2723,36 @@ void main() {
     },
   );
 
+  testWidgets(
+    'back inside a tab route skips the exit hint',
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+      final l10n = S.of(tester.element(find.byType(AudioScreen)));
+
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(AudioScreen)),
+          builder: (_) => const Scaffold(body: Center(child: Text('Tab route'))),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Tab route'), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Tab route'), findsNothing);
+      expect(find.text(l10n.pressBackAgainToExit), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('Comic and Video tabs preserve their route state', (
     tester,
   ) async {
@@ -3417,6 +3446,52 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'back cancels an in-progress player launch preview',
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(
+        tester,
+        reduced,
+        screen: const MainScreen(),
+        track: const AudioTrack(
+          id: 'back-cancel-preview-track',
+          title: 'Audio',
+          url: 'https://example.invalid/audio.mp3',
+        ),
+      );
+      final l10n = S.of(tester.element(find.byType(AudioScreen)));
+      final gesture = await tester.startGesture(
+        tester.getCenter(
+          find.byKey(const ValueKey('mini-player-upward-launcher')),
+        ),
+      );
+      await gesture.moveBy(const Offset(0, -120));
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.byType(AudioPlayerScreen, skipOffstage: false),
+        findsOneWidget,
+      );
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AudioPlayerScreen, skipOffstage: false), findsNothing);
+      expect(find.text(l10n.pressBackAgainToExit), findsNothing);
+
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+      expect(find.byType(AudioPlayerScreen), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   for (final size in [const Size(390, 844), const Size(1280, 720)]) {
     testWidgets(

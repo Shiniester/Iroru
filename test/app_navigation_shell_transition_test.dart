@@ -2876,6 +2876,29 @@ void main() {
     expect(navigation.selectedIndex, 3);
   });
 
+  testWidgets('tap entry hides the Dock before the player finishes opening', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(tester);
+    await tester.tap(
+      find.byKey(const ValueKey('mini-player-track-swipe-region')),
+    );
+    for (
+      var frame = 0;
+      frame < 40 && navigation.audioPlayerRoute == null;
+      frame++
+    ) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(navigation.audioPlayerRoute, isNotNull);
+    expect(find.byType(AppBottomDock), findsNothing);
+    await tester.pumpAndSettle();
+    navigation.navigator!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(AppBottomDock), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final size in [const Size(390, 844), const Size(1280, 720)]) {
     testWidgets(
       'interactive preview retains navigation until handoff at $size',

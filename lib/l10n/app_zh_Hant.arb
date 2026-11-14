@@ -702,7 +702,7 @@
   "openWorkDetailFailed": "開啟作品詳情失敗: {error}",
   "noLocalDownloads": "暫無本地下載",
   "exitSelection": "退出選擇",
-  "pressBackAgainToExit": "再次點擊即可退出",
+  "pressBackAgainToExit": "再按一次返回鍵退出",
   "reload": "重新載入",
   "openFolder": "開啟資料夾",
 
