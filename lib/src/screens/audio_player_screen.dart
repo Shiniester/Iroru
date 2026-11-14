@@ -160,6 +160,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   ModalRoute<dynamic>? _entryRoute;
   Animation<double>? _entryRouteAnimation;
   final ValueNotifier<bool> _deferredPlayerPagesReady = ValueNotifier(true);
+  bool _lyricPreviewEntrancePending = false;
   bool _entryReadinessInitialized = false;
   int _semanticTransitionGeneration = 0;
   Size? _lastPlayerStageSize;
@@ -231,6 +232,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     _entryRoute = route;
     if (!_entryReadinessInitialized) {
       _deferredPlayerPagesReady.value = _entryPagesSettled;
+      _lyricPreviewEntrancePending = !_entryPagesSettled;
       _entryReadinessInitialized = true;
     }
     _settleEntryPagesIfReady();
@@ -256,13 +258,20 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       if (!mounted || _deferredPlayerPagesReady.value || !_entryPagesSettled) {
         return;
       }
-      _deferredPlayerPagesReady.value = true;
+      _revealDeferredPlayerPages();
     });
   }
 
   void _activateDeferredPlayerPages() {
+    _revealDeferredPlayerPages();
+  }
+
+  void _revealDeferredPlayerPages() {
     if (!mounted || _deferredPlayerPagesReady.value) return;
     _deferredPlayerPagesReady.value = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _lyricPreviewEntrancePending = false;
+    });
   }
 
   Widget _deferredPlayerPage({
@@ -604,7 +613,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         : Brightness.light;
     final motionDuration = MediaQuery.of(context).disableAnimations
         ? Duration.zero
-        : const Duration(milliseconds: 280);
+        : const Duration(milliseconds: 500);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: transparentSystemBarsForBrightness(backgroundBrightness),
@@ -1680,18 +1689,31 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                             ),
                             width: sharedWidth,
                             height: isPortrait ? null : double.infinity,
-                            child: ThreeLineLyricDisplay(
-                              key: const ValueKey(
-                                'compact-main-lyric-scroll-surface',
-                              ),
-                              onSeekRequested: (position) => ref
-                                  .read(audioPlayerControllerProvider.notifier)
-                                  .seekAndPersist(position),
-                              onLineDoubleTap: _togglePlayback,
-                              enableLineTapFeedback: true,
-                              lineCount: 5,
-                              textHorizontalPadding: 12,
-                            ),
+                            // Defer the visible lyric preview until the
+                            // entrance ends, then reuse the track-change intro.
+                            child: _deferredPlayerPagesReady.value
+                                ? ThreeLineLyricDisplay(
+                                    key: const ValueKey(
+                                      'compact-main-lyric-scroll-surface',
+                                    ),
+                                    onSeekRequested: (position) => ref
+                                        .read(
+                                          audioPlayerControllerProvider
+                                              .notifier,
+                                        )
+                                        .seekAndPersist(position),
+                                    onLineDoubleTap: _togglePlayback,
+                                    enableLineTapFeedback: true,
+                                    lineCount: 5,
+                                    textHorizontalPadding: 12,
+                                    animateEntranceIntro:
+                                        _lyricPreviewEntrancePending,
+                                  )
+                                : const SizedBox.shrink(
+                                    key: ValueKey(
+                                      'compact-main-lyric-preview-placeholder',
+                                    ),
+                                  ),
                           ),
                         ),
                       ],

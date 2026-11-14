@@ -245,7 +245,7 @@ void main() {
       expect(
         playerRoute,
         contains(
-          'Duration playerRouteTransitionDuration = Duration(milliseconds: 380)',
+          'Duration playerRouteTransitionDuration = Duration(milliseconds: 350)',
         ),
       );
       expect(playerCover, isNot(contains('PlayerArtworkHero')));

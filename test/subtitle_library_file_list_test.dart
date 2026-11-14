@@ -159,4 +159,44 @@ void main() {
     expect(selectedPath, '/library/parsed/line.lrc');
     expect(previewCount, 0);
   });
+
+  testWidgets('long press starts selection for the pressed row',
+      (tester) async {
+    final subtitle = _file('line.lrc', '/library/parsed/line.lrc');
+    final items = [
+      _folder('RJ123456', '/library/parsed/RJ123456', [subtitle]),
+    ];
+
+    String? selectedPath;
+    bool? selectedFolder;
+    Map<String, dynamic>? selectedItem;
+
+    await tester.pumpWidget(
+      _testApp(
+        SubtitleLibraryFileList(
+          items: items,
+          selectedPaths: const {},
+          selectionMode: false,
+          recursive: true,
+          onRefresh: () async {},
+          onSelectionToggle: (_, __, ___) {},
+          onLongPress: (path, isFolder, item) {
+            selectedPath = path;
+            selectedFolder = isFolder;
+            selectedItem = item;
+          },
+          onFolderTap: (_) {},
+          onPreviewFile: (_) {},
+          onLoadSubtitle: (_) {},
+          onShowOptions: (_, __) {},
+        ),
+      ),
+    );
+
+    await tester.longPress(find.text('line.lrc'));
+
+    expect(selectedPath, '/library/parsed/line.lrc');
+    expect(selectedFolder, isFalse);
+    expect(selectedItem, same(subtitle));
+  });
 }

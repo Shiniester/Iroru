@@ -461,14 +461,14 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                   for (final tab in _pageKinds)
                     SliverPadding(
                       key: ValueKey(tab),
-                      padding: tab == WorkResourceTab.recommendations
+                      padding:
+                          tab == WorkResourceTab.recommendations ||
+                              tab == WorkResourceTab.images
                           ? collectionCardPadding(
                               context,
                               padding: const EdgeInsets.only(top: 16),
                             )
-                          : _resourcePagePadding.copyWith(
-                              top: tab == WorkResourceTab.images ? 16 : 0,
-                            ),
+                          : _resourcePagePadding,
                       sliver: _pageFor(tab, context),
                     ),
                 ],

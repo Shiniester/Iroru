@@ -234,7 +234,12 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   }) async {
     if (index < 0 || index >= _tabIds.length) return;
     final request = ++_pageRequest;
+    final leavingPageId = _selectedPageId;
     setState(() => _selectedPageId = selectedPageId);
+    if (leavingPageId != selectedPageId) {
+      _downloadsKey.currentState?.exitSelection();
+      _subtitleKey.currentState?.exitSelection();
+    }
     _pageTarget.value = index;
     await moveToTabPage(_pages, index, reduceMotion: !animate || _reduceMotion);
     if (!mounted || request != _pageRequest) return;
@@ -668,43 +673,11 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   List<Widget> _downloadBrowseOptions(S s) {
     final options = <Widget>[];
     final downloads = _downloadsKey.currentState;
-    if (downloads != null) {
-      final allSelected = downloads.allSelected;
-      options.addAll([
-        LibraryDrawerTile(
-          icon: downloads.isSelectionMode ? Icons.close : Icons.checklist,
-          title: downloads.isSelectionMode ? s.exitSelection : s.select,
-          subtitle: downloads.isSelectionMode
-              ? Text(s.selectedCount(downloads.selectedCount))
-              : null,
-          onTap: downloads.toggleSelectionModeFromDrawer,
-        ),
-        if (downloads.isSelectionMode)
-          LibraryDrawerTile(
-            icon: Icons.select_all,
-            title: allSelected ? s.deselectAll : s.selectAll,
-            onTap: allSelected
-                ? downloads.deselectAllFromDrawer
-                : downloads.selectAllFromDrawer,
-          ),
-        if (downloads.isSelectionMode && downloads.selectedCount > 0)
-          LibraryDrawerTile(
-            icon: Icons.delete_outline,
-            title: s.delete,
-            onTap: downloads.deleteSelectedFromDrawer,
-          ),
-      ]);
-    }
     options.addAll([
       LibraryDrawerTile(
         icon: Icons.sort,
         title: S.of(context).sortOptions,
         onTap: downloads?.showSortDialogFromDrawer,
-      ),
-      LibraryDrawerTile(
-        icon: Icons.refresh,
-        title: S.of(context).reload,
-        onTap: downloads?.refreshMetadataFromDrawer,
       ),
       if (Theme.of(context).platform == TargetPlatform.windows ||
           Theme.of(context).platform == TargetPlatform.macOS ||
@@ -721,7 +694,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   List<Widget> _subtitleBrowseOptions(S s) {
     final subtitles = _subtitleKey.currentState;
     if (subtitles == null) return const [];
-    final allSelected = subtitles.allSelected;
     return [
       LibraryDrawerTile(
         icon: Icons.add,
@@ -734,33 +706,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
           title: s.back,
           onTap: subtitles.navigateUpFromDrawer,
         ),
-      LibraryDrawerTile(
-        icon: subtitles.isSelectionMode ? Icons.close : Icons.checklist,
-        title: subtitles.isSelectionMode ? s.exitSelection : s.select,
-        subtitle: subtitles.isSelectionMode
-            ? Text(s.selectedCount(subtitles.selectedCount))
-            : null,
-        onTap: subtitles.toggleSelectionFromDrawer,
-      ),
-      if (subtitles.isSelectionMode)
-        LibraryDrawerTile(
-          icon: Icons.select_all,
-          title: allSelected ? s.deselectAll : s.selectAll,
-          onTap: allSelected
-              ? subtitles.deselectAllFromDrawer
-              : subtitles.selectAllFromDrawer,
-        ),
-      if (subtitles.isSelectionMode && subtitles.selectedCount > 0)
-        LibraryDrawerTile(
-          icon: Icons.delete_outline,
-          title: s.delete,
-          onTap: subtitles.deleteSelectedFromDrawer,
-        ),
-      LibraryDrawerTile(
-        icon: Icons.refresh,
-        title: s.reload,
-        onTap: subtitles.refreshFromDrawer,
-      ),
       LibraryDrawerTile(
         icon: Icons.info_outline,
         title: s.subtitleLibraryGuide,

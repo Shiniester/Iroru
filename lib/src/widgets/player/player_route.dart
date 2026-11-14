@@ -7,7 +7,7 @@ import '../app_navigation_scope.dart';
 import 'player_vertical_gestures.dart';
 import 'player_visual_palette.dart';
 
-const Duration playerRouteTransitionDuration = Duration(milliseconds: 380);
+const Duration playerRouteTransitionDuration = Duration(milliseconds: 350);
 
 AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
   Key? playerKey,
@@ -79,8 +79,8 @@ Future<T?> openAudioPlayer<T>(
 
 /// Shared route used by every global Mini Player entry point.
 ///
-/// Queue content and background travel together, using the internal queue
-/// motion for compact entry and the full-page motion for dismissal.
+/// Player and queue entries and exits share one 350ms easeOutCubic motion.
+/// A queue opened inside the player keeps its own internal page motion.
 class AudioPlayerPageRoute<T> extends PageRoute<T>
     with CupertinoRouteTransitionMixin<T>
     implements PlayerInteractiveDismissRoute, PlayerEntranceRoute {
@@ -90,14 +90,11 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     PlayerDismissVisualMode initialDismissVisualMode =
         PlayerDismissVisualMode.main,
   }) : _dismissVisualMode = ValueNotifier(initialDismissVisualMode),
-       _startsOnQueueSurface =
-           initialDismissVisualMode == PlayerDismissVisualMode.secondary,
        _prepareInitialFrame = !skipInitialTransition,
        super(settings: appAudioPlayerRouteSettings);
 
   final WidgetBuilder builder;
   final bool skipInitialTransition;
-  final bool _startsOnQueueSurface;
   final bool _prepareInitialFrame;
   bool _initialFrameScheduled = false;
   bool _initialFrameReady = false;
@@ -120,17 +117,6 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   bool get isEntranceSettled {
     final routeAnimation = animation;
     return !offstage && (routeAnimation == null || routeAnimation.value >= 1);
-  }
-
-  bool get _compactQueueEntry {
-    final routeNavigator = navigator;
-    if (!_startsOnQueueSurface ||
-        skipInitialTransition ||
-        routeNavigator == null) {
-      return false;
-    }
-    final size = MediaQuery.sizeOf(routeNavigator.context);
-    return !usesWidePlayerLayout(size.width, height: size.height);
   }
 
   @override
@@ -162,11 +148,8 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   bool get maintainState => true;
 
   @override
-  Duration get transitionDuration => skipInitialTransition
-      ? Duration.zero
-      : _compactQueueEntry
-      ? const Duration(milliseconds: 260)
-      : playerRouteTransitionDuration;
+  Duration get transitionDuration =>
+      skipInitialTransition ? Duration.zero : playerRouteTransitionDuration;
 
   @override
   Duration get reverseTransitionDuration => playerRouteTransitionDuration;
@@ -176,10 +159,8 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     _controllerAnimation = super.createAnimation();
     _automaticVisualAnimation = CurvedAnimation(
       parent: _controllerAnimation,
-      curve: _compactQueueEntry
-          ? Curves.fastEaseInToSlowEaseOut
-          : Curves.easeOutCubic,
-      reverseCurve: Curves.easeInCubic,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeOutCubic,
     );
     _visualAnimation = ProxyAnimation(_automaticVisualAnimation);
     return _visualAnimation;

@@ -2736,7 +2736,7 @@ void main() {
           BorderRadius.circular(workCoverCompactRadius),
         );
       }
-      expect(tester.getRect(find.byType(Card).first).left, 16);
+      expect(tester.getRect(find.byType(Card).first).left, 24);
       await tester.tap(find.text('two.png'));
       expect(selected['hash'], 'image2');
       tree.value = _files();
@@ -2755,8 +2755,11 @@ void main() {
   testWidgets('image target errors can retry on narrow and wide layouts', (
     tester,
   ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
     for (final width in [390.0, 1200.0]) {
-      await tester.binding.setSurfaceSize(Size(width, 844));
+      tester.view.physicalSize = Size(width, 844);
       final tree = ValueNotifier(_files(images: true));
       var attempts = 0;
       await _pumpResources(
@@ -2776,7 +2779,10 @@ void main() {
             tester.getRect(find.byType(TabBar)).bottom,
         16,
       );
-      expect(tester.getRect(find.byType(Card).first).left, 16);
+      expect(
+        tester.getRect(find.byType(Card).first).left,
+        width > 844 ? 24 : 8,
+      );
       await tester.tap(find.byTooltip('Retry').first);
       await tester.pumpAndSettle();
       expect(attempts, 3);
@@ -2784,7 +2790,6 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       tree.dispose();
     }
-    await tester.binding.setSurfaceSize(null);
   });
 
   testWidgets('images paginate by twenty and report only the selected page', (

@@ -26,6 +26,7 @@ class SubtitleLibraryFileList extends StatelessWidget {
     required this.recursive,
     required this.onRefresh,
     required this.onSelectionToggle,
+    this.onLongPress,
     required this.onFolderTap,
     required this.onPreviewFile,
     required this.onLoadSubtitle,
@@ -39,6 +40,7 @@ class SubtitleLibraryFileList extends StatelessWidget {
   final bool recursive;
   final RefreshCallback onRefresh;
   final SubtitleLibrarySelectionToggle onSelectionToggle;
+  final SubtitleLibrarySelectionToggle? onLongPress;
   final ValueChanged<String> onFolderTap;
   final ValueChanged<String> onPreviewFile;
   final ValueChanged<Map<String, dynamic>> onLoadSubtitle;
@@ -81,6 +83,9 @@ class SubtitleLibraryFileList extends StatelessWidget {
               onPreviewFile(path);
             }
           },
+          onLongPress: onLongPress == null
+              ? null
+              : () => onLongPress!(path, isFolder, item),
           onPreviewFile: () => onPreviewFile(path),
           onLoadSubtitle: () => onLoadSubtitle(item),
           onShowOptions: () => onShowOptions(item, path),
@@ -139,6 +144,7 @@ class _SubtitleLibraryFileRow extends StatelessWidget {
     required this.isSelected,
     required this.selectionMode,
     required this.onTap,
+    required this.onLongPress,
     required this.onPreviewFile,
     required this.onLoadSubtitle,
     required this.onShowOptions,
@@ -151,6 +157,7 @@ class _SubtitleLibraryFileRow extends StatelessWidget {
   final bool isSelected;
   final bool selectionMode;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final VoidCallback onPreviewFile;
   final VoidCallback onLoadSubtitle;
   final VoidCallback onShowOptions;
@@ -163,6 +170,7 @@ class _SubtitleLibraryFileRow extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Padding(
         padding: EdgeInsets.only(
           left: 16.0 + (level * 20.0),

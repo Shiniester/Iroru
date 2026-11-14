@@ -24,6 +24,7 @@ import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/providers/player_lyric_style_provider.dart';
 import 'package:kikoeru_flutter/src/providers/subtitle_search_query_provider.dart';
+import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/services/audio_slice_store.dart';
 import 'package:kikoeru_flutter/src/utils/string_utils.dart';
@@ -80,6 +81,17 @@ class _MutableLyricController extends LyricController {
   void replaceTrack(List<LyricLine> lyrics, String trackKey) {
     state = state.copyWith(lyrics: lyrics, trackKey: trackKey);
   }
+}
+
+class _TestPlaybackPositionNotifier extends PlaybackPositionNotifier {
+  _TestPlaybackPositionNotifier(this._initial);
+
+  final PlaybackPositionState? _initial;
+
+  @override
+  PlaybackPositionState? build() => _initial;
+
+  void set(PlaybackPositionState next) => state = next;
 }
 
 void main() {
@@ -434,6 +446,122 @@ void main() {
       await tester.pumpAndSettle();
       expect(container.read(currentLyricIndexProvider), -1);
       expectAtAnchor('resumed lyric 7');
+    });
+  }
+
+  for (final compact in [true, false]) {
+    testWidgets('track switch keeps the old active line until new lyrics load '
+        '(compact: $compact)', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final tracks = StreamController<AudioTrack?>.broadcast(sync: true);
+      addTearDown(tracks.close);
+      const oldTrack = AudioTrack(id: 'old', title: 'Old', url: 'old');
+      const newTrack = AudioTrack(id: 'new', title: 'New', url: 'new');
+      final oldLyrics = List.generate(
+        24,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'old lyric $index',
+        ),
+      );
+      final newLyrics = List.generate(
+        24,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index + 5),
+          endTime: Duration(seconds: index + 6),
+          text: 'new lyric $index',
+        ),
+      );
+      late _MutableLyricController controller;
+      late _TestPlaybackPositionNotifier playbackPosition;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            currentTrackProvider.overrideWith((ref) => tracks.stream),
+            playbackPositionProvider.overrideWith(() {
+              playbackPosition = _TestPlaybackPositionNotifier((
+                trackId: oldTrack.id,
+                position: const Duration(seconds: 14),
+                pendingJump: null,
+                previewPosition: null,
+                confirmedJump: 0,
+              ));
+              return playbackPosition;
+            }),
+            positionDiscontinuityProvider.overrideWith(
+              (ref) => const Stream.empty(),
+            ),
+            playerStateProvider.overrideWith(
+              (ref) => Stream.value(PlayerState(true, ProcessingState.ready)),
+            ),
+            lyricControllerProvider.overrideWith(
+              (ref) => controller = _MutableLyricController(
+                ref,
+                initialState: LyricState(
+                  lyrics: oldLyrics,
+                  trackKey: audioSliceTrackKey(oldTrack),
+                ),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(
+              body: compact
+                  ? Center(
+                      child: SizedBox(
+                        height: 150,
+                        child: ThreeLineLyricDisplay(onSeekRequested: (_) {}),
+                      ),
+                    )
+                  : const FullLyricDisplay(
+                      isPortrait: true,
+                      showPlaybackLineControls: true,
+                    ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      tracks.add(oldTrack);
+      await tester.pump();
+      final beforeAlpha = _visibleLyricAlpha(tester, find.text('old lyric 14'));
+      expect(beforeAlpha, closeTo(1, 0.01));
+      final before = compact
+          ? _compactLyricVisualState(tester, 'old lyric 14')
+          : null;
+      if (before != null) expect(before.scale, greaterThan(1));
+
+      tracks.add(newTrack);
+      playbackPosition.set((
+        trackId: newTrack.id,
+        position: Duration.zero,
+        pendingJump: null,
+        previewPosition: null,
+        confirmedJump: 0,
+      ));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(find.text('old lyric 14'), findsOneWidget);
+      expect(
+        _visibleLyricAlpha(tester, find.text('old lyric 14')),
+        closeTo(beforeAlpha, 0.01),
+      );
+      if (before != null) {
+        final after = _compactLyricVisualState(tester, 'old lyric 14');
+        expect(after.opacity, closeTo(before.opacity, 0.01));
+        expect(after.scale, closeTo(before.scale, 0.01));
+      }
+
+      controller.replaceTrack(newLyrics, audioSliceTrackKey(newTrack));
+      await tester.pumpAndSettle();
+      expect(find.text('new lyric 0'), findsOneWidget);
     });
   }
 

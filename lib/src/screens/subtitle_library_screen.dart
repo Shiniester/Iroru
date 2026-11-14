@@ -64,27 +64,11 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
   String _currentPath = '';
   String? _rootPath;
 
-  bool get isSelectionMode => _isSelectionMode;
-  int get selectedCount => _selectedPaths.length;
   bool get canNavigateUp => _rootPath != null && _currentPath != _rootPath;
-  bool get allSelected {
-    final paths = SubtitleLibraryTree.collectPaths(_files);
-    return paths.isNotEmpty && _selectedPaths.containsAll(paths);
-  }
-
-  void toggleSelectionFromDrawer() => _toggleSelectionMode();
-
-  void selectAllFromDrawer() => _selectAll();
-
-  void deselectAllFromDrawer() => _deselectAll();
-
-  Future<void> deleteSelectedFromDrawer() => _deleteSelectedItems();
 
   void navigateUpFromDrawer() => _navigateUp();
 
   void importFromDrawer() => _showImportOptions();
-
-  Future<void> refreshFromDrawer() => _loadFiles(forceRefresh: true);
 
   void showGuideFromDrawer() => _showLibraryInfoDialog();
 
@@ -133,6 +117,20 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       if (!_isSelectionMode) {
         _selectedPaths.clear();
       }
+    });
+    _notifyDrawerChanged();
+  }
+
+  void exitSelection() {
+    if (_isSelectionMode) _toggleSelectionMode();
+  }
+
+  void _startSelection(String path, bool isFolder, Map<String, dynamic> item) {
+    if (_isSelectionMode) return;
+    setState(() {
+      _isSelectionMode = true;
+      _selectedPaths.add(path);
+      if (isFolder) _addChildrenToSelection(item);
     });
     _notifyDrawerChanged();
   }
@@ -792,9 +790,15 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
     });
 
     return PopScope(
-      canPop: _currentPath == _rootPath || _currentPath.isEmpty,
+      canPop:
+          !_isSelectionMode &&
+          (_currentPath == _rootPath || _currentPath.isEmpty),
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
+        if (_isSelectionMode) {
+          _toggleSelectionMode();
+          return;
+        }
         _navigateUp();
       },
       child: Scaffold(
@@ -831,12 +835,15 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
                   recursive: _isSearching,
                   header: Padding(
                     padding: EdgeInsets.only(
-                      top: widget.embedded ? 0 : widget.toolbarTop + 60,
+                      top: widget.embedded
+                          ? (_isSelectionMode ? widget.toolbarTop + 60 : 0)
+                          : widget.toolbarTop + 60,
                     ),
                     child: _buildBreadcrumbs(),
                   ),
                   onRefresh: () => _loadFiles(forceRefresh: true),
                   onSelectionToggle: _toggleItemSelection,
+                  onLongPress: _startSelection,
                   onFolderTap: _navigateTo,
                   onPreviewFile: _previewFile,
                   onLoadSubtitle: _loadLyricManually,
@@ -844,7 +851,8 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
                 ),
               ),
             ),
-            if (!widget.embedded && widget.primaryToolbarVisible == null)
+            if ((!widget.embedded || _isSelectionMode) &&
+                widget.primaryToolbarVisible == null)
               Positioned(
                 top: widget.toolbarTop,
                 left: FloatingToolbarLayout.horizontalPadding(context),

@@ -287,6 +287,33 @@ void main() {
     );
   }
 
+  testWidgets('cover lyric preview mounts after the entrance', (tester) async {
+    final lyrics = List.generate(
+      12,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'entrance lyric $index',
+      ),
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      pushedRoute: true,
+      settleEntry: false,
+      lyrics: lyrics,
+    );
+    final preview = find.byKey(
+      const ValueKey('compact-main-lyric-scroll-surface'),
+      skipOffstage: false,
+    );
+    expect(preview, findsNothing);
+
+    await tester.pumpAndSettle();
+    expect(preview, findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final (size, textScale, hasLyrics, inset) in const [
     (Size(360, 700), 1.3, true, 0.0),
     (Size(360, 700), 2.0, true, 0.0),

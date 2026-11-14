@@ -2843,7 +2843,7 @@ void main() {
     unawaited(route.completed.then((_) => exitCompleted = true));
     navigation.navigator!.pop();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 330));
     expect(exitCompleted, isFalse);
     expect(mini, findsNothing);
     await expectPlayerCoversRail();

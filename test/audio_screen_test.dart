@@ -1809,7 +1809,7 @@ void main() {
   });
 
   testWidgets(
-    'first library visits expose management and open subtitle search',
+    'first library visits expose sort and open subtitle search',
     (tester) async {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('my_tabs_show_subtitle_library', true);
@@ -1821,7 +1821,6 @@ void main() {
       _requestAudioPage(tester, 'downloads');
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pump();
-      expect(_browseTile(tester, s.select).onTap, isNotNull);
       expect(_browseTile(tester, s.sortOptions).onTap, isNotNull);
 
       _requestAudioPage(tester, 'subtitleLibrary');
