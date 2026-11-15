@@ -3138,10 +3138,8 @@ class AudioPlayerService {
     );
   }
 
-  Future<void> _seekNativePlayer(Duration? position, {int? index}) async {
-    await _player.seek(position, index: index);
-    _nativeEffects.resetHistory();
-  }
+  Future<void> _seekNativePlayer(Duration? position, {int? index}) =>
+      _player.seek(position, index: index);
 
   Future<bool> seek(Duration position) => _seek(position, userInitiated: true);
 
@@ -3195,6 +3193,7 @@ class AudioPlayerService {
         coverSeekToken: coverSeekToken,
         jump: jump,
       );
+      if (succeeded) _nativeEffects.resetHistory();
       return succeeded;
     } finally {
       if (jump != null && identical(_positionJump, jump)) {
