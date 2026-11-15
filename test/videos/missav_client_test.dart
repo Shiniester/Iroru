@@ -356,6 +356,33 @@ void main() {
     },
   );
 
+  test('parses mirror cards without sending the canonical session', () async {
+    final adapter = _Adapter(
+      (_) => _response('''
+<main>
+<div class="relative aspect-w-16 aspect-h-9">
+  <a href="https://www.missav9.net/en/mirror-sample"><img alt="Mirror sample" src="https://media.example/mirror.jpg"></a>
+</div>
+</main>
+'''),
+    );
+    final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: _storedBrowserSession(),
+    );
+    addTearDown(client.dispose);
+
+    final page = await client.browse('https://www.missav9.net/en/release');
+
+    expect(page.videos.single.id, 'mirror-sample');
+    expect(
+      page.videos.single.pageUrl,
+      'https://www.missav9.net/en/mirror-sample',
+    );
+    expect(_cookieHeader(adapter.requests.single), '');
+  });
+
   test('loads the first playlist cover from its first page', () async {
     final source = _Adapter(
       (_) => _response(_searchCatalogHtml(['first', 'second'])),
@@ -652,7 +679,7 @@ void main() {
   );
 
   test(
-    'recommendations request verification without source identity and reject invalid responses',
+    'home recommendations use an anonymous identity and reject invalid responses',
     () async {
       final fixture = await File(
         'test/fixtures/missav/home_recommendations.html',
@@ -662,7 +689,19 @@ void main() {
           (_) => _response(withContext ? fixture : '<h1>Home</h1>'),
         );
         final metadata = _Adapter(
-          (_) => _metadataResponse({'notRecommendations': []}),
+          (_) => _metadataResponse(
+            withContext
+                ? {'notRecommendations': []}
+                : {
+                    'recommId': 'anonymous-cursor',
+                    'recomms': [
+                      {
+                        'id': 'sample',
+                        'values': {'title_en': 'Anonymous sample'},
+                      },
+                    ],
+                  },
+          ),
         );
         final client = MissavClient(
           dio: Dio()..httpClientAdapter = source,
@@ -670,22 +709,25 @@ void main() {
           secureStorage: _MemorySecureStorage(),
         );
         addTearDown(client.dispose);
-        await expectLater(
-          client.loadRecommendations(count: 40),
-          throwsA(
-            withContext
-                ? allOf(
-                    isA<MissavException>(),
-                    isNot(isA<MissavVerificationRequiredException>()),
-                  )
-                : isA<MissavVerificationRequiredException>().having(
-                    (error) => error.sourceUrl,
-                    'sourceUrl',
-                    'https://missav.ai/cn',
-                  ),
-          ),
-        );
-        expect(metadata.requests.length, withContext ? 1 : 0);
+        if (withContext) {
+          await expectLater(
+            client.loadRecommendations(count: 40),
+            throwsA(
+              allOf(
+                isA<MissavException>(),
+                isNot(isA<MissavVerificationRequiredException>()),
+              ),
+            ),
+          );
+        } else {
+          final page = await client.loadRecommendations(count: 40);
+          expect(page.videos.single.id, 'sample');
+          expect(
+            metadata.requests.single.uri.path,
+            '/missav-default/recomms/users/anonymous/items/',
+          );
+        }
+        expect(metadata.requests, hasLength(1));
       }
     },
   );
@@ -966,6 +1008,68 @@ void main() {
       expect(metadata.requests, hasLength(1));
     },
   );
+
+  test('search falls back to Recombee and keeps cursor pagination', () async {
+    final source = _Adapter(
+      (_) => _response('<main><h1>Search result of ssis-001</h1></main>'),
+    );
+    final metadata = _Adapter((request) {
+      if (request.uri.path.contains('/next/')) {
+        return _metadataResponse({
+          'recommId': 'next-cursor',
+          'recomms': [
+            {
+              'id': 'next-video',
+              'values': {'dm': 45, 'title_en': 'Next sample'},
+            },
+          ],
+        });
+      }
+      if (request.uri.path.contains('/search/')) {
+        return _metadataResponse({
+          'recommId': 'search-cursor',
+          'recomms': [
+            {
+              'id': 'ssis-001',
+              'values': {'dm': 44, 'title_en': 'Mirror sample'},
+            },
+          ],
+        });
+      }
+      return _metadataResponse({'recomms': []});
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = source,
+      metadataDio: Dio()..httpClientAdapter = metadata,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    final page = await client.search('ssis-001');
+
+    expect(page.videos.single.id, 'ssis-001');
+    expect(page.videos.single.pageUrl, 'https://missav.ai/dm44/cn/ssis-001');
+    expect(page.nextUrl, 'https://missav.ai/cn/search/ssis-001?page=2');
+    final searchRequest = metadata.requests.firstWhere(
+      (request) => request.uri.path.contains('/search/'),
+    );
+    expect(
+      searchRequest.uri.path,
+      '/missav-default/search/users/anonymous/items/',
+    );
+    expect((searchRequest.data as Map)['searchQuery'], 'ssis-001');
+
+    final next = await client.browse(page.nextUrl!);
+
+    expect(next.videos.single.id, 'next-video');
+    final nextRequest = metadata.requests.firstWhere(
+      (request) => request.uri.path.contains('/next/'),
+    );
+    expect(
+      nextRequest.uri.path,
+      '/missav-default/recomms/next/items/search-cursor',
+    );
+  });
 
   test(
     'account changes cancel pending metadata before publishing a catalog',
@@ -2204,6 +2308,37 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     },
   );
 
+  test('rewrites mirror streams through the mirror media proxy', () async {
+    final adapter = _Adapter(
+      (_) => _response(r'''
+<main><h1>Mirror sample</h1><script>
+eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/^/,String)){while(c--){d[c.toString(a)]=k[c]||c.toString(a)}k=[function(e){return d[e]}];e=function(){return'\w+'};c=1};while(c--){if(k[c]){p=p.replace(new RegExp('\b'+e(c)+'\b','g'),k[c])}}return p}('f=\'8://7.6/5-4-3-2-1/e.0\';d=\'8://7.6/5-4-3-2-1/c/9.0\';b=\'8://7.6/5-4-3-2-1/a/9.0\';',16,16,'m3u8|eda2e2c38fd8|847b|4e75|aae6|b67dbefa|com|surrit|https|video|1080p|source1280|720p|source842|playlist|source'.split('|'),0,{}))
+</script></main>
+'''),
+    );
+    final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    final details = await client.details(
+      const VideoItem(
+        id: 'sample',
+        title: 'Sample',
+        pageUrl: 'https://www.missav9.net/en/sample',
+      ),
+    );
+
+    expect(details.streams.map((stream) => stream.url), [
+      'https://www.missav9.net/jmpres/surrit.com/b67dbefa-aae6-4e75-847b-eda2e2c38fd8/playlist.m3u8',
+      'https://www.missav9.net/jmpres/surrit.com/b67dbefa-aae6-4e75-847b-eda2e2c38fd8/720p/video.m3u8',
+      'https://www.missav9.net/jmpres/surrit.com/b67dbefa-aae6-4e75-847b-eda2e2c38fd8/1080p/video.m3u8',
+    ]);
+    expect(details.streams.first.headers['Origin'], 'https://www.missav9.net');
+  });
+
   test(
     'a newer session change prevents an import waiting for initialization',
     () async {
@@ -2918,6 +3053,37 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     expect(storage.cookie, 'session=saved');
   });
 
+  test('probes a mirror before opening the browser', () async {
+    final nativeAdapter = _Adapter((request) {
+      if (request.uri.host == 'missav.ai') {
+        return _response(
+          '<title>Just a moment...</title>',
+          statusCode: HttpStatus.forbidden,
+        );
+      }
+      return _response(_searchCatalogHtml(['mirror-video']));
+    });
+    var restoreCalls = 0;
+    final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
+      dio: Dio()..httpClientAdapter = nativeAdapter,
+      secureStorage: _storedBrowserSession(),
+      restoreSavedSession: (client, expectedGeneration) async {
+        restoreCalls++;
+      },
+    );
+    addTearDown(client.dispose);
+
+    final page = await client.browse('https://missav.ai/cn/release');
+
+    expect(page.videos.single.id, 'mirror-video');
+    expect(restoreCalls, 0);
+    final mirrorRequest = nativeAdapter.requests.firstWhere(
+      (request) => request.uri.host == 'www.missav9.net',
+    );
+    expect(_cookieHeader(mirrorRequest), '');
+  });
+
   test('falls back to the saved browser after a native challenge', () async {
     final fixture = await File(
       'test/fixtures/missav/catalog.html',
@@ -2950,7 +3116,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
 
     expect(page.title, 'Newest videos');
     expect(restoreCalls, 1);
-    expect(nativeAdapter.requests, hasLength(1));
+    expect(nativeAdapter.requests.length, greaterThanOrEqualTo(2));
     expect(browserAdapter.requests, hasLength(1));
   });
 
@@ -2986,7 +3152,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
 
     expect(page.title, 'Newest videos');
     expect(restoreCalls, 1);
-    expect(nativeAdapter.requests, hasLength(1));
+    expect(nativeAdapter.requests.length, greaterThanOrEqualTo(2));
     expect(browserAdapter.requests, hasLength(1));
   });
 

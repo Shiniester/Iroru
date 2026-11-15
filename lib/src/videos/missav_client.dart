@@ -55,6 +55,23 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   }
 
   static const origin = 'https://missav.ai';
+  static const _mirrorOrigins = [
+    'https://www.missav9.net',
+    'https://www.thisav66.com',
+    'https://www.thisav33.com',
+    'https://www.missav123.life',
+  ];
+  static const _sourceDomains = {
+    'missav.ai',
+    'missav9.net',
+    'thisav66.com',
+    'thisav33.com',
+    'missav123.life',
+  };
+  static final _mirrorHosts = _sourceDomains
+      .where((domain) => domain != 'missav.ai')
+      .toSet();
+  static const _canonicalHost = 'missav.ai';
   static const _cookieKey = 'missav_session_cookie';
   static const _sessionRecordKey = 'missav_verified_session';
   static String get _defaultUserAgent {
@@ -123,6 +140,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   bool _initialized = false;
   String? _cookie;
   String _userAgent = _defaultUserAgent;
+  String _baseUrl = origin;
   String? _accountName;
   String _locale = 'cn';
   String _homeUrl = '$origin/cn';
@@ -130,6 +148,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   bool _disposed = false;
   String? _recommendationUserId;
   String? _recommendationScenario;
+  final Map<String, String> _searchCursors = {};
 
   bool get isLoggedIn => _isLoggedIn;
   @override
@@ -157,7 +176,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     };
     if (_locale == locale) return false;
     _locale = locale;
-    _homeUrl = '$origin${_localePrefix.isEmpty ? '/' : _localePrefix}';
+    _homeUrl = '$_baseUrl${_localePrefix.isEmpty ? '/' : _localePrefix}';
     return true;
   }
 
@@ -185,6 +204,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
     final previousBrowserAdapter = _browserAdapter;
     _advanceSessionGeneration();
+    _baseUrl = origin;
+    _homeUrl = '$origin${_localePrefix.isEmpty ? '/' : _localePrefix}';
     _browserAdapter = adapter;
     _nativeAccessProbed = true;
     _mediaRoute = mediaRoute;
@@ -253,14 +274,32 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   Future<void> _runNativeAccessProbe() async {
     final generation = _sessionGeneration;
-    try {
-      await _request(Uri.parse(homeUrl), generation: generation);
-      _nativeAccessProbed = true;
-    } on MissavVerificationRequiredException {
-      _nativeAccessProbed = true;
-      final restored = await _restoreBrowserSession(generation);
-      if (!restored && _browserAdapter == null) return;
+    final candidates = <String>{_baseUrl, ..._mirrorOrigins, origin};
+    var challenged = false;
+    for (final candidate in candidates) {
+      try {
+        final response = await _request(
+          Uri.parse('$candidate$_localePrefix'),
+          generation: generation,
+        );
+        if (_disposed || generation != _sessionGeneration) return;
+        final finalUri = response.requestOptions.uri;
+        _baseUrl = finalUri.origin;
+        _homeUrl = finalUri.toString();
+        _nativeAccessProbed = true;
+        return;
+      } on MissavVerificationRequiredException {
+        challenged = true;
+      } catch (_) {
+        if (_disposed || generation != _sessionGeneration) return;
+        if (!challenged) rethrow;
+      }
     }
+    _nativeAccessProbed = true;
+    _baseUrl = origin;
+    _homeUrl = '$origin$_localePrefix';
+    final restored = await _restoreBrowserSession(generation);
+    if (!restored && _browserAdapter == null) return;
   }
 
   Future<bool> _restoreBrowserSession(int generation) async {
@@ -435,20 +474,57 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     _updateAccountFromPage(document);
     _updateHomeUrl(document, uri);
     final parsedVideos = _parseVideos(document, uri);
+    var videos = parsedVideos;
+    var nextUrl = _paginationUrl(document, uri, 'next');
+    var previousUrl = _paginationUrl(document, uri, 'prev');
+    var currentPage = _pageNumber(uri) ?? 1;
+    var jumpMaxPage = _jumpMaxPage(document, uri);
+    final searchQuery = _searchQuery(uri);
+    if (searchQuery != null) {
+      final apiPage = await _searchRecommendations(
+        searchQuery,
+        currentPage,
+        cancelToken: cancelToken,
+      );
+      if (apiPage.videos.isNotEmpty) {
+        videos = apiPage.videos;
+        nextUrl = apiPage.cursor == null
+            ? null
+            : uri
+                  .replace(
+                    queryParameters: {
+                      ...uri.queryParameters,
+                      'page': '${currentPage + 1}',
+                    },
+                  )
+                  .toString();
+        previousUrl = currentPage > 1
+            ? uri
+                  .replace(
+                    queryParameters: {
+                      ...uri.queryParameters,
+                      'page': '${currentPage - 1}',
+                    },
+                  )
+                  .toString()
+            : null;
+        jumpMaxPage = null;
+      }
+    }
     final parsedPage = VideoCatalogPage(
       title: _pageTitle(document),
       url: uri.toString(),
-      videos: parsedVideos,
+      videos: videos,
       links: _parseLinks(document, uri),
       navigation: _parseNavigation(document, uri),
-      nextUrl: _paginationUrl(document, uri, 'next'),
-      previousUrl: _paginationUrl(document, uri, 'prev'),
-      currentPage: _pageNumber(uri) ?? 1,
-      jumpMaxPage: _jumpMaxPage(document, uri),
+      nextUrl: nextUrl,
+      previousUrl: previousUrl,
+      currentPage: currentPage,
+      jumpMaxPage: jumpMaxPage,
     );
     if (cancelToken.cancelError case final error?) throw error;
     onParsed?.call(parsedPage);
-    final videos = await _enrichVideos(parsedVideos, cancelToken: cancelToken);
+    final enriched = await _enrichVideos(videos, cancelToken: cancelToken);
     _checkGeneration(generation, uri);
     if (cancelToken.cancelError case final error?) throw error;
     if (_locale != locale) {
@@ -461,7 +537,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     return VideoCatalogPage(
       title: parsedPage.title,
       url: parsedPage.url,
-      videos: videos,
+      videos: enriched,
       links: parsedPage.links,
       navigation: parsedPage.navigation,
       nextUrl: parsedPage.nextUrl,
@@ -496,11 +572,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         _updateAccountFromPage(document);
         _updateHomeUrl(document, uri);
       }
-      final userId = _recommendationUserId;
-      final scenario = _recommendationScenario;
-      if (userId == null || scenario == null) {
-        throw MissavVerificationRequiredException(sourceUrl: uri.toString());
-      }
+      final userId = _recommendationUserId ?? 'anonymous';
+      final scenario = _recommendationScenario ?? 'desktop-home-recommended';
       final path = cursor == null
           ? '/missav-default/recomms/users/${Uri.encodeComponent(userId)}/items/'
           : '/missav-default/recomms/next/items/${Uri.encodeComponent(cursor)}';
@@ -568,6 +641,74 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
+  Future<VideoRecommendationPage> _searchRecommendations(
+    String query,
+    int page, {
+    CancelToken? cancelToken,
+  }) async {
+    final key = '$_locale:$query';
+    final cursor = _searchCursors[key];
+    if (page > 1 && cursor == null) {
+      return const VideoRecommendationPage(videos: [], cursor: null);
+    }
+    final Map<String, Object?> data;
+    final String path;
+    if (page <= 1 || cursor == null) {
+      _searchCursors.remove(key);
+      path = '/missav-default/search/users/anonymous/items/';
+      data = {
+        'searchQuery': query,
+        'count': 24,
+        'scenario': 'search',
+        'returnProperties': true,
+        'includedProperties': [
+          'title_en',
+          if (_locale != 'en') _locale == 'ja' ? 'title' : 'title_$_locale',
+          'dm',
+        ],
+        'cascadeCreate': true,
+      };
+    } else {
+      path = '/missav-default/recomms/next/items/$cursor';
+      data = {'count': 24, 'cascadeCreate': true};
+    }
+    final Object? response;
+    try {
+      response = await _requestRecommendations(
+        path,
+        data,
+        cancelToken: cancelToken ?? _sessionCancelToken,
+      );
+    } on DioException catch (error) {
+      if (error.type == DioExceptionType.cancel) rethrow;
+      return const VideoRecommendationPage(videos: [], cursor: null);
+    }
+    if (response is! Map ||
+        response['recomms'] is! List ||
+        response['recommId'] is! String) {
+      return const VideoRecommendationPage(videos: [], cursor: null);
+    }
+    final recommId = response['recommId'] as String;
+    final videos = <VideoItem>[];
+    for (final entry in response['recomms'] as List) {
+      if (entry is! Map || entry['id'] is! String || entry['values'] is! Map) {
+        continue;
+      }
+      videos.add(
+        _recommendationVideo(
+          entry['id'] as String,
+          entry['values'] as Map,
+          _locale,
+        ),
+      );
+    }
+    if (videos.isEmpty) {
+      return const VideoRecommendationPage(videos: [], cursor: null);
+    }
+    _searchCursors[key] = recommId;
+    return VideoRecommendationPage(videos: videos, cursor: recommId);
+  }
+
   VideoItem _recommendationVideo(
     String id,
     Map values,
@@ -585,7 +726,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
             ? '${id.toUpperCase().replaceAll(RegExp(r'-(UNCENSORED-LEAK|CHINESE-SUBTITLE|ENGLISH-SUBTITLE)'), '')} $title'
             : id.toUpperCase(),
         pageUrl: Uri.parse(
-          '$origin$prefix$_localePrefix/${Uri.encodeComponent(id)}',
+          '$_baseUrl$prefix$_localePrefix/${Uri.encodeComponent(id)}',
         ).replace(fragment: fragment).toString(),
         cover: 'https://fourhoi.com/${Uri.encodeComponent(id)}/cover-t.jpg',
         durationSeconds: duration is num ? duration.round() : null,
@@ -774,7 +915,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
-  static VideoItem _withVideoMetadata(
+  VideoItem _withVideoMetadata(
     VideoItem video,
     Map values,
     String localePrefix,
@@ -797,7 +938,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
           .map(
             (name) => VideoLink(
               label: name,
-              url: '$origin$prefix/$route/${Uri.encodeComponent(name)}',
+              url: '$_baseUrl$prefix/$route/${Uri.encodeComponent(name)}',
               kind: kind,
             ),
           )
@@ -850,7 +991,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   @override
   Future<VideoCatalogPage> search(String query) async {
     final path = '$_localePrefix/search/${Uri.encodeComponent(query)}';
-    return browse('$origin$path');
+    return browse('$_baseUrl$path');
   }
 
   @override
@@ -882,7 +1023,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       },
       VideoSearchFilterKind.series => const {'series'},
     };
-    final page = await browse(pageUrl ?? '$origin$_localePrefix/$route');
+    final page = await browse(pageUrl ?? '$_baseUrl$_localePrefix/$route');
     return VideoCatalogPage(
       title: page.title,
       url: page.url,
@@ -921,7 +1062,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     // shortcut: Large catalogs need full pagination until a native combined-search API is verified.
     final urls = <String>{
       if (keyword.isNotEmpty)
-        '$origin$_localePrefix/search/${Uri.encodeComponent(keyword)}',
+        '$_baseUrl$_localePrefix/search/${Uri.encodeComponent(keyword)}',
       for (final filter in filters) _localizedSourceUri(filter.url).toString(),
     };
     return intersectVideoCatalogs(
@@ -1477,13 +1618,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     if (generation == null) await _prepareOnlineAccess();
     final requestGeneration = generation ?? _sessionGeneration;
     final requestCancelToken = cancelToken ?? _sessionCancelToken;
-    var requestUri = _sourceUri(uri.toString());
+    final isApi = uri.pathSegments.contains('api');
+    var requestUri = isApi
+        ? _sourceUri(uri.toString())
+        : _remapSource(_sourceUri(uri.toString()));
     var requestMethod = method;
     var requestData = data;
 
     for (var redirect = 0; redirect <= _pageLimit; redirect++) {
       _checkGeneration(requestGeneration, requestUri);
-      final isApi = requestUri.pathSegments.contains('api');
       final headers = <String, dynamic>{
         'Accept': isApi
             ? 'application/json, text/plain, */*'
@@ -1492,12 +1635,14 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         'User-Agent': _userAgent,
       };
       if (_isSource(requestUri)) {
-        headers['Origin'] = origin;
-        headers['Referer'] = '$origin/';
+        headers['Origin'] = requestUri.origin;
+        headers['Referer'] = '${requestUri.origin}/';
         headers['Accept-Language'] = 'en-US,en;q=0.9';
         headers['Cache-Control'] = 'no-cache';
         final cookie = _cookie;
-        if (cookie != null && cookie.isNotEmpty) {
+        if (requestUri.host == _canonicalHost &&
+            cookie != null &&
+            cookie.isNotEmpty) {
           headers['Cookie'] = cookie;
           final xsrfToken = _cookieValue('XSRF-TOKEN');
           if (xsrfToken != null) {
@@ -1541,6 +1686,11 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
           _isChallengeResponse(response.data) ||
           response.headers.value('cf-mitigated')?.trim().toLowerCase() ==
               'challenge') {
+        if (_nativeAccessProbed && _baseUrl != origin && !isApi) {
+          _baseUrl = origin;
+          _homeUrl = '$origin$_localePrefix';
+          throw MissavVerificationRequiredException(sourceUrl: _homeUrl);
+        }
         throw MissavVerificationRequiredException(
           sourceUrl: requestUri.toString(),
         );
@@ -1589,7 +1739,9 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     Uri uri,
     int generation,
   ) async {
-    if (!_isSource(uri) || generation != _sessionGeneration) return;
+    if (uri.host != _canonicalHost || generation != _sessionGeneration) {
+      return;
+    }
     final values = response.headers['set-cookie'];
     if (values == null || values.isEmpty) return;
 
@@ -1732,6 +1884,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   int _advanceSessionGeneration() {
     _recommendationUserId = null;
     _recommendationScenario = null;
+    _searchCursors.clear();
     _sessionCancelToken.cancel('MissAV account changed.');
     for (final cancelToken in _browseCancelTokens.toList()) {
       if (!cancelToken.isCancelled) {
@@ -1766,7 +1919,25 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       uri.scheme == 'https' &&
       uri.port == 443 &&
       uri.userInfo.isEmpty &&
-      uri.host.toLowerCase() == 'missav.ai';
+      _sourceDomains.any(
+        (domain) =>
+            uri.host.toLowerCase() == domain ||
+            uri.host.toLowerCase().endsWith('.$domain'),
+      );
+
+  static bool _isMirrorHost(String host) =>
+      _mirrorHosts.any((mirror) => host == mirror || host.endsWith('.$mirror'));
+
+  Uri _remapSource(Uri uri) {
+    if (_baseUrl == origin || !_isSource(uri)) return uri;
+    final base = Uri.parse(_baseUrl);
+    if (uri.host == base.host) return uri;
+    return base.replace(
+      path: uri.path.isEmpty ? '/' : uri.path,
+      query: uri.hasQuery ? uri.query : null,
+      fragment: uri.hasFragment ? uri.fragment : null,
+    );
+  }
 
   static const _sourceLanguages = {
     'cn',
@@ -1786,8 +1957,22 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   String get _localePrefix => _locale == 'zh' ? '' : '/$_locale';
 
+  static String? _searchQuery(Uri uri) {
+    final segments = uri.pathSegments.where((part) => part.isNotEmpty).toList();
+    final index =
+        segments.isNotEmpty && RegExp(r'^dm\d+$').hasMatch(segments.first)
+        ? 1
+        : 0;
+    final hasLocale =
+        segments.length > index && _sourceLanguages.contains(segments[index]);
+    final route = index + (hasLocale ? 1 : 0);
+    return segments.length > route + 1 && segments[route] == 'search'
+        ? segments[route + 1]
+        : null;
+  }
+
   Uri _localizedSourceUri(String url) {
-    final uri = _sourceUri(url);
+    final uri = _remapSource(_sourceUri(url));
     final segments = uri.pathSegments.where((part) => part.isNotEmpty).toList();
     final index =
         segments.isNotEmpty && RegExp(r'^dm\d+$').hasMatch(segments.first)
@@ -2230,7 +2415,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         dotAll: true,
       ).allMatches(text)) {
         final name = match.group(1)!;
-        final url = match.group(3)!.replaceAll(r'\/', '/');
+        var url = match.group(3)!.replaceAll(r'\/', '/');
+        final source = Uri.tryParse(url);
+        if (_isMirrorHost(pageUri.host) &&
+            source != null &&
+            source.host.isNotEmpty) {
+          url =
+              '${pageUri.origin}/jmpres/${source.host}${source.path}'
+              '${source.hasQuery ? '?${source.query}' : ''}';
+        }
         final uri = Uri.tryParse(url);
         if (uri == null ||
             (uri.scheme != 'https' && uri.scheme != 'http') ||
@@ -2248,7 +2441,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
             url: uri.toString(),
             headers: {
               HttpHeaders.refererHeader: pageUri.toString(),
-              'Origin': origin,
+              'Origin': pageUri.origin,
               HttpHeaders.userAgentHeader: userAgent,
             },
             isHls: uri.path.toLowerCase().endsWith('.m3u8'),

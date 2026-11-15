@@ -78,6 +78,12 @@ The website check required before a Video Source permits access from the current
 network. It is separate from signing in to a Video Source Account.
 _Avoid_: Video account login
 
+**Video Source Mirror (视频源镜像)**:
+An alternate host that serves a Video Source's catalog and media without the
+source's website verification. It is a transport for the same Video Source, not
+a separate Video Source.
+_Avoid_: Video Source, mirror website
+
 **Video Details Screen (视频详情页)**:
 The app page containing one video's inline Video Player, information, and related
 recommendations.
