@@ -2954,6 +2954,42 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     expect(browserAdapter.requests, hasLength(1));
   });
 
+  test('opens a hidden browser when native access is challenged', () async {
+    final fixture = await File(
+      'test/fixtures/missav/catalog.html',
+    ).readAsString();
+    final nativeAdapter = _Adapter(
+      (_) => _response(
+        '<title>Just a moment...</title>',
+        statusCode: HttpStatus.forbidden,
+      ),
+    );
+    final browserAdapter = _Adapter((_) => _response(fixture));
+    var restoreCalls = 0;
+    final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
+      dio: Dio()..httpClientAdapter = nativeAdapter,
+      secureStorage: _MemorySecureStorage(),
+      restoreSavedSession: (client, expectedGeneration) async {
+        restoreCalls++;
+        await client.importVerifiedSession(
+          cookieHeader: 'session=browser',
+          userAgent: 'Browser UA',
+          expectedGeneration: expectedGeneration,
+        );
+        client.useVerifiedBrowserTransport(browserAdapter);
+      },
+    );
+    addTearDown(client.dispose);
+
+    final page = await client.browse('https://missav.ai/cn');
+
+    expect(page.title, 'Newest videos');
+    expect(restoreCalls, 1);
+    expect(nativeAdapter.requests, hasLength(1));
+    expect(browserAdapter.requests, hasLength(1));
+  });
+
   test(
     'login waits until the restored browser passes its access check',
     () async {
@@ -3026,7 +3062,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     },
   );
 
-  test('does not start browser recovery without a saved session', () async {
+  test('probes native access before the first request', () async {
     var restoreCalls = 0;
     final adapter = _Adapter((_) => _response(''));
     final client = MissavClient(
@@ -3042,7 +3078,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     await client.browse('https://missav.ai/cn');
 
     expect(restoreCalls, 0);
-    expect(adapter.requests, hasLength(1));
+    expect(adapter.requests, hasLength(2));
   });
 
   test(

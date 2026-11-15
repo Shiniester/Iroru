@@ -231,7 +231,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       }
     }
     if (_browserAdapter != null) return;
-    if (_cookie?.isNotEmpty != true || restoreSavedSession == null) return;
+    if (restoreSavedSession == null) return;
     await _probeNativeAccess();
   }
 
@@ -258,14 +258,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       _nativeAccessProbed = true;
     } on MissavVerificationRequiredException {
       _nativeAccessProbed = true;
-      final restored = await _restoreSavedBrowserSession(generation);
+      final restored = await _restoreBrowserSession(generation);
       if (!restored && _browserAdapter == null) return;
     }
   }
 
-  Future<bool> _restoreSavedBrowserSession(int generation) async {
+  Future<bool> _restoreBrowserSession(int generation) async {
     if (_browserAdapter != null) return true;
-    if (_cookie?.isNotEmpty != true) return false;
     final restorer = restoreSavedSession;
     if (restorer == null) return false;
 
