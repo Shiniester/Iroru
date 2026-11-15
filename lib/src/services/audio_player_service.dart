@@ -3193,7 +3193,6 @@ class AudioPlayerService {
         coverSeekToken: coverSeekToken,
         jump: jump,
       );
-      if (succeeded) _nativeEffects.resetHistory();
       return succeeded;
     } finally {
       if (jump != null && identical(_positionJump, jump)) {
