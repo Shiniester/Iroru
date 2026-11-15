@@ -6,6 +6,7 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_account_screen.dart';
+import 'package:kikoeru_flutter/src/videos/video_models.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
 
 typedef _MissavAccessVerifier =
@@ -46,7 +47,7 @@ void main() {
     expect(cleanupCalls, 1);
     expect(client.isLoggedIn, isFalse);
     expect(find.text(s.login), findsOneWidget);
-    expect(find.byType(TextField), findsNothing);
+    expect(find.byType(TextField), findsNWidgets(2));
   });
 
   testWidgets('opens web verification and keeps a cancelled login retryable', (
@@ -78,7 +79,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.byType(TextField), findsNothing);
+    expect(find.byType(TextField), findsNWidgets(2));
 
     await tester.tap(find.text(s.videoVerifyAccess));
     await tester.pumpAndSettle();
@@ -87,12 +88,12 @@ void main() {
       requireLogin: false,
     ));
 
-    await tester.tap(find.text(s.login));
+    await tester.tap(find.text(s.videoAccountBrowserLogin));
     await tester.pumpAndSettle();
     expect(client.isLoggedIn, isFalse);
     expect(find.text(s.login), findsOneWidget);
 
-    await tester.tap(find.text(s.login));
+    await tester.tap(find.text(s.videoAccountBrowserLogin));
     await tester.pumpAndSettle();
     expect(requests.where((request) => request.requireLogin), hasLength(2));
     expect(requests.last, (
@@ -101,6 +102,71 @@ void main() {
     ));
     expect(find.text('new-viewer'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
+  });
+
+  testWidgets('native login succeeds without opening the browser', (
+    tester,
+  ) async {
+    final client = _TestMissavClient();
+    var verifierCalls = 0;
+    final s = await S.delegate.load(const Locale('en'));
+
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+          verifierCalls++;
+          return true;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'viewer@example.test');
+    await tester.enterText(find.byType(TextField).last, 'password');
+    await tester.tap(find.text(s.login));
+    await tester.pumpAndSettle();
+
+    expect(client.nativeLoginCalls, 1);
+    expect(verifierCalls, 0);
+    expect(find.text('native-viewer'), findsOneWidget);
+  });
+
+  testWidgets('native login challenge falls back to the website', (
+    tester,
+  ) async {
+    final client = _TestMissavClient()..nativeLoginChallenge = true;
+    final requests = <({String sourceUrl, bool requireLogin})>[];
+    final s = await S.delegate.load(const Locale('en'));
+
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier:
+            (
+              _,
+              verifiedClient, {
+              required sourceUrl,
+              requireLogin = false,
+            }) async {
+              requests.add((sourceUrl: sourceUrl, requireLogin: requireLogin));
+              (verifiedClient as _TestMissavClient).confirmAccount(
+                'browser-viewer',
+              );
+              return true;
+            },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'viewer@example.test');
+    await tester.enterText(find.byType(TextField).last, 'password');
+    await tester.tap(find.text(s.login));
+    await tester.pumpAndSettle();
+
+    expect(client.nativeLoginCalls, 1);
+    expect(requests, [(sourceUrl: 'https://missav.ai/cn', requireLogin: true)]);
+    expect(find.text('browser-viewer'), findsOneWidget);
   });
 }
 
@@ -135,6 +201,8 @@ class _TestMissavClient extends MissavClient {
   String? _name;
   int browserAccessChecks = 0;
   int logoutCalls = 0;
+  int nativeLoginCalls = 0;
+  bool nativeLoginChallenge = false;
 
   @override
   String get homeUrl => 'https://missav.ai/cn';
@@ -160,6 +228,15 @@ class _TestMissavClient extends MissavClient {
     _loggedIn = false;
     _name = null;
     notifyListeners();
+  }
+
+  @override
+  Future<void> login({required String email, required String password}) async {
+    nativeLoginCalls++;
+    if (nativeLoginChallenge) {
+      throw MissavVerificationRequiredException(sourceUrl: homeUrl);
+    }
+    confirmAccount('native-viewer');
   }
 
   void confirmAccount(String name) {

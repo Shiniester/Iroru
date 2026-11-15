@@ -404,6 +404,16 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     await _initialize();
   }
 
+  Future<bool> _verifyMissavFor(String sourceUrl) async {
+    if (!mounted || widget.video.sourceKey != 'missav') return false;
+    final verified = await ref.read(missavAccessVerifierProvider)(
+      context,
+      _client,
+      sourceUrl: sourceUrl,
+    );
+    return verified && mounted;
+  }
+
   Future<void> _sourceFallback([String? url]) async {
     if (!mounted) return;
     final s = S.of(context);
@@ -554,6 +564,18 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       if (mounted && identical(_details, details)) await _loginRequired();
     } on MissavAuthenticationException {
       await _loginRequired();
+    } on MissavVerificationRequiredException catch (error) {
+      if (await _verifyMissavFor(error.sourceUrl ?? details.video.pageUrl)) {
+        if (!mounted || !identical(_details, details)) return;
+        try {
+          await _client.setVideoFavorite(details, favorite);
+          if (mounted && identical(_details, details)) {
+            setState(() => _favorite = favorite);
+          }
+        } on MissavException catch (retryError) {
+          await _sourceFallback(retryError.sourceUrl ?? details.video.pageUrl);
+        }
+      }
     } on MissavException catch (error) {
       await _sourceFallback(error.sourceUrl ?? widget.video.pageUrl);
     } catch (_) {
@@ -573,6 +595,15 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       await _client.setActorFavorite(actor, favorite);
     } on MissavAuthenticationException {
       await _loginRequired();
+    } on MissavVerificationRequiredException catch (error) {
+      if (await _verifyMissavFor(error.sourceUrl ?? actor.url)) {
+        if (!mounted) return;
+        try {
+          await _client.setActorFavorite(actor, favorite);
+        } on MissavException catch (retryError) {
+          await _sourceFallback(retryError.sourceUrl ?? actor.url);
+        }
+      }
     } on MissavException catch (error) {
       await _sourceFallback(error.sourceUrl ?? actor.url);
     } catch (_) {

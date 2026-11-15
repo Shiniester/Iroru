@@ -4305,6 +4305,12 @@ class SJa extends S {
   String get videoSourceAccount => 'MissAV アカウント';
 
   @override
+  String get videoAccountEmail => 'メールアドレス';
+
+  @override
+  String get videoAccountBrowserLogin => 'ウェブでログイン';
+
+  @override
   String get videoJableAccount => 'Jable アカウント';
 
   @override

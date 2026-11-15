@@ -7906,6 +7906,18 @@ abstract class S {
   /// **'MissAV account'**
   String get videoSourceAccount;
 
+  /// No description provided for @videoAccountEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get videoAccountEmail;
+
+  /// No description provided for @videoAccountBrowserLogin.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in on website'**
+  String get videoAccountBrowserLogin;
+
   /// No description provided for @videoJableAccount.
   ///
   /// In en, this message translates to:

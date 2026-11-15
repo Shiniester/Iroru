@@ -1487,6 +1487,8 @@
   "videoSearchSelectFilterBeforeSearch": "请先选择目录候选项",
   "videoSearchBrowseAllDirectory": "浏览完整目录",
   "videoSourceAccount": "MissAV 账号",
+  "videoAccountEmail": "邮箱",
+  "videoAccountBrowserLogin": "网页登录",
   "videoJableAccount": "Jable 账号",
   "videoJableLoginRequired": "登录 Jable 后可查看和管理视频收藏。",
   "videoLoginHelp": "在源站登录后，点击“完成”检查登录状态。",

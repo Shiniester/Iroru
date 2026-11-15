@@ -1444,6 +1444,8 @@
   "videoSearchSelectFilterBeforeSearch": "請先選取目錄候選項。",
   "videoSearchBrowseAllDirectory": "瀏覽完整目錄。",
   "videoSourceAccount": "MissAV 帳號",
+  "videoAccountEmail": "電子郵件",
+  "videoAccountBrowserLogin": "網頁登入",
   "videoJableAccount": "Jable 帳號",
   "videoJableLoginRequired": "登入 Jable 後可查看及管理影片收藏。",
   "videoLoginHelp": "在來源網站登入後，按一下「完成」檢查登入狀態。",

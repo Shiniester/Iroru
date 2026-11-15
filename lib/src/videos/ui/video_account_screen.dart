@@ -19,8 +19,11 @@ class VideoAccountScreen extends ConsumerStatefulWidget {
 
 class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   late final MissavClient _client;
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool _loading = false;
   bool _ready = false;
+  bool _obscurePassword = true;
   String? _error;
   MissavVerificationRequiredException? _verificationError;
 
@@ -105,6 +108,34 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     }
   }
 
+  Future<void> _nativeLogin() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      setState(() => _error = S.of(context).loginFailed);
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await _client.login(email: email, password: password);
+      if (mounted) {
+        setState(() {
+          _error = null;
+          _verificationError = null;
+        });
+      }
+    } on MissavVerificationRequiredException {
+      if (mounted) await _openBrowser(requireLogin: true);
+    } catch (_) {
+      if (mounted) setState(() => _error = S.of(context).loginFailed);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Future<void> _verifyAccess() async {
     await _openBrowser(requireLogin: false);
   }
@@ -112,6 +143,8 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   @override
   void dispose() {
     _client.removeListener(_accountChanged);
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -162,10 +195,48 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                           ),
                         ],
                         const SizedBox(height: 16),
+                        TextField(
+                          controller: _emailController,
+                          enabled: !_loading,
+                          keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
+                          autofillHints: const [AutofillHints.email],
+                          decoration: InputDecoration(
+                            labelText: s.videoAccountEmail,
+                            prefixIcon: const Icon(Icons.email_outlined),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _passwordController,
+                          enabled: !_loading,
+                          obscureText: _obscurePassword,
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.password],
+                          onSubmitted: (_) {
+                            if (!_loading) unawaited(_nativeLogin());
+                          },
+                          decoration: InputDecoration(
+                            labelText: s.password,
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              onPressed: _loading
+                                  ? null
+                                  : () => setState(
+                                      () =>
+                                          _obscurePassword = !_obscurePassword,
+                                    ),
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
                         FilledButton.icon(
-                          onPressed: _loading
-                              ? null
-                              : () => _openBrowser(requireLogin: true),
+                          onPressed: _loading ? null : _nativeLogin,
                           icon: _loading
                               ? const SizedBox.square(
                                   dimension: 20,
@@ -175,6 +246,12 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                                 )
                               : const Icon(Icons.login),
                           label: Text(s.login),
+                        ),
+                        TextButton(
+                          onPressed: _loading
+                              ? null
+                              : () => _openBrowser(requireLogin: true),
+                          child: Text(s.videoAccountBrowserLogin),
                         ),
                         OutlinedButton.icon(
                           onPressed: _loading ? null : _verifyAccess,

@@ -4428,6 +4428,12 @@ class SEn extends S {
   String get videoSourceAccount => 'MissAV account';
 
   @override
+  String get videoAccountEmail => 'Email';
+
+  @override
+  String get videoAccountBrowserLogin => 'Sign in on website';
+
+  @override
   String get videoJableAccount => 'Jable account';
 
   @override

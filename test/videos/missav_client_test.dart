@@ -1248,15 +1248,15 @@ void main() {
   );
 
   test(
-    'account checks restore a saved browser session before reading the page',
+    'account checks prefer native access before restoring a saved browser session',
     () async {
       final native = _Adapter(
-        (_) => throw StateError('The saved session must use the browser.'),
+        (_) => _response(
+          '<html><body x-data="{user: {name: \'Native viewer\'}}"></body></html>',
+        ),
       );
       final browser = _Adapter(
-        (_) => _response(
-          '<html><body x-data="{user: {name: \'Saved viewer\'}}"></body></html>',
-        ),
+        (_) => throw StateError('Native access should be used first.'),
       );
       final storage = _storedBrowserSession();
       var restoreCalls = 0;
@@ -1278,15 +1278,18 @@ void main() {
 
       await client.checkBrowserAccess();
 
-      expect(restoreCalls, 1);
-      expect(native.requests, isEmpty);
-      expect(browser.requests, hasLength(1));
-      expect(_cookieHeader(browser.requests.single), 'session=saved');
+      expect(restoreCalls, 0);
+      expect(native.requests, hasLength(2));
+      expect(browser.requests, isEmpty);
       expect(
-        _headerValue(browser.requests.single, 'User-Agent'),
-        'Saved Browser UA',
+        native.requests.every((request) {
+          return _cookieHeader(request) == 'session=saved' &&
+              _headerValue(request, 'User-Agent') == 'Saved Browser UA';
+        }),
+        isTrue,
       );
-      expect(client.accountName, 'Saved viewer');
+      expect(native.requests.last.uri.path, '/cn');
+      expect(client.accountName, 'Native viewer');
       expect(client.isLoggedIn, isTrue);
     },
   );
@@ -2359,7 +2362,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     expect(adapter.requests, hasLength(bodies.length));
   });
 
-  test('rebuilds a closed browser session after login', () async {
+  test('uses native access after a closed browser session', () async {
     final native = _Adapter((_) => _response('<h1>Native catalog</h1>'));
     final replacement = _Adapter((_) => _response('<h1>Restored catalog</h1>'));
     final navigationStarted = Completer<void>();
@@ -2433,13 +2436,13 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     await browser.whenClosed;
     final page = await client.browse(client.homeUrl);
 
-    expect(page.title, 'Restored catalog');
-    expect(restorations, 1);
+    expect(page.title, 'Native catalog');
+    expect(restorations, 0);
     expect(browserDisposals, 1);
-    expect(native.requests, isEmpty);
-    expect(replacement.requests, hasLength(1));
+    expect(native.requests, hasLength(2));
+    expect(replacement.requests, isEmpty);
     await client.browse(client.homeUrl);
-    expect(restorations, 1);
+    expect(restorations, 0);
   });
 
   test(
@@ -2856,16 +2859,13 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     }
   });
 
-  test('restores one saved session before concurrent first requests', () async {
+  test('probes native access once before concurrent first requests', () async {
     final fixture = await File(
       'test/fixtures/missav/catalog.html',
     ).readAsString();
     final storage = _storedBrowserSession();
-    final restoreStarted = Completer<void>();
-    final finishRestore = Completer<void>();
     var restoreCalls = 0;
-    final nativeAdapter = _Adapter((_) => _response('native response'));
-    final browserAdapter = _Adapter((request) {
+    final nativeAdapter = _Adapter((request) {
       if (request.uri.path == '/api/playlists/open-sample-001') {
         return _response(
           '{"data":[]}',
@@ -2876,14 +2876,15 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       }
       return _response(fixture);
     });
+    final browserAdapter = _Adapter(
+      (_) => throw StateError('Native access should be used first.'),
+    );
     final client = MissavClient(
       metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = nativeAdapter,
       secureStorage: storage,
       restoreSavedSession: (client, expectedGeneration) async {
         restoreCalls++;
-        if (!restoreStarted.isCompleted) restoreStarted.complete();
-        await finishRestore.future;
         await client.importVerifiedSession(
           cookieHeader: 'session=browser',
           userAgent: 'Browser UA',
@@ -2902,22 +2903,55 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         pageUrl: 'https://missav.ai/cn/open-sample-001',
       ),
     );
-    await restoreStarted.future;
-    expect(restoreCalls, 1);
-    finishRestore.complete();
 
     await browse;
     await playlists;
     await client.browse('https://missav.ai/cn');
 
-    expect(restoreCalls, 1);
-    expect(nativeAdapter.requests, isEmpty);
-    expect(browserAdapter.requests, hasLength(3));
-    for (final request in browserAdapter.requests) {
-      expect(_cookieHeader(request), 'session=browser');
-      expect(_headerValue(request, 'User-Agent'), 'Browser UA');
+    expect(restoreCalls, 0);
+    expect(nativeAdapter.requests, hasLength(4));
+    expect(browserAdapter.requests, isEmpty);
+    for (final request in nativeAdapter.requests) {
+      expect(_cookieHeader(request), 'session=saved');
+      expect(_headerValue(request, 'User-Agent'), 'Saved Browser UA');
     }
-    expect(storage.cookie, 'session=browser');
+    expect(storage.cookie, 'session=saved');
+  });
+
+  test('falls back to the saved browser after a native challenge', () async {
+    final fixture = await File(
+      'test/fixtures/missav/catalog.html',
+    ).readAsString();
+    final nativeAdapter = _Adapter(
+      (_) => _response(
+        '<title>Just a moment...</title>',
+        statusCode: HttpStatus.forbidden,
+      ),
+    );
+    final browserAdapter = _Adapter((_) => _response(fixture));
+    var restoreCalls = 0;
+    final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
+      dio: Dio()..httpClientAdapter = nativeAdapter,
+      secureStorage: _storedBrowserSession(),
+      restoreSavedSession: (client, expectedGeneration) async {
+        restoreCalls++;
+        await client.importVerifiedSession(
+          cookieHeader: 'session=browser',
+          userAgent: 'Browser UA',
+          expectedGeneration: expectedGeneration,
+        );
+        client.useVerifiedBrowserTransport(browserAdapter);
+      },
+    );
+    addTearDown(client.dispose);
+
+    final page = await client.browse('https://missav.ai/cn');
+
+    expect(page.title, 'Newest videos');
+    expect(restoreCalls, 1);
+    expect(nativeAdapter.requests, hasLength(1));
+    expect(browserAdapter.requests, hasLength(1));
   });
 
   test(
@@ -2946,6 +2980,13 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       });
       final client = MissavClient(
         metadataDio: _emptyMetadataDio(),
+        dio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (_) => _response(
+              '<title>Just a moment...</title>',
+              statusCode: HttpStatus.forbidden,
+            ),
+          ),
         secureStorage: _storedBrowserSession(),
         restoreSavedSession: (client, expectedGeneration) async {
           restoreCalls++;
@@ -3016,7 +3057,13 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       );
       final challengeClient = MissavClient(
         metadataDio: _emptyMetadataDio(),
-        dio: Dio()..httpClientAdapter = _Adapter((_) => _response('')),
+        dio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (_) => _response(
+              '<title>Just a moment...</title>',
+              statusCode: HttpStatus.forbidden,
+            ),
+          ),
         secureStorage: challengeStorage,
         restoreSavedSession: (client, expectedGeneration) async {
           await client.importVerifiedSession(
@@ -3037,6 +3084,13 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
 
       final runtimeClient = MissavClient(
         metadataDio: _emptyMetadataDio(),
+        dio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (_) => _response(
+              '<title>Just a moment...</title>',
+              statusCode: HttpStatus.forbidden,
+            ),
+          ),
         secureStorage: _storedBrowserSession(),
         restoreSavedSession: (_, _) async {
           throw StateError('WebView runtime unavailable');
@@ -3045,11 +3099,18 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       addTearDown(runtimeClient.dispose);
       await expectLater(
         runtimeClient.browse('https://missav.ai/cn'),
-        throwsA(isA<StateError>()),
+        throwsA(isA<MissavVerificationRequiredException>()),
       );
 
       final networkClient = MissavClient(
         metadataDio: _emptyMetadataDio(),
+        dio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (_) => _response(
+              '<title>Just a moment...</title>',
+              statusCode: HttpStatus.forbidden,
+            ),
+          ),
         secureStorage: _storedBrowserSession(),
         restoreSavedSession: (client, expectedGeneration) async {
           await client.importVerifiedSession(
@@ -3086,6 +3147,13 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         late MissavClient client;
         client = MissavClient(
           metadataDio: _emptyMetadataDio(),
+          dio: Dio()
+            ..httpClientAdapter = _Adapter(
+              (_) => _response(
+                '<title>Just a moment...</title>',
+                statusCode: HttpStatus.forbidden,
+              ),
+            ),
           secureStorage: storage,
           restoreSavedSession: (client, expectedGeneration) async {
             restoreStarted.complete();
@@ -3747,6 +3815,57 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       expect(client.accountName, 'account@example.invalid');
     },
   );
+
+  test('refreshes XSRF and retries login after HTTP 419', () async {
+    var loginAttempts = 0;
+    final adapter = _Adapter((options) {
+      if (options.method == 'POST') {
+        loginAttempts++;
+        if (loginAttempts == 1) {
+          return _response(
+            'Page expired',
+            statusCode: 419,
+            headers: {
+              'content-type': ['text/html; charset=utf-8'],
+            },
+          );
+        }
+        return _response(
+          '{"user":{"email":"account@example.invalid"}}',
+          headers: {
+            'content-type': ['application/json'],
+            'set-cookie': ['session=authenticated; Path=/; Secure'],
+          },
+        );
+      }
+      return _response(
+        '<html></html>',
+        headers: {
+          'content-type': ['text/html; charset=utf-8'],
+          'set-cookie': ['XSRF-TOKEN=fresh%3D; Path=/; Secure'],
+        },
+      );
+    });
+    final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    await client.login(
+      email: 'account@example.invalid',
+      password: 'test-password',
+    );
+
+    expect(adapter.requests.map((request) => request.method), [
+      'POST',
+      'GET',
+      'POST',
+    ]);
+    expect(_cookieHeader(adapter.requests[2]), contains('XSRF-TOKEN=fresh%3D'));
+    expect(client.isLoggedIn, isTrue);
+  });
 
   test(
     'a late login response cannot replace a newer account session',

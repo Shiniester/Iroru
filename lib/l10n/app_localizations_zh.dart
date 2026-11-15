@@ -4283,6 +4283,12 @@ class SZh extends S {
   String get videoSourceAccount => 'MissAV 账号';
 
   @override
+  String get videoAccountEmail => '邮箱';
+
+  @override
+  String get videoAccountBrowserLogin => '网页登录';
+
+  @override
   String get videoJableAccount => 'Jable 账号';
 
   @override
@@ -9224,6 +9230,12 @@ class SZhHant extends SZh {
 
   @override
   String get videoSourceAccount => 'MissAV 帳號';
+
+  @override
+  String get videoAccountEmail => '電子郵件';
+
+  @override
+  String get videoAccountBrowserLogin => '網頁登入';
 
   @override
   String get videoJableAccount => 'Jable 帳號';

@@ -16,6 +16,8 @@ import 'video_models.dart';
 import 'video_source_client.dart';
 
 class MissavClient extends ChangeNotifier implements VideoSourceClient {
+  static final Object _restorationZoneKey = Object();
+
   MissavClient({
     Dio? dio,
     Dio? metadataDio,
@@ -93,6 +95,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   Future<void> _pendingSessionWrite = Future.value();
   Future<void>? _initializing;
   Completer<void>? _sessionRestoration;
+  Future<void>? _nativeAccessProbe;
+  bool _nativeAccessProbed = false;
   bool _initialized = false;
   String? _cookie;
   String _userAgent = _defaultUserAgent;
@@ -159,6 +163,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final previousBrowserAdapter = _browserAdapter;
     _advanceSessionGeneration();
     _browserAdapter = adapter;
+    _nativeAccessProbed = true;
     _mediaRoute = mediaRoute;
     _dio.httpClientAdapter = adapter;
     if (previousBrowserAdapter != null &&
@@ -173,6 +178,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     _advanceSessionGeneration();
     final browserAdapter = _browserAdapter;
     _browserAdapter = null;
+    _nativeAccessProbed = false;
+    _nativeAccessProbe = null;
     _mediaRoute = null;
     _dio.httpClientAdapter = _nativeAdapter;
     if (browserAdapter != null && !identical(browserAdapter, _nativeAdapter)) {
@@ -193,20 +200,67 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     if (browser is MissavBrowserAdapter && browser.isClosed) {
       restoreNativeTransport();
     }
+    if (Zone.current[_restorationZoneKey] != true) {
+      final pending = _sessionRestoration;
+      if (pending != null) {
+        await pending.future;
+        return;
+      }
+    }
+    if (_browserAdapter != null) return;
+    if (_cookie?.isNotEmpty != true || restoreSavedSession == null) return;
+    await _probeNativeAccess();
+  }
+
+  Future<void> _probeNativeAccess() async {
+    if (_nativeAccessProbed || _browserAdapter != null) return;
+    final pending = _nativeAccessProbe;
+    if (pending != null) return pending;
+
+    final probe = _runNativeAccessProbe();
+    _nativeAccessProbe = probe;
+    try {
+      await probe;
+    } finally {
+      if (identical(_nativeAccessProbe, probe)) {
+        _nativeAccessProbe = null;
+      }
+    }
+  }
+
+  Future<void> _runNativeAccessProbe() async {
+    final generation = _sessionGeneration;
+    try {
+      await _request(Uri.parse(homeUrl), generation: generation);
+      _nativeAccessProbed = true;
+    } on MissavVerificationRequiredException {
+      _nativeAccessProbed = true;
+      final restored = await _restoreSavedBrowserSession(generation);
+      if (!restored && _browserAdapter == null) return;
+    }
+  }
+
+  Future<bool> _restoreSavedBrowserSession(int generation) async {
+    if (_browserAdapter != null) return true;
+    if (_cookie?.isNotEmpty != true) return false;
+    final restorer = restoreSavedSession;
+    if (restorer == null) return false;
+
     final pending = _sessionRestoration;
     if (pending != null) {
       await pending.future;
-      return;
+      return _browserAdapter != null;
     }
-    if (_browserAdapter != null || _cookie?.isNotEmpty != true) return;
-    final restorer = restoreSavedSession;
-    if (restorer == null) return;
 
-    final generation = _sessionGeneration;
     final restoration = Completer<void>();
     _sessionRestoration = restoration;
     unawaited(_runSessionRestoration(restorer, generation, restoration));
-    await restoration.future;
+    try {
+      await restoration.future;
+    } catch (_) {
+      return false;
+    }
+    return _browserAdapter != null;
   }
 
   Future<void> _runSessionRestoration(
@@ -215,7 +269,10 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     Completer<void> restoration,
   ) async {
     try {
-      await restorer(this, generation);
+      await runZoned(
+        () => restorer(this, generation),
+        zoneValues: {_restorationZoneKey: true},
+      );
       if (_disposed || _browserAdapter == null) {
         throw const MissavException(
           'MissAV browser session could not be restored.',
@@ -1069,14 +1126,24 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     await _prepareOnlineAccess();
     final generation = _advanceSessionGeneration();
     final uri = Uri.parse('$origin$_localePrefix/api/login');
+    final pageUri = Uri.parse(homeUrl);
+
+    Future<Response<dynamic>> sendLogin() => _request(
+      uri,
+      method: 'POST',
+      data: {'email': email, 'password': password, 'remember': true},
+      generation: generation,
+    );
 
     try {
-      final response = await _request(
-        uri,
-        method: 'POST',
-        data: {'email': email, 'password': password, 'remember': true},
-        generation: generation,
-      );
+      late Response<dynamic> response;
+      try {
+        response = await sendLogin();
+      } on MissavException catch (error) {
+        if (!error.message.contains('HTTP 419')) rethrow;
+        await _request(pageUri, generation: generation);
+        response = await sendLogin();
+      }
       if (generation != _sessionGeneration) {
         throw const MissavException('MissAV account changed during login.');
       }
@@ -1410,7 +1477,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
       final status = response.statusCode ?? 0;
       final location = response.headers.value(HttpHeaders.locationHeader);
-      if (_isChallengeResponse(response.data) ||
+      if (status == HttpStatus.forbidden ||
+          _isChallengeResponse(response.data) ||
           response.headers.value('cf-mitigated')?.trim().toLowerCase() ==
               'challenge') {
         throw MissavVerificationRequiredException(

@@ -1444,6 +1444,8 @@
   "videoSearchSelectFilterBeforeSearch": "先に一覧の候補を選択してください。",
   "videoSearchBrowseAllDirectory": "一覧をすべて見る。",
   "videoSourceAccount": "MissAV アカウント",
+  "videoAccountEmail": "メールアドレス",
+  "videoAccountBrowserLogin": "ウェブでログイン",
   "videoJableAccount": "Jable アカウント",
   "videoJableLoginRequired": "Jable にログインすると、お気に入りの動画を表示・管理できます。",
   "videoLoginHelp": "配信元サイトでログインしてから「完了」を選択してログイン状態を確認してください。",

@@ -1854,6 +1854,8 @@
     "description": "Opens the paginated video filter directory."
   },
   "videoSourceAccount": "MissAV account",
+  "videoAccountEmail": "Email",
+  "videoAccountBrowserLogin": "Sign in on website",
   "videoJableAccount": "Jable account",
   "videoJableLoginRequired": "Sign in to Jable to view and manage your video favorites.",
   "videoLoginHelp": "Sign in on the source website, then select Done to check your sign-in status.",
