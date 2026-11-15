@@ -2536,7 +2536,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       final client = MissavClient(
         metadataDio: _emptyMetadataDio(),
         dio: dio,
-        secureStorage: _MemorySecureStorage(),
+        secureStorage: _MemorySecureStorage()..cookie = 'XSRF-TOKEN=token%3D',
       );
       addTearDown(client.dispose);
 
@@ -3577,7 +3577,8 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
           }
           return _response('{}', statusCode: HttpStatus.unauthorized);
         });
-        final storage = _MemorySecureStorage()..cookie = 'clearance=verified';
+        final storage = _MemorySecureStorage()
+          ..cookie = 'XSRF-TOKEN=token%3D; clearance=verified';
         final client = MissavClient(
           metadataDio: _emptyMetadataDio(),
           dio: Dio()..httpClientAdapter = adapter,
@@ -3607,7 +3608,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
 
         expect(client.isLoggedIn, failingLogin);
         expect(client.accountName, failingLogin ? 'Saved account' : isNull);
-        expect(storage.cookie, 'clearance=verified');
+        expect(storage.cookie, 'XSRF-TOKEN=token%3D; clearance=verified');
       },
     );
   }
@@ -3800,7 +3801,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       );
 
       expect(request.method, 'POST');
-      expect(request.uri.toString(), 'https://missav.ai/cn/api/login');
+      expect(request.uri.toString(), 'https://missav.ai/en/api/login');
       expect(request.data, {
         'email': 'account@example.invalid',
         'password': 'test-password',
@@ -3810,6 +3811,11 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       expect(request.headers['X-XSRF-TOKEN'], 'token=');
       expect(request.headers['Accept'], 'application/json, text/plain, */*');
       expect(request.headers['X-Requested-With'], 'XMLHttpRequest');
+      expect(request.headers['Origin'], MissavClient.origin);
+      expect(request.headers['Referer'], '${MissavClient.origin}/');
+      expect(request.headers['Accept-Language'], 'en-US,en;q=0.9');
+      expect(request.headers['Cache-Control'], 'no-cache');
+      expect(_headerValue(request, 'User-Agent'), contains('Chrome/149.0.0.0'));
       expect(storage.cookie, 'XSRF-TOKEN=token%3D; session=authenticated');
       expect(client.isLoggedIn, isTrue);
       expect(client.accountName, 'account@example.invalid');
@@ -3859,12 +3865,45 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     );
 
     expect(adapter.requests.map((request) => request.method), [
+      'GET',
       'POST',
       'GET',
       'POST',
     ]);
-    expect(_cookieHeader(adapter.requests[2]), contains('XSRF-TOKEN=fresh%3D'));
+    expect(_cookieHeader(adapter.requests[3]), contains('XSRF-TOKEN=fresh%3D'));
     expect(client.isLoggedIn, isTrue);
+  });
+
+  test('confirms a native login through the home page', () async {
+    final adapter = _Adapter((options) {
+      if (options.method == 'POST') {
+        return _response(
+          '',
+          headers: {
+            'set-cookie': ['session=authenticated; Path=/; Secure'],
+          },
+        );
+      }
+      return _response(
+        '<html><body x-data="{user: {name: \'Confirmed viewer\'}}">'
+        '</body></html>',
+      );
+    });
+    final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: _MemorySecureStorage()..cookie = 'XSRF-TOKEN=token%3D',
+    );
+    addTearDown(client.dispose);
+
+    await client.login(
+      email: 'account@example.invalid',
+      password: 'test-password',
+    );
+
+    expect(adapter.requests.map((request) => request.method), ['POST', 'GET']);
+    expect(client.isLoggedIn, isTrue);
+    expect(client.accountName, 'Confirmed viewer');
   });
 
   test(
@@ -3874,7 +3913,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       final secondResponse = Completer<ResponseBody>();
       final firstSent = Completer<void>();
       final secondSent = Completer<void>();
-      final storage = _MemorySecureStorage();
+      final storage = _MemorySecureStorage()..cookie = 'XSRF-TOKEN=token%3D';
       final adapter = _Adapter((options) {
         final email = (options.data as Map)['email'];
         if (email == 'first@example.invalid') {
@@ -3927,7 +3966,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       );
 
       await firstLoginRejected;
-      expect(storage.cookie, 'session=second');
+      expect(storage.cookie, 'XSRF-TOKEN=token%3D; session=second');
       expect(client.accountName, 'second@example.invalid');
     },
   );

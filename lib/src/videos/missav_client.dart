@@ -57,7 +57,30 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   static const origin = 'https://missav.ai';
   static const _cookieKey = 'missav_session_cookie';
   static const _sessionRecordKey = 'missav_verified_session';
-  static const _defaultUserAgent = 'Mozilla/5.0';
+  static String get _defaultUserAgent {
+    if (Platform.isAndroid) {
+      return 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '
+          '(KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36';
+    }
+    if (Platform.isIOS) {
+      return 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) '
+          'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 '
+          'Mobile/15E148 Safari/604.1';
+    }
+    if (Platform.isMacOS) {
+      return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+          'AppleWebKit/537.36 (KHTML, like Gecko) '
+          'Chrome/149.0.0.0 Safari/537.36';
+    }
+    if (Platform.isLinux) {
+      return 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+          '(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
+    }
+    return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/149.0.0.0 Safari/537.36';
+  }
+
   static const _pageLimit = 5;
   // MissAV publishes this frontend token for Recombee catalog requests.
   static const _metadataPublicToken =
@@ -1125,8 +1148,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   Future<void> login({required String email, required String password}) async {
     await _prepareOnlineAccess();
     final generation = _advanceSessionGeneration();
-    final uri = Uri.parse('$origin$_localePrefix/api/login');
-    final pageUri = Uri.parse(homeUrl);
+    final uri = Uri.parse('$origin/en/api/login');
+    final pageUri = Uri.parse('$origin/en');
 
     Future<Response<dynamic>> sendLogin() => _request(
       uri,
@@ -1136,6 +1159,9 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     );
 
     try {
+      if (_cookieValue('XSRF-TOKEN') == null) {
+        await _request(pageUri, generation: generation);
+      }
       late Response<dynamic> response;
       try {
         response = await sendLogin();
@@ -1148,17 +1174,48 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         throw const MissavException('MissAV account changed during login.');
       }
 
-      final body = response.data is String
-          ? jsonDecode(response.data as String)
-          : response.data;
-      if (body is! Map || body['user'] is! Map) {
+      final raw = response.data;
+      final text = raw is String ? raw : jsonEncode(raw);
+      Map<String, dynamic>? user;
+      if (raw is Map && raw['user'] is Map) {
+        user = Map<String, dynamic>.from(raw['user'] as Map);
+      }
+      if (user == null) {
+        try {
+          final decoded = jsonDecode(text);
+          if (decoded is Map && decoded['user'] is Map) {
+            user = Map<String, dynamic>.from(decoded['user'] as Map);
+          }
+        } on FormatException {
+          // The source may return HTML after a redirect.
+        }
+      }
+      if (user == null) {
+        final document = _parsePage(text, uri);
+        final sourceUser = _readAccountFromPage(document);
+        if (sourceUser is Map) {
+          user = Map<String, dynamic>.from(sourceUser);
+        }
+      }
+      if (user == null) {
+        final homeUri = Uri.parse(homeUrl);
+        final homeResponse = await _request(homeUri, generation: generation);
+        final homeText = homeResponse.data is String
+            ? homeResponse.data as String
+            : '';
+        final document = _parsePage(homeText, homeUri);
+        final sourceUser = _readAccountFromPage(document);
+        if (sourceUser is Map) {
+          user = Map<String, dynamic>.from(sourceUser);
+        }
+      }
+      if (user == null && !text.contains('user')) {
         throw MissavException(
           'MissAV returned an invalid login response.',
           sourceUrl: uri.toString(),
         );
       }
-      final user = Map<String, dynamic>.from(body['user'] as Map);
-      _accountName = _accountNameFrom(user);
+      _accountName = user == null ? email : _accountNameFrom(user) ?? email;
       _setAccountState(loggedIn: true, notify: false);
       notifyListeners();
     } on MissavException {
@@ -1436,6 +1493,10 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         'User-Agent': _userAgent,
       };
       if (_isSource(requestUri)) {
+        headers['Origin'] = origin;
+        headers['Referer'] = '$origin/';
+        headers['Accept-Language'] = 'en-US,en;q=0.9';
+        headers['Cache-Control'] = 'no-cache';
         final cookie = _cookie;
         if (cookie != null && cookie.isNotEmpty) {
           headers['Cookie'] = cookie;
