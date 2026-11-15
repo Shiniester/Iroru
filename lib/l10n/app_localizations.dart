@@ -7930,6 +7930,72 @@ abstract class S {
   /// **'Sign in to Jable to view and manage your video favorites.'**
   String get videoJableLoginRequired;
 
+  /// Settings entry for the MissAV mirror host speed test.
+  ///
+  /// In en, this message translates to:
+  /// **'MissAV host'**
+  String get videoMirrorSettings;
+
+  /// Explains that the host list contains only non-verification mirrors.
+  ///
+  /// In en, this message translates to:
+  /// **'Only hosts that work without website verification are listed. The selected host is used for browsing, search, and playback.'**
+  String get videoMirrorDescription;
+
+  /// Option that selects the fastest reachable MissAV host during access.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the fastest host automatically'**
+  String get videoMirrorAutomatic;
+
+  /// Action that selects the fastest host from the current speed test.
+  ///
+  /// In en, this message translates to:
+  /// **'Use fastest'**
+  String get videoMirrorUseFastest;
+
+  /// Action that measures every MissAV mirror again.
+  ///
+  /// In en, this message translates to:
+  /// **'Test speed'**
+  String get videoMirrorRetest;
+
+  /// Shown while a MissAV mirror latency test is pending.
+  ///
+  /// In en, this message translates to:
+  /// **'Testing…'**
+  String get videoMirrorTesting;
+
+  /// Shown when a MissAV mirror latency test times out.
+  ///
+  /// In en, this message translates to:
+  /// **'Timed out'**
+  String get videoMirrorTimeout;
+
+  /// Shown when a MissAV mirror does not pass its latency test.
+  ///
+  /// In en, this message translates to:
+  /// **'Unavailable'**
+  String get videoMirrorUnavailable;
+
+  /// Action that selects a MissAV mirror.
+  ///
+  /// In en, this message translates to:
+  /// **'Use'**
+  String get videoMirrorSelect;
+
+  /// Indicates the currently selected MissAV mirror.
+  ///
+  /// In en, this message translates to:
+  /// **'In use'**
+  String get videoMirrorInUse;
+
+  /// Shows the MissAV host currently serving content.
+  ///
+  /// In en, this message translates to:
+  /// **'Current: {host}'**
+  String videoMirrorCurrent(String host);
+
   /// Instruction shown in the source website login dialog before confirming account status.
   ///
   /// In en, this message translates to:

@@ -4317,6 +4317,42 @@ class SJa extends S {
   String get videoJableLoginRequired => 'Jable にログインすると、お気に入りの動画を表示・管理できます。';
 
   @override
+  String get videoMirrorSettings => 'MissAV 回線';
+
+  @override
+  String get videoMirrorDescription =>
+      'ウェブ認証が不要なホストのみ表示します。選択した回線を一覧、検索、再生に使用します。';
+
+  @override
+  String get videoMirrorAutomatic => '最速の回線を自動選択';
+
+  @override
+  String get videoMirrorUseFastest => '最速を使用';
+
+  @override
+  String get videoMirrorRetest => '速度テスト';
+
+  @override
+  String get videoMirrorTesting => 'テスト中…';
+
+  @override
+  String get videoMirrorTimeout => '接続タイムアウト';
+
+  @override
+  String get videoMirrorUnavailable => '利用不可';
+
+  @override
+  String get videoMirrorSelect => '使用';
+
+  @override
+  String get videoMirrorInUse => '使用中';
+
+  @override
+  String videoMirrorCurrent(String host) {
+    return '現在：$host';
+  }
+
+  @override
   String get videoLoginHelp => '配信元サイトでログインしてから「完了」を選択してログイン状態を確認してください。';
 
   @override

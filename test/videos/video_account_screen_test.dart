@@ -50,32 +50,20 @@ void main() {
     expect(find.byType(TextField), findsNWidgets(2));
   });
 
-  testWidgets('opens web verification and keeps a cancelled login retryable', (
+  testWidgets('verification button opens the source access check', (
     tester,
   ) async {
     final client = _TestMissavClient();
     final requests = <({String sourceUrl, bool requireLogin})>[];
-    var loginAttempts = 0;
     final s = await S.delegate.load(const Locale('en'));
 
     await tester.pumpWidget(
       _app(
         client,
-        verifier:
-            (
-              _,
-              verifiedClient, {
-              required sourceUrl,
-              requireLogin = false,
-            }) async {
-              requests.add((sourceUrl: sourceUrl, requireLogin: requireLogin));
-              if (!requireLogin) return true;
-              if (++loginAttempts == 1) return false;
-              (verifiedClient as _TestMissavClient).confirmAccount(
-                'new-viewer',
-              );
-              return true;
-            },
+        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+          requests.add((sourceUrl: sourceUrl, requireLogin: requireLogin));
+          return true;
+        },
       ),
     );
     await tester.pumpAndSettle();
@@ -87,21 +75,6 @@ void main() {
       sourceUrl: 'https://missav.ai/cn',
       requireLogin: false,
     ));
-
-    await tester.tap(find.text(s.videoAccountBrowserLogin));
-    await tester.pumpAndSettle();
-    expect(client.isLoggedIn, isFalse);
-    expect(find.text(s.login), findsOneWidget);
-
-    await tester.tap(find.text(s.videoAccountBrowserLogin));
-    await tester.pumpAndSettle();
-    expect(requests.where((request) => request.requireLogin), hasLength(2));
-    expect(requests.last, (
-      sourceUrl: 'https://missav.ai/cn',
-      requireLogin: true,
-    ));
-    expect(find.text('new-viewer'), findsOneWidget);
-    expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets('native login succeeds without opening the browser', (
@@ -132,29 +105,18 @@ void main() {
     expect(find.text('native-viewer'), findsOneWidget);
   });
 
-  testWidgets('native login challenge falls back to the website', (
-    tester,
-  ) async {
+  testWidgets('native login challenge stays in the login form', (tester) async {
     final client = _TestMissavClient()..nativeLoginChallenge = true;
-    final requests = <({String sourceUrl, bool requireLogin})>[];
+    var verifierCalls = 0;
     final s = await S.delegate.load(const Locale('en'));
 
     await tester.pumpWidget(
       _app(
         client,
-        verifier:
-            (
-              _,
-              verifiedClient, {
-              required sourceUrl,
-              requireLogin = false,
-            }) async {
-              requests.add((sourceUrl: sourceUrl, requireLogin: requireLogin));
-              (verifiedClient as _TestMissavClient).confirmAccount(
-                'browser-viewer',
-              );
-              return true;
-            },
+        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+          verifierCalls++;
+          return true;
+        },
       ),
     );
     await tester.pumpAndSettle();
@@ -165,8 +127,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(client.nativeLoginCalls, 1);
-    expect(requests, [(sourceUrl: 'https://missav.ai/cn', requireLogin: true)]);
-    expect(find.text('browser-viewer'), findsOneWidget);
+    expect(verifierCalls, 0);
+    expect(client.isLoggedIn, isFalse);
+    expect(find.text(s.loginFailed), findsOneWidget);
+    expect(find.byType(TextField), findsNWidgets(2));
   });
 }
 

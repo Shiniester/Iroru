@@ -1858,6 +1858,55 @@
   "videoAccountBrowserLogin": "Sign in on website",
   "videoJableAccount": "Jable account",
   "videoJableLoginRequired": "Sign in to Jable to view and manage your video favorites.",
+  "videoMirrorSettings": "MissAV host",
+  "@videoMirrorSettings": {
+    "description": "Settings entry for the MissAV mirror host speed test."
+  },
+  "videoMirrorDescription": "Only hosts that work without website verification are listed. The selected host is used for browsing, search, and playback.",
+  "@videoMirrorDescription": {
+    "description": "Explains that the host list contains only non-verification mirrors."
+  },
+  "videoMirrorAutomatic": "Choose the fastest host automatically",
+  "@videoMirrorAutomatic": {
+    "description": "Option that selects the fastest reachable MissAV host during access."
+  },
+  "videoMirrorUseFastest": "Use fastest",
+  "@videoMirrorUseFastest": {
+    "description": "Action that selects the fastest host from the current speed test."
+  },
+  "videoMirrorRetest": "Test speed",
+  "@videoMirrorRetest": {
+    "description": "Action that measures every MissAV mirror again."
+  },
+  "videoMirrorTesting": "Testing…",
+  "@videoMirrorTesting": {
+    "description": "Shown while a MissAV mirror latency test is pending."
+  },
+  "videoMirrorTimeout": "Timed out",
+  "@videoMirrorTimeout": {
+    "description": "Shown when a MissAV mirror latency test times out."
+  },
+  "videoMirrorUnavailable": "Unavailable",
+  "@videoMirrorUnavailable": {
+    "description": "Shown when a MissAV mirror does not pass its latency test."
+  },
+  "videoMirrorSelect": "Use",
+  "@videoMirrorSelect": {
+    "description": "Action that selects a MissAV mirror."
+  },
+  "videoMirrorInUse": "In use",
+  "@videoMirrorInUse": {
+    "description": "Indicates the currently selected MissAV mirror."
+  },
+  "videoMirrorCurrent": "Current: {host}",
+  "@videoMirrorCurrent": {
+    "description": "Shows the MissAV host currently serving content.",
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
   "videoLoginHelp": "Sign in on the source website, then select Done to check your sign-in status.",
   "@videoLoginHelp": {
     "description": "Instruction shown in the source website login dialog before confirming account status."

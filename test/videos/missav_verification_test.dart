@@ -1289,6 +1289,60 @@ void main() {
       expect(sourcePage.htmlDocument, contains('user: null'));
     },
   );
+
+  testWidgets('a selected mirror does not redirect the sign-in browser', (
+    tester,
+  ) async {
+    final oldPlatform = WebViewPlatform.instance;
+    WebViewPlatform.instance = _FakeWebViewPlatform(
+      Future.value([
+        const WebViewCookie(
+          name: 'session',
+          value: 'guest',
+          domain: 'missav.ai',
+        ),
+      ]),
+    );
+    addTearDown(() {
+      if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+    );
+    final mobile = WebViewController();
+    final sourcePage = mobile.platform as _FakeWebViewController;
+    sourcePage.htmlDocument =
+        '<html><body x-data="{user: null}"></body></html>';
+    final client = MissavClient(secureStorage: _MemorySecureStorage())
+      ..selectMirror('https://www.missav9.net');
+    addTearDown(client.dispose);
+    expect(client.homeUrl, 'https://www.missav9.net/cn');
+
+    await tester.runAsync(() async {
+      final connection = connectMissavBrowserSession(
+        client,
+        mobile: mobile,
+        requireLogin: true,
+      );
+      var finished = false;
+      final result = expectLater(
+        connection.timeout(const Duration(seconds: 5)),
+        throwsA(isA<StateError>()),
+      ).whenComplete(() => finished = true);
+      await Future.wait([
+        result,
+        () async {
+          while (!finished) {
+            await tester.pump();
+            await Future<void>.delayed(Duration.zero);
+          }
+        }(),
+      ]);
+    });
+    await tester.pumpAndSettle();
+    expect(await mobile.currentUrl(), 'https://missav.ai/cn');
+  });
 }
 
 class _DesktopBrowser extends Fake implements Webview {

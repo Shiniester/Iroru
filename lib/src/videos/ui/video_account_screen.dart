@@ -58,7 +58,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _openBrowser({required bool requireLogin}) async {
+  Future<void> _openBrowser() async {
     setState(() {
       _loading = true;
       _error = null;
@@ -67,10 +67,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
       final verified = await ref.read(missavAccessVerifierProvider)(
         context,
         _client,
-        sourceUrl: requireLogin
-            ? _client.homeUrl
-            : _verificationError?.sourceUrl ?? _client.homeUrl,
-        requireLogin: requireLogin,
+        sourceUrl: _verificationError?.sourceUrl ?? _client.homeUrl,
       );
       if (mounted && verified) {
         setState(() {
@@ -127,8 +124,6 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
           _verificationError = null;
         });
       }
-    } on MissavVerificationRequiredException {
-      if (mounted) await _openBrowser(requireLogin: true);
     } catch (_) {
       if (mounted) setState(() => _error = S.of(context).loginFailed);
     } finally {
@@ -137,7 +132,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   }
 
   Future<void> _verifyAccess() async {
-    await _openBrowser(requireLogin: false);
+    await _openBrowser();
   }
 
   @override
@@ -246,12 +241,6 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                                 )
                               : const Icon(Icons.login),
                           label: Text(s.login),
-                        ),
-                        TextButton(
-                          onPressed: _loading
-                              ? null
-                              : () => _openBrowser(requireLogin: true),
-                          child: Text(s.videoAccountBrowserLogin),
                         ),
                         OutlinedButton.icon(
                           onPressed: _loading ? null : _verifyAccess,

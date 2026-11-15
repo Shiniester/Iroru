@@ -4295,6 +4295,41 @@ class SZh extends S {
   String get videoJableLoginRequired => '登录 Jable 后可查看和管理视频收藏。';
 
   @override
+  String get videoMirrorSettings => 'MissAV 线路';
+
+  @override
+  String get videoMirrorDescription => '仅列出不需要网页验证的域名。浏览、搜索和播放使用所选线路。';
+
+  @override
+  String get videoMirrorAutomatic => '自动选择最快线路';
+
+  @override
+  String get videoMirrorUseFastest => '使用最快';
+
+  @override
+  String get videoMirrorRetest => '测速';
+
+  @override
+  String get videoMirrorTesting => '测试中…';
+
+  @override
+  String get videoMirrorTimeout => '连接超时';
+
+  @override
+  String get videoMirrorUnavailable => '不可用';
+
+  @override
+  String get videoMirrorSelect => '使用';
+
+  @override
+  String get videoMirrorInUse => '使用中';
+
+  @override
+  String videoMirrorCurrent(String host) {
+    return '当前：$host';
+  }
+
+  @override
   String get videoLoginHelp => '在源站登录后，点击“完成”检查登录状态。';
 
   @override
@@ -9242,6 +9277,41 @@ class SZhHant extends SZh {
 
   @override
   String get videoJableLoginRequired => '登入 Jable 後可查看及管理影片收藏。';
+
+  @override
+  String get videoMirrorSettings => 'MissAV 線路';
+
+  @override
+  String get videoMirrorDescription => '僅列出不需要網頁驗證的網域。瀏覽、搜尋和播放使用所選線路。';
+
+  @override
+  String get videoMirrorAutomatic => '自動選擇最快線路';
+
+  @override
+  String get videoMirrorUseFastest => '使用最快';
+
+  @override
+  String get videoMirrorRetest => '測速';
+
+  @override
+  String get videoMirrorTesting => '測試中…';
+
+  @override
+  String get videoMirrorTimeout => '連線逾時';
+
+  @override
+  String get videoMirrorUnavailable => '無法使用';
+
+  @override
+  String get videoMirrorSelect => '使用';
+
+  @override
+  String get videoMirrorInUse => '使用中';
+
+  @override
+  String videoMirrorCurrent(String host) {
+    return '目前：$host';
+  }
 
   @override
   String get videoLoginHelp => '在來源網站登入後，按一下「完成」檢查登入狀態。';

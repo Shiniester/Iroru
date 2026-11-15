@@ -978,7 +978,7 @@ Future<void> connectMissavBrowserSession(
       await _awaitConnectionPhase(
         () => _waitForDesktopPage(
           browser,
-          client.homeUrl,
+          client.originHomeUrl,
           cancelSignal: cancelSignal,
         ),
         connectionGeneration,
@@ -1075,7 +1075,7 @@ Future<void> connectMissavBrowserSession(
       await _awaitConnectionPhase(
         () => waitForMissavMobilePage(
           mobile,
-          client.homeUrl,
+          client.originHomeUrl,
           cancelSignal: cancelSignal,
           ensureActive: () => ensureMissavBrowserConnectionCurrent(
             connectionGeneration,
@@ -1143,7 +1143,7 @@ Future<void> connectMissavBrowserSession(
 
     final relay = await _createMissavMediaRelay(
       mobile: mobile != null,
-      homeUrl: client.homeUrl,
+      homeUrl: client.originHomeUrl,
       cancelSignal: cancelSignal,
       ensureActive: () => ensureMissavBrowserConnectionCurrent(
         connectionGeneration,
@@ -1298,10 +1298,13 @@ Future<bool> verifyMissavAccess(
   required String sourceUrl,
   bool requireLogin = false,
 }) async {
-  if (!isMissavVerificationUrl(sourceUrl)) return false;
-  final pageUrl = Uri.parse(sourceUrl).pathSegments.contains('api')
-      ? client.homeUrl
-      : sourceUrl;
+  final sourceUri = Uri.tryParse(sourceUrl);
+  final pageUrl =
+      sourceUri != null &&
+          isMissavVerificationUrl(sourceUrl) &&
+          !sourceUri.pathSegments.contains('api')
+      ? sourceUrl
+      : client.originHomeUrl;
   int? proxyGeneration;
   try {
     if (Platform.isAndroid) {

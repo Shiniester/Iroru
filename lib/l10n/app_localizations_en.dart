@@ -4441,6 +4441,42 @@ class SEn extends S {
       'Sign in to Jable to view and manage your video favorites.';
 
   @override
+  String get videoMirrorSettings => 'MissAV host';
+
+  @override
+  String get videoMirrorDescription =>
+      'Only hosts that work without website verification are listed. The selected host is used for browsing, search, and playback.';
+
+  @override
+  String get videoMirrorAutomatic => 'Choose the fastest host automatically';
+
+  @override
+  String get videoMirrorUseFastest => 'Use fastest';
+
+  @override
+  String get videoMirrorRetest => 'Test speed';
+
+  @override
+  String get videoMirrorTesting => 'Testing…';
+
+  @override
+  String get videoMirrorTimeout => 'Timed out';
+
+  @override
+  String get videoMirrorUnavailable => 'Unavailable';
+
+  @override
+  String get videoMirrorSelect => 'Use';
+
+  @override
+  String get videoMirrorInUse => 'In use';
+
+  @override
+  String videoMirrorCurrent(String host) {
+    return 'Current: $host';
+  }
+
+  @override
   String get videoLoginHelp =>
       'Sign in on the source website, then select Done to check your sign-in status.';
 

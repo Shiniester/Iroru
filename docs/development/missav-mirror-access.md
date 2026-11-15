@@ -5,17 +5,35 @@ MissAV 在 Cloudflare 验证下无法直接读取。应用改用匿名镜像站�
 
 ## 访问顺序
 
-1. 请求 `https://missav.ai`。
-2. 遇到验证页或 HTTP 403 时，依次尝试以下镜像站：
-   - `https://www.missav9.net`
-   - `https://www.thisav66.com`
-   - `https://www.thisav33.com`
-   - `https://www.missav123.life`
+1. 用户在设置页选择线路时，先测速该线路。
+2. 未选择线路时，并发请求自动候选域名的目录页，使用延迟最低且返回正常的主机。
 3. 镜像站返回正常页面时，保留该站作为本次运行的内容主机。
-4. 所有镜像站均失败时，恢复原有浏览器会话和“验证访问”流程。
+4. 所有镜像站均失败时，请求 `https://missav.ai`；仍遇到验证页时恢复浏览器会话和“验证访问”流程。
 
 镜像站会把 `/cn` 等路径重定向到 `/dmNNN/...`。
 现有地址处理保留该前缀，后续分页和详情链接沿用同一路径。
+
+## 域名测速
+
+镜像站列表共 34 个域名，全部通过以下筛选：
+
+- `https://<域名>/status.html` 返回 HTTP 200 和 `ok`。
+- `https://<域名>/cn` 返回 HTTP 200，响应头不含 `cf-mitigated: challenge`。
+
+测速请求 `https://<域名>/status.html?ts=<时间戳>`。
+只有状态码 200、正文为 `ok` 且没有验证标记的域名计入延迟。
+自动选择直接请求 5 个候选域名的 `/<locale>/release`。
+目录页请求超时为 3 秒。
+只有目录页返回 HTTP 200、包含 HTML 且没有验证标记的域名参与最终选优。
+完整列表在 [missav_mirrors.dart](../../lib/src/videos/missav_mirrors.dart)。
+
+测速前等待系统代理解析完成。
+`www.missav365.icu`、`www.njavtv.nl`、`www.missav666.net` 曾在未初始化系统代理的测试中连接失败；初始化系统代理后均通过，已保留。
+测速超时只影响本次自动选择，不从列表删除；只有确认返回 Cloudflare 验证的域名会排除。
+
+在视频设置的 **MissAV 线路** 中，可查看全部域名的延迟、选择线路、重新测速或恢复自动选择。
+选择结果写入 `missav_mirror_base_url`。
+自动选择只使用测速通过的非 Cloudflare 域名。
 
 ## 搜索
 
@@ -40,6 +58,7 @@ POST https://client-rapi-missav.recombee.com/missav-default/search/users/anonymo
 MissAV 账号 Cookie 只发送给 `https://missav.ai`。
 镜像站请求不携带 Cookie。
 登录、收藏、播放列表和观看历史仍使用源站账号接口。
+登录由账号页提交；隐藏浏览器只通过 Cloudflare 验证。
 
 ## 检查结果
 
@@ -61,8 +80,11 @@ MissAV 账号 Cookie 只发送给 `https://missav.ai`。
 
 | 检查范围 | 结果 |
 | --- | --- |
-| `flutter test --no-pub test/videos/missav_client_test.dart` | 108 项通过，1 项跳过 |
-| `flutter analyze --no-pub lib/src/videos/missav_client.dart test/videos/missav_client_test.dart` | 通过 |
+| `flutter test --no-pub test/videos/missav_client_test.dart` | 112 项通过，1 项跳过 |
+| `flutter test --no-pub test/videos/missav_mirrors_test.dart test/videos/missav_mirror_settings_test.dart` | 4 项通过 |
+| `flutter analyze --no-pub` 指定本次修改文件 | 通过 |
+| `flutter test --no-pub test/videos` | 643 项通过，1 项跳过；2 项既有抽屉测试失败，基线同样失败 |
 | 真实镜像探测：目录返回 12 条，搜索返回 24 条，分类目录返回 37 项，分类页返回 12 条，详情提取 `jmpres` 媒体地址 | 通过 |
+| 真实自动测速：选择 `www.njavtv.art`，目录返回 12 条 | 通过 |
 
 本轮未在 Android 或 iOS 设备上验证镜像站播放和下载。

@@ -139,6 +139,15 @@ class ProxyConfig {
     await _syncAndroidWebViewProxy();
   }
 
+  /// Resolves the system proxy before a caller creates its first connection.
+  static Future<void> ensureSystemProxyResolved() async {
+    if (mode != ProxyMode.system || _systemProxyResolved) return;
+    await _lookupSystemProxy().timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {},
+    );
+  }
+
   static Future<void> _lookupSystemProxy() =>
       _systemProxyLookup ??= _readSystemProxy().whenComplete(() {
         _systemProxyResolved = true;

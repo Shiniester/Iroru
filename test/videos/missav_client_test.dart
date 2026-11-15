@@ -8,7 +8,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
+import 'package:kikoeru_flutter/src/videos/missav_mirrors.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _Adapter implements HttpClientAdapter {
   _Adapter(this.respond);
@@ -72,6 +74,46 @@ class _CancelAwareAdapter extends _Adapter {
     requests.add(options);
     return respond(options);
   }
+}
+
+class _FakeMirrorProber extends MissavMirrorProber {
+  _FakeMirrorProber({this.fastestHost});
+
+  final String? fastestHost;
+
+  @override
+  Future<List<MissavMirrorLatency>> probeAll(
+    Iterable<MissavMirror> mirrors, {
+    MissavMirrorProbeCallback? onResult,
+    CancelToken? cancelToken,
+    int concurrency = 6,
+  }) async {
+    final results =
+        mirrors
+            .map(
+              (mirror) => MissavMirrorLatency(
+                mirror: mirror,
+                millis: mirror.host == fastestHost ? 10 : 800,
+              ),
+            )
+            .toList()
+          ..sort((left, right) => left.millis!.compareTo(right.millis!));
+    for (final result in results) {
+      onResult?.call(result);
+    }
+    return results;
+  }
+
+  @override
+  Future<MissavMirrorLatency> probeContent(
+    MissavMirror mirror,
+    String path, {
+    CancelToken? cancelToken,
+    Duration contentTimeout = const Duration(seconds: 5),
+  }) async => MissavMirrorLatency(
+    mirror: mirror,
+    millis: mirror.host == fastestHost ? 10 : 100,
+  );
 }
 
 class _BlockingRequestTransformer implements Transformer {
@@ -184,6 +226,10 @@ String? _headerValue(RequestOptions options, String name) {
 bool _hasHeader(Iterable<String> names, String name) =>
     names.any((candidate) => candidate.toLowerCase() == name.toLowerCase());
 
+bool _isMirrorProbe(RequestOptions request) =>
+    request.uri.path == '/status.html' ||
+    request.uri.queryParameters.containsKey('ts');
+
 String _searchCatalogHtml(List<String> ids, {String? nextUrl}) =>
     '''
 <main>
@@ -193,6 +239,10 @@ ${nextUrl == null ? '' : '<a href="$nextUrl" rel="next">Next</a>'}
 ''';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   group('VideoItem', () {
     test('round-trips its stable fields', () {
       const item = VideoItem(
@@ -1383,16 +1433,16 @@ void main() {
       await client.checkBrowserAccess();
 
       expect(restoreCalls, 0);
-      expect(native.requests, hasLength(2));
+      final contentRequests = native.requests
+          .where((request) => !_isMirrorProbe(request))
+          .toList();
+      expect(contentRequests, hasLength(1));
       expect(browser.requests, isEmpty);
-      expect(
-        native.requests.every((request) {
-          return _cookieHeader(request) == 'session=saved' &&
-              _headerValue(request, 'User-Agent') == 'Saved Browser UA';
-        }),
-        isTrue,
-      );
-      expect(native.requests.last.uri.path, '/cn');
+      final contentRequest = contentRequests.single;
+      expect(contentRequest.uri.host, isNot('missav.ai'));
+      expect(_cookieHeader(contentRequest), isEmpty);
+      expect(_headerValue(contentRequest, 'User-Agent'), 'Saved Browser UA');
+      expect(contentRequest.uri.path, '/cn');
       expect(client.accountName, 'Native viewer');
       expect(client.isLoggedIn, isTrue);
     },
@@ -2574,7 +2624,10 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     expect(page.title, 'Native catalog');
     expect(restorations, 0);
     expect(browserDisposals, 1);
-    expect(native.requests, hasLength(2));
+    expect(
+      native.requests.where((request) => !_isMirrorProbe(request)).toList(),
+      hasLength(2),
+    );
     expect(replacement.requests, isEmpty);
     await client.browse(client.homeUrl);
     expect(restorations, 0);
@@ -3044,13 +3097,125 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     await client.browse('https://missav.ai/cn');
 
     expect(restoreCalls, 0);
-    expect(nativeAdapter.requests, hasLength(4));
+    final contentRequests = nativeAdapter.requests
+        .where((request) => !_isMirrorProbe(request))
+        .toList();
+    expect(contentRequests, hasLength(3));
     expect(browserAdapter.requests, isEmpty);
-    for (final request in nativeAdapter.requests) {
-      expect(_cookieHeader(request), 'session=saved');
+    for (final request in contentRequests) {
+      expect(
+        _cookieHeader(request),
+        request.uri.host == 'missav.ai' ? 'session=saved' : '',
+      );
       expect(_headerValue(request, 'User-Agent'), 'Saved Browser UA');
     }
     expect(storage.cookie, 'session=saved');
+  });
+
+  test('selects the fastest healthy mirror', () async {
+    final fastest = missavMirrors.firstWhere(
+      (mirror) => mirror.host == 'www.missav9.net',
+    );
+    final adapter = _Adapter((request) {
+      if (request.uri.host == fastest.host) {
+        return _response(_searchCatalogHtml(['fast-mirror']));
+      }
+      return _response(
+        '<title>Just a moment...</title>',
+        statusCode: HttpStatus.forbidden,
+      );
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+      mirrorProber: _FakeMirrorProber(fastestHost: fastest.host),
+      restoreSavedSession: (client, expectedGeneration) async {},
+    );
+    addTearDown(client.dispose);
+
+    final page = await client.browse('https://missav.ai/cn/release');
+
+    expect(page.videos.single.id, 'fast-mirror');
+    expect(client.activeMirrorHost, fastest.host);
+    expect(
+      adapter.requests.any((request) => request.uri.host == fastest.host),
+      isTrue,
+    );
+  });
+
+  test(
+    'login sends credentials to the canonical source, not the mirror',
+    () async {
+      final fastest = missavMirrors.firstWhere(
+        (mirror) => mirror.host == 'www.missav9.net',
+      );
+      final adapter = _Adapter((request) {
+        if (request.uri.host == fastest.host) {
+          return _response(_searchCatalogHtml(['mirror-video']));
+        }
+        if (request.uri.path.endsWith('/api/login')) {
+          return _response('{"user":{"email":"viewer@example.invalid"}}');
+        }
+        return _response('<html></html>');
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: _MemorySecureStorage(),
+        mirrorProber: _FakeMirrorProber(fastestHost: fastest.host),
+        restoreSavedSession: (_, _) async {},
+      );
+      addTearDown(client.dispose);
+
+      await client.browse('https://missav.ai/cn/release');
+      expect(client.activeMirrorHost, fastest.host);
+
+      await client.login(
+        email: 'viewer@example.invalid',
+        password: 'sample-password',
+      );
+
+      final canonicalPage = adapter.requests.firstWhere(
+        (request) =>
+            request.uri.host == 'missav.ai' &&
+            request.method == 'GET' &&
+            request.uri.path == '/cn',
+      );
+      expect(canonicalPage.uri.host, 'missav.ai');
+      expect(client.isLoggedIn, isTrue);
+    },
+  );
+
+  test('keeps a saved mirror preference', () async {
+    const savedHost = 'www.thisav02.com';
+    SharedPreferences.setMockInitialValues({
+      missavMirrorBaseUrlKey: 'https://$savedHost',
+    });
+    final adapter = _Adapter((request) {
+      if (request.uri.host == savedHost) {
+        return _response(_searchCatalogHtml(['saved-mirror']));
+      }
+      return _response(
+        '<title>Just a moment...</title>',
+        statusCode: HttpStatus.forbidden,
+      );
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+      mirrorProber: _FakeMirrorProber(),
+      restoreSavedSession: (client, expectedGeneration) async {},
+    );
+    addTearDown(client.dispose);
+    await client.initialize();
+
+    final page = await client.browse('https://missav.ai/cn/release');
+
+    expect(page.videos.single.id, 'saved-mirror');
+    expect(client.activeMirrorHost, savedHost);
+    expect(client.usesAutomaticMirror, isFalse);
   });
 
   test('probes a mirror before opening the browser', () async {
@@ -3068,6 +3233,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = nativeAdapter,
       secureStorage: _storedBrowserSession(),
+      mirrorProber: _FakeMirrorProber(fastestHost: 'www.missav9.net'),
       restoreSavedSession: (client, expectedGeneration) async {
         restoreCalls++;
       },
@@ -3228,6 +3394,58 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     },
   );
 
+  test('login starts a hidden browser before touching the source', () async {
+    final nativeAdapter = _Adapter(
+      (_) => _response(
+        '<title>Just a moment...</title>',
+        statusCode: HttpStatus.forbidden,
+      ),
+    );
+    final browserAdapter = _Adapter((request) {
+      if (request.uri.path.endsWith('/api/login')) {
+        return _response(
+          '{"user":{"name":"browser-viewer"}}',
+          headers: {
+            'content-type': ['application/json'],
+          },
+        );
+      }
+      return _response('<html></html>');
+    });
+    var restoreCalls = 0;
+    final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
+      dio: Dio()..httpClientAdapter = nativeAdapter,
+      secureStorage: _MemorySecureStorage(),
+      restoreSavedSession: (client, expectedGeneration) async {
+        restoreCalls++;
+        await client.importVerifiedSession(
+          cookieHeader: 'session=browser',
+          userAgent: 'Browser UA',
+          expectedGeneration: expectedGeneration,
+        );
+        client.useVerifiedBrowserTransport(browserAdapter);
+      },
+    );
+    addTearDown(client.dispose);
+
+    await client.login(
+      email: 'viewer@example.invalid',
+      password: 'sample-password',
+    );
+
+    expect(restoreCalls, 1);
+    expect(nativeAdapter.requests, isEmpty);
+    expect(
+      browserAdapter.requests.any(
+        (request) =>
+            request.method == 'POST' && request.uri.path == '/en/api/login',
+      ),
+      isTrue,
+    );
+    expect(client.accountName, 'browser-viewer');
+  });
+
   test('probes native access before the first request', () async {
     var restoreCalls = 0;
     final adapter = _Adapter((_) => _response(''));
@@ -3244,7 +3462,10 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     await client.browse('https://missav.ai/cn');
 
     expect(restoreCalls, 0);
-    expect(adapter.requests, hasLength(2));
+    expect(
+      adapter.requests.where((request) => !_isMirrorProbe(request)).toList(),
+      hasLength(2),
+    );
   });
 
   test(

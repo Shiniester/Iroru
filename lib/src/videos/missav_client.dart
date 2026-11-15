@@ -9,9 +9,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/proxy_config.dart';
 import 'missav_browser_adapter.dart';
+import 'missav_mirrors.dart';
 import 'video_models.dart';
 import 'video_source_client.dart';
 
@@ -22,6 +24,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     Dio? dio,
     Dio? metadataDio,
     FlutterSecureStorage? secureStorage,
+    MissavMirrorProber? mirrorProber,
     this.restoreSavedSession,
   }) : _secureStorage =
            secureStorage ??
@@ -29,6 +32,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
              mOptions: MacOsOptions(usesDataProtectionKeychain: false),
            ),
        _dio = dio ?? Dio(_defaultOptions()),
+       _providedMirrorProber = mirrorProber,
        _metadataDio =
            metadataDio ??
            Dio(
@@ -55,22 +59,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   }
 
   static const origin = 'https://missav.ai';
-  static const _mirrorOrigins = [
-    'https://www.missav9.net',
-    'https://www.thisav66.com',
-    'https://www.thisav33.com',
-    'https://www.missav123.life',
-  ];
-  static const _sourceDomains = {
+  static final _sourceDomains = {
     'missav.ai',
-    'missav9.net',
-    'thisav66.com',
-    'thisav33.com',
-    'missav123.life',
+    for (final mirror in missavMirrors) missavMirrorDomain(mirror.host),
   };
-  static final _mirrorHosts = _sourceDomains
-      .where((domain) => domain != 'missav.ai')
-      .toSet();
+  static final _mirrorHosts = {
+    for (final mirror in missavMirrors) missavMirrorDomain(mirror.host),
+  };
   static const _canonicalHost = 'missav.ai';
   static const _cookieKey = 'missav_session_cookie';
   static const _sessionRecordKey = 'missav_verified_session';
@@ -126,6 +121,9 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   restoreSavedSession;
   final Dio _dio;
   final Dio _metadataDio;
+  final MissavMirrorProber? _providedMirrorProber;
+  late final MissavMirrorProber _mirrorProber =
+      _providedMirrorProber ?? MissavMirrorProber(dio: _dio);
   late final HttpClientAdapter _nativeAdapter;
   HttpClientAdapter? _browserAdapter;
   Uri Function(Uri)? _mediaRoute;
@@ -141,6 +139,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   String? _cookie;
   String _userAgent = _defaultUserAgent;
   String _baseUrl = origin;
+  String? _preferredMirror;
   String? _accountName;
   String _locale = 'cn';
   String _homeUrl = '$origin/cn';
@@ -155,8 +154,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   String get sourceKey => 'missav';
   int get sessionGeneration => _sessionGeneration;
   String? get accountName => _accountName;
+  String get activeMirrorHost => Uri.parse(_baseUrl).host;
+  bool get usesAutomaticMirror => _preferredMirror == null;
   @override
   String get homeUrl => _homeUrl;
+
+  String get originHomeUrl =>
+      '$origin${_localePrefix.isEmpty ? '/' : _localePrefix}';
 
   @override
   String get defaultCatalogUrl => '$homeUrl/release';
@@ -232,6 +236,23 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     notifyListeners();
   }
 
+  void selectMirror(String? baseUrl) {
+    if (_disposed) return;
+    final mirror = missavMirrorForBaseUrl(baseUrl);
+    if (_browserAdapter != null) {
+      restoreNativeTransport();
+    } else {
+      _advanceSessionGeneration();
+    }
+    _preferredMirror = mirror?.baseUrl;
+    if (mirror != null) {
+      _baseUrl = mirror.baseUrl;
+      _homeUrl = '${mirror.baseUrl}$_localePrefix';
+    }
+    _nativeAccessProbed = false;
+    notifyListeners();
+  }
+
   @override
   Future<void> initialize() async {
     if (_initialized) return;
@@ -274,32 +295,78 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   Future<void> _runNativeAccessProbe() async {
     final generation = _sessionGeneration;
-    final candidates = <String>{_baseUrl, ..._mirrorOrigins, origin};
-    var challenged = false;
-    for (final candidate in candidates) {
+    final preferred = missavMirrorForBaseUrl(_preferredMirror);
+    if (preferred != null && await _probeMirror(preferred, generation)) return;
+    final candidates = missavAutomaticMirrors
+        .where((mirror) => mirror.host != preferred?.host)
+        .toList(growable: false);
+    if (candidates.isNotEmpty) {
       try {
-        final response = await _request(
-          Uri.parse('$candidate$_localePrefix'),
-          generation: generation,
+        final contentResults = await Future.wait(
+          candidates.map(
+            (mirror) => _mirrorProber.probeContent(
+              mirror,
+              '$_localePrefix/release',
+              cancelToken: _sessionCancelToken,
+              contentTimeout: const Duration(seconds: 3),
+            ),
+          ),
         );
         if (_disposed || generation != _sessionGeneration) return;
-        final finalUri = response.requestOptions.uri;
-        _baseUrl = finalUri.origin;
-        _homeUrl = finalUri.toString();
-        _nativeAccessProbed = true;
-        return;
-      } on MissavVerificationRequiredException {
-        challenged = true;
-      } catch (_) {
-        if (_disposed || generation != _sessionGeneration) return;
-        if (!challenged) rethrow;
+        contentResults.sort(
+          (left, right) =>
+              (left.millis ?? 1 << 30).compareTo(right.millis ?? 1 << 30),
+        );
+        for (final result in contentResults) {
+          if (!result.isAvailable) continue;
+          _baseUrl = result.mirror.baseUrl;
+          _homeUrl = '${result.mirror.baseUrl}$_localePrefix';
+          _nativeAccessProbed = true;
+          return;
+        }
+      } on DioException catch (error) {
+        if (error.type == DioExceptionType.cancel) return;
+        rethrow;
       }
     }
-    _nativeAccessProbed = true;
     _baseUrl = origin;
     _homeUrl = '$origin$_localePrefix';
-    final restored = await _restoreBrowserSession(generation);
-    if (!restored && _browserAdapter == null) return;
+    try {
+      final response = await _request(
+        Uri.parse('$origin$_localePrefix'),
+        generation: generation,
+      );
+      if (_disposed || generation != _sessionGeneration) return;
+      final finalUri = response.requestOptions.uri;
+      _baseUrl = finalUri.origin;
+      _homeUrl = finalUri.toString();
+      _nativeAccessProbed = true;
+    } on MissavVerificationRequiredException {
+      _nativeAccessProbed = true;
+      final restored = await _restoreBrowserSession(generation);
+      if (!restored && _browserAdapter == null) return;
+    }
+  }
+
+  Future<bool> _probeMirror(MissavMirror mirror, int generation) async {
+    try {
+      final result = await _mirrorProber.probeContent(
+        mirror,
+        '$_localePrefix/release',
+        cancelToken: _sessionCancelToken,
+      );
+      if (_disposed || generation != _sessionGeneration) return false;
+      if (!result.isAvailable) {
+        _preferredMirror = null;
+        return false;
+      }
+      _baseUrl = mirror.baseUrl;
+      _homeUrl = '${mirror.baseUrl}$_localePrefix';
+      _nativeAccessProbed = true;
+      return true;
+    } on DioException {
+      return false;
+    }
   }
 
   Future<bool> _restoreBrowserSession(int generation) async {
@@ -352,6 +419,21 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   Future<void> _loadSession() async {
     final generation = _sessionGeneration;
     try {
+      try {
+        final preferences = await SharedPreferences.getInstance();
+        final mirror = missavMirrorForBaseUrl(
+          preferences.getString(missavMirrorBaseUrlKey),
+        );
+        if (generation == _sessionGeneration && !_disposed) {
+          _preferredMirror = mirror?.baseUrl;
+          if (mirror != null) {
+            _baseUrl = mirror.baseUrl;
+            _homeUrl = '${mirror.baseUrl}$_localePrefix';
+          }
+        }
+      } catch (_) {
+        // A missing preference store leaves automatic mirror selection on.
+      }
       final record = await _secureStorage.read(key: _sessionRecordKey);
       final legacyCookie = await _secureStorage.read(key: _cookieKey);
       final session = _decodeStoredSession(record);
@@ -1286,10 +1368,14 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   }
 
   Future<void> login({required String email, required String password}) async {
+    await initialize();
+    if (_browserAdapter == null) {
+      await _restoreBrowserSession(_sessionGeneration);
+    }
     await _prepareOnlineAccess();
     final generation = _advanceSessionGeneration();
     final uri = Uri.parse('$origin/en/api/login');
-    final pageUri = Uri.parse('$origin/en');
+    final pageUri = Uri.parse(originHomeUrl);
 
     Future<Response<dynamic>> sendLogin() => _request(
       uri,
@@ -1300,14 +1386,14 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
     try {
       if (_cookieValue('XSRF-TOKEN') == null) {
-        await _request(pageUri, generation: generation);
+        await _request(pageUri, generation: generation, canonical: true);
       }
       late Response<dynamic> response;
       try {
         response = await sendLogin();
       } on MissavException catch (error) {
         if (!error.message.contains('HTTP 419')) rethrow;
-        await _request(pageUri, generation: generation);
+        await _request(pageUri, generation: generation, canonical: true);
         response = await sendLogin();
       }
       if (generation != _sessionGeneration) {
@@ -1338,8 +1424,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         }
       }
       if (user == null) {
-        final homeUri = Uri.parse(homeUrl);
-        final homeResponse = await _request(homeUri, generation: generation);
+        final homeUri = Uri.parse(originHomeUrl);
+        final homeResponse = await _request(
+          homeUri,
+          generation: generation,
+          canonical: true,
+        );
         final homeText = homeResponse.data is String
             ? homeResponse.data as String
             : '';
@@ -1614,12 +1704,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     Object? data,
     int? generation,
     CancelToken? cancelToken,
+    bool canonical = false,
   }) async {
     if (generation == null) await _prepareOnlineAccess();
     final requestGeneration = generation ?? _sessionGeneration;
     final requestCancelToken = cancelToken ?? _sessionCancelToken;
     final isApi = uri.pathSegments.contains('api');
-    var requestUri = isApi
+    var requestUri = isApi || canonical
         ? _sourceUri(uri.toString())
         : _remapSource(_sourceUri(uri.toString()));
     var requestMethod = method;
