@@ -3193,6 +3193,16 @@ class AudioPlayerService {
         coverSeekToken: coverSeekToken,
         jump: jump,
       );
+      _log.captureOutput(
+        '[Audio][SEEKDIAG] seek target=${target.inMilliseconds}ms '
+        'userInitiated=$userInitiated ok=$succeeded '
+        'playing=${_player.playing} '
+        'state=${_player.processingState} '
+        'position=${_player.position.inMilliseconds}ms',
+      );
+      if (succeeded && _desiredPlaying && !_player.playing) {
+        _startPlaybackWithSideEffects();
+      }
       return succeeded;
     } finally {
       if (jump != null && identical(_positionJump, jump)) {
@@ -3525,7 +3535,7 @@ class AudioPlayerService {
           final recovery = _enqueueTrackLoad(
             track,
             emitCurrentTrack: false,
-            autoplay: _desiredPlaying && _player.playing,
+            autoplay: _desiredPlaying,
             direction: PlayerTrackChangeDirection.none,
             sourceToReload: source,
             initialPosition: targetPosition,
