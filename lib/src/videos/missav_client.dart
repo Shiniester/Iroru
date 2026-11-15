@@ -1208,13 +1208,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
           user = Map<String, dynamic>.from(sourceUser);
         }
       }
-      if (user == null && !text.contains('user')) {
+      if (user == null) {
         throw MissavException(
           'MissAV returned an invalid login response.',
           sourceUrl: uri.toString(),
         );
       }
-      _accountName = user == null ? email : _accountNameFrom(user) ?? email;
+      _accountName = _accountNameFrom(user) ?? email;
       _setAccountState(loggedIn: true, notify: false);
       notifyListeners();
     } on MissavException {

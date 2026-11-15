@@ -3942,6 +3942,36 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     expect(client.accountName, 'Confirmed viewer');
   });
 
+  test('rejects an error response that only mentions a user', () async {
+    final adapter = _Adapter((options) {
+      if (options.method == 'POST') {
+        return _response(
+          '{"message":"Invalid user or password"}',
+          headers: {
+            'content-type': ['application/json'],
+          },
+        );
+      }
+      return _response('<html><body></body></html>');
+    });
+    final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: _MemorySecureStorage()..cookie = 'XSRF-TOKEN=token%3D',
+    );
+    addTearDown(client.dispose);
+
+    await expectLater(
+      client.login(
+        email: 'account@example.invalid',
+        password: 'wrong-password',
+      ),
+      throwsA(isA<MissavException>()),
+    );
+    expect(client.isLoggedIn, isFalse);
+    expect(client.accountName, isNull);
+  });
+
   test(
     'a late login response cannot replace a newer account session',
     () async {
