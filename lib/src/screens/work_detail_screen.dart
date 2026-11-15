@@ -23,6 +23,7 @@ import '../utils/server_utils.dart';
 import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/file_explorer_widget.dart';
 import '../widgets/file_selection_dialog.dart';
+import '../widgets/work_resource_tabs.dart';
 import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/app_navigation_scope.dart';
 import '../widgets/global_audio_player_wrapper.dart';
@@ -87,6 +88,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   bool _isOpeningProgressDialog = false; // 防止标记状态对话框重复快速打开
   final FileExplorerController _fileExplorerController =
       FileExplorerController();
+  final WorkResourceSession _resourceSession = WorkResourceSession();
   RemoteAssetLease? _hdPreloadLease;
   Animation<double>? _routeAnimation;
   ImageStream? _hdDecodeStream;
@@ -1066,6 +1068,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
                             RecommendationSection(work: _currentWork),
                       ),
                       controller: _fileExplorerController,
+                      session: _resourceSession,
                       initialLoadReady: _routeReadiness.waitForIdle,
                       translate: _showTranslation,
                       translatedWorkTitle: () => _translatedTitle,

@@ -21,6 +21,7 @@ import '../utils/system_ui_style.dart';
 import '../utils/snackbar_util.dart';
 import '../widgets/scrollable_appbar.dart';
 import '../widgets/offline_file_explorer_widget.dart';
+import '../widgets/work_resource_tabs.dart';
 import '../widgets/global_audio_player_wrapper.dart';
 import '../widgets/download_fab.dart';
 import '../utils/string_utils.dart';
@@ -64,6 +65,7 @@ class _OfflineWorkDetailScreenState
   final Object _coverHeroTag = Object();
   final _deferredContentReady = ValueNotifier(false);
   final _routeReadiness = WorkDetailRouteReadiness();
+  final _resourceSession = WorkResourceSession();
   bool _deferredContentScheduled = false;
   bool _translationChoiceMade = false;
 
@@ -493,6 +495,7 @@ class _OfflineWorkDetailScreenState
             builder: (context, ready, _) => ready
                 ? OfflineFileExplorerWidget(
                     work: work,
+                    session: _resourceSession,
                     translate: _showTranslation,
                     localWorkDirPath: widget.localWorkDirPath,
                     localCoverRelativePath: widget.localCoverRelativePath,

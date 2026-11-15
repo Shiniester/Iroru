@@ -47,6 +47,31 @@ const _resourcePagePadding = EdgeInsets.symmetric(horizontal: 16);
 
 enum WorkResourceTab { resources, audio, images, videos, recommendations }
 
+class WorkResourceSession {
+  WorkResourceTab? selectedTab;
+  int imagePage = 1;
+  bool recommendationVisited = false;
+  final Set<String> expandedFolders = <String>{};
+  final Map<WorkResourceTab, double> _scrollOffsets = {};
+  final Map<WorkResourceTab, bool> _reachedResourceTop = {};
+
+  double? scrollOffsetFor(WorkResourceTab tab) => _scrollOffsets[tab];
+
+  bool reachedResourceTopFor(WorkResourceTab tab) =>
+      _reachedResourceTop[tab] ?? false;
+
+  void recordScrollOffset(WorkResourceTab tab, double offset) {
+    if (!offset.isFinite) return;
+    _reachedResourceTop[tab] = offset >= 0;
+    _scrollOffsets[tab] = offset.clamp(0.0, double.infinity).toDouble();
+  }
+
+  void resetScrollOffset(WorkResourceTab tab) {
+    _scrollOffsets[tab] = 0;
+    _reachedResourceTop[tab] = true;
+  }
+}
+
 class WorkResourceTabs extends ConsumerStatefulWidget {
   const WorkResourceTabs({
     super.key,
@@ -74,6 +99,7 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
     this.onVisibleNamesChanged,
     this.downloadedFiles = const {},
     this.audioWithLibrarySubtitles = const {},
+    this.session,
   });
 
   final int workId;
@@ -100,6 +126,7 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
   final ValueChanged<List<String>>? onVisibleNamesChanged;
   final Map<String, bool> downloadedFiles;
   final Set<String> audioWithLibrarySubtitles;
+  final WorkResourceSession? session;
 
   @override
   ConsumerState<WorkResourceTabs> createState() => _WorkResourceTabsState();
@@ -135,8 +162,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     prepare: _prepareImage,
   );
   ScrollPosition? _verticalPosition;
-  final _tabScrollOffsets = <WorkResourceTab, double>{};
-  final _tabReachedResourceTop = <WorkResourceTab, bool>{};
+  late final WorkResourceSession _session;
   int? _imageCacheWidth;
   bool _imageInspectionScheduled = false;
   Map<String, bool> _downloadedFiles = const {};
@@ -144,12 +170,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   late AnimationController _pagePosition;
   late TabController _tabs;
   final _resourceGroupKey = GlobalKey();
-  int _imagePage = 1;
   bool _reduceMotion = false;
   bool _tabSyncScheduled = false;
   bool _configuringTabs = false;
   double? _unpinnedTransitionOffset;
-  bool _recommendationVisited = false;
   Orientation? _lastOrientation;
   int? _motionTarget;
   int _tabMotionGeneration = 0;
@@ -157,9 +181,17 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   late List<WorkResourceTab> _pageKinds;
   late List<WorkResourceTab> _tabKinds;
 
+  int get _imagePage => _session.imagePage;
+  set _imagePage(int value) => _session.imagePage = value;
+
+  bool get _recommendationVisited => _session.recommendationVisited;
+  set _recommendationVisited(bool value) =>
+      _session.recommendationVisited = value;
+
   @override
   void initState() {
     super.initState();
+    _session = widget.session ?? WorkResourceSession();
     _images = FileTreeUtils.imageFilesRecursive(widget.fileTree);
     _videos = FileTreeUtils.videoFilesRecursive(
       widget.fileTree,
@@ -170,11 +202,15 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       widget.recommendationBuilder != null &&
           ref.read(workDetailDisplayProvider).showRecommendations,
     );
-    _selected = _tabKinds.indexOf(widget.initialTab);
+    final savedTab = _session.selectedTab;
+    _selected = savedTab == null ? -1 : _tabKinds.indexOf(savedTab);
+    if (_selected < 0) _selected = _tabKinds.indexOf(widget.initialTab);
     if (_selected < 0) _selected = _tabKinds.indexOf(WorkResourceTab.audio);
     if (_selected < 0) _selected = 0;
-    _recommendationVisited =
-        _tabKinds[_selected] == WorkResourceTab.recommendations;
+    if (_tabKinds[_selected] == WorkResourceTab.recommendations) {
+      _session.recommendationVisited = true;
+    }
+    _session.selectedTab = _tabKinds[_selected];
     _tabs = TabController(
       length: _tabKinds.length,
       initialIndex: _selected,
@@ -208,10 +244,15 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     }
     _reduceMotion = reduceMotion;
     final orientation = MediaQuery.orientationOf(context);
+    final firstDependencies = _lastOrientation == null;
     final orientationChanged =
         _lastOrientation != null && _lastOrientation != orientation;
     _lastOrientation = orientation;
-    if (orientationChanged) _restoreScrollAfterOrientationChange();
+    if (orientationChanged) {
+      _restoreScrollAfterOrientationChange();
+    } else if (firstDependencies) {
+      _restoreInitialScrollIfNeeded();
+    }
   }
 
   @override
@@ -240,8 +281,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     if (offset == null || !offset.isFinite) return;
     final selected = _selected.clamp(0, _tabKinds.length - 1);
     final tab = _tabKinds[selected];
-    _tabReachedResourceTop[tab] = offset >= 0;
-    if (offset >= 0) _tabScrollOffsets[tab] = offset;
+    _session.recordScrollOffset(tab, offset);
   }
 
   void _restoreScrollAfterOrientationChange() {
@@ -256,7 +296,18 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     _unpinnedTransitionOffset = null;
     _motionTarget = null;
     final generation = ++_tabMotionGeneration;
-    if (!(_tabReachedResourceTop[tab] ?? false)) return;
+    if (!_session.reachedResourceTopFor(tab)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != _tabMotionGeneration) return;
+      unawaited(_restoreResourceOffset(tab, generation));
+    });
+  }
+
+  void _restoreInitialScrollIfNeeded() {
+    final selected = _selected.clamp(0, _tabKinds.length - 1);
+    final tab = _tabKinds[selected];
+    if (!_session.reachedResourceTopFor(tab)) return;
+    final generation = ++_tabMotionGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || generation != _tabMotionGeneration) return;
       unawaited(_restoreResourceOffset(tab, generation));
@@ -472,7 +523,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                 onDragCancel: () => _settlePagePosition(0),
                 pageResourceOffsets: [
                   for (final tab in _pageKinds)
-                    _unpinnedTransitionOffset ?? _tabScrollOffsets[tab] ?? 0,
+                    _unpinnedTransitionOffset ??
+                        _session.scrollOffsetFor(tab) ??
+                        0,
                 ],
                 leadingExtent: leadingExtent,
                 minimumPageExtent: math.max(
@@ -491,10 +544,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                         !_pageKinds.contains(tab)) {
                       return;
                     }
-                    _tabScrollOffsets[tab] =
-                        ((_tabScrollOffsets[tab] ?? 0) + correction)
-                            .clamp(0.0, double.infinity)
-                            .toDouble();
+                    _session.recordScrollOffset(
+                      tab,
+                      (_session.scrollOffsetFor(tab) ?? 0) + correction,
+                    );
                     setState(() {});
                   });
                 },
@@ -577,6 +630,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     _pageKinds = nextPages;
     _tabKinds = nextTabs;
     _selected = selected;
+    _session.selectedTab = nextTabs[selected];
     _motionTarget = null;
     _tabs.dispose();
     _tabs = TabController(
@@ -622,11 +676,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     _unpinnedTransitionOffset = resourceOffset < 0 ? resourceOffset : null;
     if (_transitionSource != null) return;
     final source = _tabKinds[_selected.clamp(0, _tabKinds.length - 1)];
-    _tabReachedResourceTop[source] = resourceOffset >= 0;
-    final offset = resourceOffset.clamp(0.0, double.infinity).toDouble();
+    _session.recordScrollOffset(source, resourceOffset);
     setState(() {
       _transitionSource = source;
-      _tabScrollOffsets[source] = offset;
     });
   }
 
@@ -685,6 +737,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
             !_recommendationVisited)) {
       setState(() {
         _selected = selected;
+        _session.selectedTab = _tabKinds[selected];
         if (_tabKinds[selected] == WorkResourceTab.recommendations) {
           _recommendationVisited = true;
         }
@@ -1449,8 +1502,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       _imagePage = page;
       _imagePageGatePassed.value = false;
     });
-    _tabScrollOffsets[WorkResourceTab.images] = 0;
-    _tabReachedResourceTop[WorkResourceTab.images] = true;
+    _session.resetScrollOffset(WorkResourceTab.images);
     unawaited(_scrollToResourceTop(animate: true));
   }
 
@@ -1488,7 +1540,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       final resourceTop = viewport.getOffsetToReveal(renderObject, 0).offset;
       final offset =
           (resourceTop +
-                  (_unpinnedTransitionOffset ?? _tabScrollOffsets[tab] ?? 0))
+                  (_unpinnedTransitionOffset ??
+                      _session.scrollOffsetFor(tab) ??
+                      0))
               .clamp(position.minScrollExtent, position.maxScrollExtent)
               .toDouble();
       if (position.pixels != offset) position.jumpTo(offset);

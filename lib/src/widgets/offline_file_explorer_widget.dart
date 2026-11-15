@@ -60,6 +60,7 @@ class OfflineFileExplorerWidget extends ConsumerStatefulWidget {
   final Future<bool> Function()? initialLoadReady;
   final bool translate;
   final String? Function()? translatedWorkTitle;
+  final WorkResourceSession? session;
 
   const OfflineFileExplorerWidget({
     super.key,
@@ -70,6 +71,7 @@ class OfflineFileExplorerWidget extends ConsumerStatefulWidget {
     this.initialLoadReady,
     this.translate = false,
     this.translatedWorkTitle,
+    this.session,
   });
 
   @override
@@ -80,7 +82,7 @@ class OfflineFileExplorerWidget extends ConsumerStatefulWidget {
 class _OfflineFileExplorerWidgetState
     extends ConsumerState<OfflineFileExplorerWidget> {
   List<dynamic> _localFiles = []; // 仅包含本地存在的文件
-  final Set<String> _expandedFolders = {}; // 记录展开的文件夹路径
+  late final WorkResourceSession _session;
   final Map<String, bool> _manualFolderOverrides = {};
   final _audioVariantClassifier = const PlayerAudioVariantClassifier();
   List<PlayerAudioVariant> _audioVariants = const [];
@@ -96,6 +98,8 @@ class _OfflineFileExplorerWidgetState
   Future<bool>? _subtitleScanTask;
   String? _workDirPath;
   List<String> _visibleNames = const [];
+
+  Set<String> get _expandedFolders => _session.expandedFolders;
 
   FilePreviewResolver get _previewResolver => FilePreviewResolver(
     downloadRootPath: () async {
@@ -134,6 +138,7 @@ class _OfflineFileExplorerWidgetState
   @override
   void initState() {
     super.initState();
+    _session = widget.session ?? WorkResourceSession();
     _fileListController = ref.read(fileListControllerProvider.notifier);
     ref.listenManual(audioFormatPreferenceProvider, (previous, preference) {
       unawaited(_syncPreferredExpandedFolders(preference));
@@ -408,9 +413,7 @@ class _OfflineFileExplorerWidgetState
     final work = widget.work;
     final useTranslations = widget.translate;
     final translatedTitles = useTranslations
-        ? Map<String, String>.unmodifiable(
-            _translationController.translations,
-          )
+        ? Map<String, String>.unmodifiable(_translationController.translations)
         : null;
     final translatedAlbumTitle = useTranslations
         ? widget.translatedWorkTitle?.call()
@@ -912,6 +915,7 @@ class _OfflineFileExplorerWidgetState
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,
       audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
+      session: _session,
       onImageTap: _previewImageFile,
       resolveImage: (file) async {
         final items = await _previewResolver.buildOfflineImageItems(

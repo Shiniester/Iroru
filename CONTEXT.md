@@ -308,6 +308,8 @@ Each tab retains its resource-section scroll position during the current detail
 visit; an unvisited tab starts at the resource section's top.
 Changing orientation keeps the selected tab and its resource-section scroll
 position.
+The selected tab, per-tab scroll positions, image page, and expanded resource
+folders persist for the current Work Details Screen visit.
 Swiping before the tab bar pins preserves its position on screen.
 Pages slide out and in at their own browsing positions throughout the transition.
 _Avoid_: App Tab Bar, Works Home Tab

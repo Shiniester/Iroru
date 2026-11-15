@@ -17,12 +17,15 @@ Widget _app({
   required List<dynamic> files,
   required Widget resourceSliver,
   WorkResourceTab initialTab = WorkResourceTab.audio,
+  WorkResourceSession? session,
+  Key? layoutKey,
 }) => ProviderScope(
   child: MaterialApp(
     localizationsDelegates: S.localizationsDelegates,
     supportedLocales: S.supportedLocales,
     home: Scaffold(
       body: WorkDetailResponsiveLayout(
+        key: layoutKey,
         coverBuilder: (_, __) =>
             const SizedBox(height: 120, child: Text('cover')),
         infoSliver: SliverMainAxisGroup(
@@ -37,6 +40,7 @@ Widget _app({
               resourceSliver: resourceSliver,
               resourceTitle: 'Files',
               initialTab: initialTab,
+              session: session,
               onPlayAudio: (_, __, ___) {},
               onFileTap: (_, __, ___) {},
               onImageTap: (_) {},
@@ -162,6 +166,45 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_scrollPosition(tester).pixels, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('session restores tab and scroll after details subtree rebuild', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 800);
+    addTearDown(tester.view.reset);
+    final session = WorkResourceSession();
+
+    Widget build(Key key) => _app(
+      layoutKey: key,
+      session: session,
+      files: _files(),
+      resourceSliver: SliverList.builder(
+        itemCount: 80,
+        itemBuilder: (context, index) =>
+            SizedBox(height: 48, child: Text('resource $index')),
+      ),
+    );
+
+    await tester.pumpWidget(build(const ValueKey('first')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pumpAndSettle();
+    final before = _scrollPosition(tester);
+    before.jumpTo(_resourceTop(tester) + 420);
+    await tester.pump();
+    expect(before.pixels - _resourceTop(tester), closeTo(420, 1));
+    expect(session.selectedTab, WorkResourceTab.resources);
+    expect(session.reachedResourceTopFor(WorkResourceTab.resources), isTrue);
+
+    await tester.pumpWidget(build(const ValueKey('second')));
+    await tester.pumpAndSettle();
+
+    expect(_selectedTab(tester), 0);
+    final after = _scrollPosition(tester);
+    expect(after.pixels - _resourceTop(tester), closeTo(420, 4));
     expect(tester.takeException(), isNull);
   });
 }
