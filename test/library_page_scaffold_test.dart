@@ -621,7 +621,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('library-menu-button')));
     await tester.pumpAndSettle();
     final drawer = find.byKey(const ValueKey('library-drawer'));
-    expect(tester.getSize(drawer).width, 224);
+    expect(tester.getSize(drawer).width, 200);
     expect(
       tester.getSize(find.byKey(const ValueKey('history-row'))).height,
       48,

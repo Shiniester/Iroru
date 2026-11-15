@@ -656,12 +656,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       LibraryDrawerTile(
         icon: Icons.translate,
         title: s.autoTranslateWorkDetails,
-        trailing: Switch(
-          value: autoTranslate,
-          onChanged: (enabled) => ref
-              .read(autoTranslateWorkDetailsProvider.notifier)
-              .setEnabled(enabled),
-        ),
+        selected: autoTranslate,
         closeOnTap: false,
         onTap: () => ref
             .read(autoTranslateWorkDetailsProvider.notifier)

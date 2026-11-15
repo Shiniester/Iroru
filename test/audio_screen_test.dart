@@ -2069,12 +2069,16 @@ void main() {
     );
     await tester.ensureVisible(translation);
     await tester.pumpAndSettle();
-    final toggle = find.descendant(of: drawer, matching: find.byType(Switch));
-    expect(tester.widget<Switch>(toggle).value, isTrue);
+    expect(
+      find.descendant(of: drawer, matching: find.byType(Switch)),
+      findsNothing,
+    );
+    expect(_browseTile(tester, s.autoTranslateWorkDetails).selected, isTrue);
 
     await tester.tap(translation);
     await tester.pumpAndSettle();
     expect(container.read(autoTranslateWorkDetailsProvider), isFalse);
+    expect(_browseTile(tester, s.autoTranslateWorkDetails).selected, isFalse);
     expect(
       prefs.getBool(AutoTranslateWorkDetailsNotifier.preferenceKey),
       isFalse,
@@ -2085,10 +2089,11 @@ void main() {
         .read(autoTranslateWorkDetailsProvider.notifier)
         .setEnabled(true);
     await tester.pumpAndSettle();
-    expect(tester.widget<Switch>(toggle).value, isTrue);
-    await tester.tap(toggle);
+    expect(_browseTile(tester, s.autoTranslateWorkDetails).selected, isTrue);
+    await tester.tap(translation);
     await tester.pumpAndSettle();
     expect(container.read(autoTranslateWorkDetailsProvider), isFalse);
+    expect(_browseTile(tester, s.autoTranslateWorkDetails).selected, isFalse);
     expect(
       prefs.getBool(AutoTranslateWorkDetailsNotifier.preferenceKey),
       isFalse,
@@ -2096,18 +2101,10 @@ void main() {
 
     _requestAudioPage(tester, 'history');
     await tester.pumpAndSettle();
-    expect(
-      (_browseTile(tester, s.autoTranslateWorkDetails).trailing as Switch)
-          .value,
-      isFalse,
-    );
+    expect(_browseTile(tester, s.autoTranslateWorkDetails).selected, isFalse);
     _requestAudioSource(tester, audio_source.AudioSource.jpAsmr);
     await tester.pumpAndSettle();
-    expect(
-      (_browseTile(tester, s.autoTranslateWorkDetails).trailing as Switch)
-          .value,
-      isFalse,
-    );
+    expect(_browseTile(tester, s.autoTranslateWorkDetails).selected, isFalse);
     expect(tester.takeException(), isNull);
   });
 

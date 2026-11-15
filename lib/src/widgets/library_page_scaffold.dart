@@ -83,7 +83,7 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
         drawer: Drawer(
           key: const ValueKey('library-drawer'),
           backgroundColor: theme.scaffoldBackgroundColor,
-          width: math.min(224, width - 48),
+          width: math.min(200, width - 48),
           child: widget.deferDrawerActions
               ? _LibraryDrawerLifecycle(
                   key: _drawerLifecycleKey,
