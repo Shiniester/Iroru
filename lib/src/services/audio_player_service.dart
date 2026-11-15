@@ -2856,14 +2856,21 @@ class AudioPlayerService {
     final published = _publishedTrack;
     final track = _trackForPlaybackIntent();
     if (track == null) return;
-    if (_sourceNeedsReload || published?.id != track.id) {
+    final idle = _player.processingState == ProcessingState.idle;
+    if (idle) {
+      _log.captureOutput(
+        '[Audio][SEEKDIAG] play reload from idle '
+        'position=${_player.position.inMilliseconds}ms',
+      );
+    }
+    if (_sourceNeedsReload || published?.id != track.id || idle) {
       await _enqueueTrackLoad(
         track,
         emitCurrentTrack: published?.id != track.id,
         autoplay: true,
         direction: PlayerTrackChangeDirection.none,
-        sourceToReload: _failedSeekSource,
-        initialPosition: _failedSeekPosition,
+        sourceToReload: idle ? null : _failedSeekSource,
+        initialPosition: idle ? _player.position : _failedSeekPosition,
       ).future;
       return;
     }
@@ -3304,8 +3311,10 @@ class AudioPlayerService {
       final receipt = JustAudioMediaKit.positionConfirmation(id);
       if (receipt != null) {
         position = await Future.any([receipt, jump.cancelled.future]);
-      } else if (_player.processingState == ProcessingState.idle) {
-        // just_audio keeps a local position after disposing the stopped player.
+      } else if (_player.processingState == ProcessingState.idle &&
+          !_desiredPlaying) {
+        // A paused player keeps a local position after its source was stopped.
+        // An idle player that should be playing has lost its source.
         position = _player.position;
       } else {
         return false;
@@ -3455,6 +3464,36 @@ class AudioPlayerService {
     _TrackLoadRequest? cachedTrackLoad;
     bool isCurrentSeekResult([_TrackLoadRequest? cacheReload]) =>
         cacheReload == null ? isCurrentSeek() : isCurrentSeekLoad(cacheReload);
+    Future<bool> recoverSeek({AudioSource? source}) async {
+      final track = currentTrack;
+      if (track == null) return false;
+      _log.captureOutput(
+        '[Audio][SEEKDIAG] recover seek target=${targetPosition.inMilliseconds}ms '
+        'source=${source == null ? 'track' : 'native'}',
+      );
+      _beginCoverSeekOperation(coverSeekToken, loading: true);
+      final recovery = _enqueueTrackLoad(
+        track,
+        emitCurrentTrack: false,
+        autoplay: _desiredPlaying,
+        direction: PlayerTrackChangeDirection.none,
+        sourceToReload: source,
+        initialPosition: targetPosition,
+      );
+      try {
+        await recovery.future;
+      } catch (error) {
+        _log.captureOutput('[Audio] Seek recovery failed: $error');
+        return false;
+      }
+      final succeeded =
+          isCurrentSeekLoad(recovery) &&
+          await _confirmPositionJump(jump, () => isCurrentSeekLoad(recovery));
+      if (succeeded) {
+        _completeCoverSeekOperation(coverSeekToken, targetPosition);
+      }
+      return succeeded;
+    }
 
     if (source is UriAudioSource &&
         (source.uri.scheme == 'http' || source.uri.scheme == 'https') &&
@@ -3531,26 +3570,11 @@ class AudioPlayerService {
           final track = currentTrack;
           if (track == null) rethrow;
           if (identical(_seekError, nativeError)) _seekError = null;
-          _beginCoverSeekOperation(coverSeekToken, loading: true);
-          final recovery = _enqueueTrackLoad(
-            track,
-            emitCurrentTrack: false,
-            autoplay: _desiredPlaying,
-            direction: PlayerTrackChangeDirection.none,
-            sourceToReload: source,
-            initialPosition: targetPosition,
-          );
-          await recovery.future;
-          final succeeded =
-              isCurrentSeekLoad(recovery) &&
-              await _confirmPositionJump(
-                jump,
-                () => isCurrentSeekLoad(recovery),
-              );
-          if (succeeded) {
-            _completeCoverSeekOperation(coverSeekToken, targetPosition);
+          final recovered = await recoverSeek(source: source);
+          if (recovered || _player.processingState != ProcessingState.idle) {
+            return recovered;
           }
-          return succeeded;
+          return recoverSeek();
         }
       } finally {
         if (identical(_seekError, nativeError)) _seekError = null;
@@ -3562,12 +3586,18 @@ class AudioPlayerService {
       _beginCoverSeekOperation(coverSeekToken);
       await _seekNativePlayer(targetPosition);
     }
-    if (!isCurrentSeekResult(cachedTrackLoad) ||
-        !await _confirmPositionJump(
-          jump,
-          () => isCurrentSeekResult(cachedTrackLoad),
-        )) {
+    if (!isCurrentSeekResult(cachedTrackLoad)) {
       return false;
+    }
+    if (!await _confirmPositionJump(
+      jump,
+      () => isCurrentSeekResult(cachedTrackLoad),
+    )) {
+      if (_player.processingState != ProcessingState.idle) {
+        return false;
+      }
+      // The seek was accepted locally but the player lost its source.
+      return recoverSeek();
     }
     _completeCoverSeekOperation(coverSeekToken, targetPosition);
     if (!_handlingTrackCompletion &&
