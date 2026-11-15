@@ -2857,12 +2857,6 @@ class AudioPlayerService {
     final track = _trackForPlaybackIntent();
     if (track == null) return;
     final idle = _player.processingState == ProcessingState.idle;
-    if (idle) {
-      _log.captureOutput(
-        '[Audio][SEEKDIAG] play reload from idle '
-        'position=${_player.position.inMilliseconds}ms',
-      );
-    }
     if (_sourceNeedsReload || published?.id != track.id || idle) {
       await _enqueueTrackLoad(
         track,
@@ -3200,13 +3194,7 @@ class AudioPlayerService {
         coverSeekToken: coverSeekToken,
         jump: jump,
       );
-      _log.captureOutput(
-        '[Audio][SEEKDIAG] seek target=${target.inMilliseconds}ms '
-        'userInitiated=$userInitiated ok=$succeeded '
-        'playing=${_player.playing} '
-        'state=${_player.processingState} '
-        'position=${_player.position.inMilliseconds}ms',
-      );
+      if (succeeded) _nativeEffects.resetHistory();
       if (succeeded && _desiredPlaying && !_player.playing) {
         _startPlaybackWithSideEffects();
       }
@@ -3467,10 +3455,6 @@ class AudioPlayerService {
     Future<bool> recoverSeek({AudioSource? source}) async {
       final track = currentTrack;
       if (track == null) return false;
-      _log.captureOutput(
-        '[Audio][SEEKDIAG] recover seek target=${targetPosition.inMilliseconds}ms '
-        'source=${source == null ? 'track' : 'native'}',
-      );
       _beginCoverSeekOperation(coverSeekToken, loading: true);
       final recovery = _enqueueTrackLoad(
         track,
@@ -3570,11 +3554,7 @@ class AudioPlayerService {
           final track = currentTrack;
           if (track == null) rethrow;
           if (identical(_seekError, nativeError)) _seekError = null;
-          final recovered = await recoverSeek(source: source);
-          if (recovered || _player.processingState != ProcessingState.idle) {
-            return recovered;
-          }
-          return recoverSeek();
+          return recoverSeek(source: source);
         }
       } finally {
         if (identical(_seekError, nativeError)) _seekError = null;

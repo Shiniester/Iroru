@@ -117,7 +117,36 @@ void main() {
     skip: library == null,
   );
 
-  test('seek keeps playing with scene effects', () async {
+  test(
+    'seek history reset replaces the resident graph when live controls did not change',
+    () async {
+      final frames = List.generate(48000, (n) => (1000 + n, -3000 - n));
+      final settings = AudioEffectsSettings(
+        channelMode: AudioChannelMode.cloneLeft,
+      );
+      await _captureInitialEffects(
+        audioEffectsWav(frames, 48000),
+        settings,
+        onLoad: (_, native) async {
+          const clock = 'asetnsamples=n=128:p=0,arealtime';
+          final chain = await native.getProperty('af');
+          _setNativeAf(
+            native,
+            '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$chain',
+          );
+        },
+        duringPlayback: (controller, native) async {
+          controller.resetHistory();
+          final reset = await native.getProperty('af');
+          expect(reset, contains('@kiko_channel'));
+          expect(reset, isNot(contains('@test_clock')));
+        },
+      );
+    },
+    skip: library == null,
+  );
+
+  test('seek keeps playing after scene history reset', () async {
     final ready = Completer<void>();
     final player = Player(
       configuration: PlayerConfiguration(ready: ready.complete),
@@ -173,6 +202,7 @@ void main() {
       await _waitForOutput(output);
       expect(await native.getProperty('af'), contains('@kiko_bathroom'));
       await player.seek(const Duration(seconds: 2));
+      controller.resetHistory();
       await completed.timeout(const Duration(seconds: 15));
       expect(statuses, isNot(contains(AudioEffectsStatus.unavailable)));
     } finally {
@@ -496,6 +526,7 @@ void main() {
         );
         expect(loads, 1);
         expect(await native.getProperty('eof-reached'), 'no');
+        controller.resetHistory();
         final resetGraph = AudioEffectsGraph.render(
           AudioEffectsSettings(channelMode: AudioChannelMode.cloneRight),
           systemLibrary: false,

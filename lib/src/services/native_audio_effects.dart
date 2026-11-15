@@ -232,6 +232,10 @@ class NativeAudioEffects {
     _install();
   }
 
+  void resetHistory() {
+    if (!_failed && _graphInstalled) _install(mayReuseFilters: true);
+  }
+
   void _install({bool mayReuseFilters = false}) {
     final player = _player;
     if (player == null || player.disposed) return;
