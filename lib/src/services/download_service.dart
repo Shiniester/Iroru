@@ -22,7 +22,6 @@ import 'download_disk_inventory_scanner.dart';
 import 'download_task_persistence.dart';
 import 'local_work_metadata_service.dart';
 import 'log_service.dart';
-import 'audio_cache_files.dart';
 import 'remote_asset_cache.dart';
 import 'resumable_file_transfer.dart';
 import 'japanese_asmr_chapter_downloader.dart';
@@ -764,53 +763,6 @@ class DownloadService implements DownloadTaskRepository {
       return existingTask;
     }
 
-    // 检查缓存中是否已有此文件
-    if (startTimeMs == null && hash != null && hash.isNotEmpty) {
-      final cachedFile = await CacheService.getCachedAudioFile(hash);
-      if (cachedFile != null) {
-        // 从缓存移动到下载目录
-        final workDir = await _getWorkDownloadDirectory(workId);
-        final targetPath = DownloadFilePathService.localPathForRelativePath(
-          rootPath: workDir,
-          relativePath: fileName,
-        );
-        final targetFile = File(targetPath);
-
-        // 确保目录存在
-        await targetFile.parent.create(recursive: true);
-
-        if (!await targetFile.exists()) {
-          await File(cachedFile).copy(targetPath);
-        }
-
-        final task = DownloadTask(
-          id: _taskIdentity(workId: workId, hash: hash, fileName: fileName),
-          workId: workId,
-          workTitle: workTitle,
-          fileName: fileName, // 使用包含路径的完整文件名
-          downloadUrl: downloadUrl,
-          originalDownloadUrl: originalDownloadUrl,
-          hash: hash,
-          totalBytes: totalBytes ?? await targetFile.length(),
-          downloadedBytes: totalBytes ?? await targetFile.length(),
-          status: DownloadStatus.completed,
-          createdAt: DateTime.now(),
-          completedAt: DateTime.now(),
-          workMetadata: workMetadata,
-        );
-
-        _appendTask(task);
-        await _saveTasks();
-
-        // 保存作品元数据到硬盘
-        if (workMetadata != null) {
-          await _saveWorkMetadata(workId, workMetadata, coverUrl);
-        }
-
-        return task;
-      }
-    }
-
     final task = DownloadTask(
       id: _taskIdentity(workId: workId, hash: hash, fileName: fileName),
       workId: workId,
@@ -970,13 +922,11 @@ class DownloadService implements DownloadTaskRepository {
     try {
       final isAudio =
           isChapter || FileIconUtils.inferFileType(task.fileName) == 'audio';
-      // 先检查缓存中是否已有此文件
-      if (!isChapter && task.hash != null && task.hash!.isNotEmpty) {
+      // 非音频资源可复用缓存；音频下载始终使用源文件的下载表示。
+      if (!isChapter && !isAudio && task.hash != null && task.hash!.isNotEmpty) {
         final fileType = task.fileName.split('.').last.toLowerCase();
         final cachedPath = task.workId < 0
             ? null
-            : isAudio
-            ? await CacheService.getCachedAudioFile(task.hash!)
             : await CacheService.getCachedFileResource(
                 workId: task.workId,
                 hash: task.hash!,
@@ -988,21 +938,13 @@ class DownloadService implements DownloadTaskRepository {
           _log.info('从缓存复制文件: $cachedPath -> $filePath', tag: 'Download');
           final cachedFile = File(cachedPath);
           if (await cachedFile.exists()) {
-            if (isAudio) {
-              AudioCacheFiles.markCachePathActive(cachedPath);
-            } else {
-              FileRemoteAssetCache.markCachePathActive(cachedPath);
-            }
+            FileRemoteAssetCache.markCachePathActive(cachedPath);
             try {
               if (!p.equals(p.normalize(cachedPath), p.normalize(filePath))) {
                 await cachedFile.copy(filePath);
               }
             } finally {
-              if (isAudio) {
-                AudioCacheFiles.unmarkCachePathActive(cachedPath);
-              } else {
-                FileRemoteAssetCache.unmarkCachePathActive(cachedPath);
-              }
+              FileRemoteAssetCache.unmarkCachePathActive(cachedPath);
             }
 
             final completedTask = task.copyWith(
@@ -1156,40 +1098,7 @@ class DownloadService implements DownloadTaskRepository {
         tag: 'Download',
       );
 
-      if (!isChapter &&
-          task.workId >= 0 &&
-          (!await tempFile.exists() || await tempFile.length() == 0) &&
-          task.hash != null &&
-          task.hash!.isNotEmpty &&
-          isAudio) {
-        final audioPrefix = await CacheService.audioCacheFiles.partialFile(
-          task.hash!,
-        );
-        if (await audioPrefix.exists() &&
-            !AudioCacheFiles.isCachePathActive(audioPrefix.path)) {
-          final sourceLength = await audioPrefix.length();
-          final sourceModified = await audioPrefix.lastModified();
-          final lease = AudioCacheFiles.holdCacheFile(audioPrefix.path);
-          try {
-            await audioPrefix.copy(tempFilePath);
-          } finally {
-            lease.release();
-          }
-          final sourceStayedInactive =
-              await audioPrefix.exists() &&
-              !AudioCacheFiles.isCachePathActive(audioPrefix.path) &&
-              await audioPrefix.length() == sourceLength &&
-              await audioPrefix.lastModified() == sourceModified;
-          if (sourceStayedInactive) {
-            _log.info(
-              '复用后台音频缓存前缀: ${await tempFile.length()} bytes',
-              tag: 'Download',
-            );
-          } else if (await tempFile.exists()) {
-            await tempFile.delete();
-          }
-        }
-      }
+      // 自动音频缓存可能来自另一条流地址的容器。下载只从自己的临时文件续传。
 
       late final String downloadUrl;
       if (task.workId < 0) {
@@ -1211,6 +1120,7 @@ class DownloadService implements DownloadTaskRepository {
         uri: Uri.parse(downloadUrl),
         partialFile: tempFile,
         cancellation: cancelToken,
+        sourceIdentity: task.id,
         headers: task.workId < 0
             ? isAudio
                   ? const <String, String>{}

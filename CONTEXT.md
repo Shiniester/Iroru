@@ -571,6 +571,12 @@ At the final slice, Repeat Mode determines whether playback returns to the first
 slice or advances to the next track.
 _Avoid_: Slice Preview, audio-file trimming
 
+**Audio Download (音声下载)**:
+A complete audio file saved for offline use. An Audio Download uses the source's
+download representation and never resumes from or substitutes Automatic Audio
+Cache, which may hold a different container of the same track.
+_Avoid_: Automatic Audio Cache, playback buffer
+
 **Automatic Audio Cache (音频自动缓存)**:
 Saving online audio in the background for later playback. A cache entry becomes
 playable only when the entire file is saved. Cache progress, failure, or

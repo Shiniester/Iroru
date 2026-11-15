@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
 import 'package:kikoeru_flutter/src/services/resumable_file_transfer.dart';
+import 'package:path/path.dart' as p;
 
 void main() {
   late Directory tempDirectory;
@@ -21,7 +23,12 @@ void main() {
 
   test('resumes a download after the existing contiguous prefix', () async {
     final partial = File('${tempDirectory.path}/track.mp3.downloading');
-    await partial.writeAsBytes(const [1, 2]);
+    await _seedPrefix(
+      partial,
+      const [1, 2],
+      Uri.parse('https://example.com/track.mp3'),
+      etag: '"v1"',
+    );
     final transport = _TransferTransport(
       const RemoteAssetResponse(
         statusCode: HttpStatus.partialContent,
@@ -40,6 +47,7 @@ void main() {
     );
 
     expect(transport.request!.headers['Range'], 'bytes=2-');
+    expect(transport.request!.headers['If-Range'], '"v1"');
     expect(transport.request!.headers['Accept-Encoding'], 'identity');
     expect(result.totalBytes, 5);
     expect(await partial.readAsBytes(), const [1, 2, 3, 4, 5]);
@@ -47,7 +55,10 @@ void main() {
 
   test('a server that ignores Range safely replaces the old prefix', () async {
     final partial = File('${tempDirectory.path}/track.mp3.downloading');
-    await partial.writeAsBytes(const [1, 2]);
+    await _seedPrefix(partial, const [
+      1,
+      2,
+    ], Uri.parse('https://example.com/track.mp3'));
     final transport = _TransferTransport(
       const RemoteAssetResponse(
         statusCode: HttpStatus.ok,
@@ -70,7 +81,10 @@ void main() {
 
   test('a temporary server failure retains the resumable prefix', () async {
     final partial = File('${tempDirectory.path}/track.mp3.downloading');
-    await partial.writeAsBytes(const [1, 2]);
+    await _seedPrefix(partial, const [
+      1,
+      2,
+    ], Uri.parse('https://example.com/track.mp3'));
     final transport = _TransferTransport(
       const RemoteAssetResponse(
         statusCode: HttpStatus.serviceUnavailable,
@@ -97,7 +111,10 @@ void main() {
     'an HTML redirect page is rejected without replacing the prefix',
     () async {
       final partial = File('${tempDirectory.path}/track.m4a.downloading');
-      await partial.writeAsBytes(const [1, 2]);
+      await _seedPrefix(partial, const [
+        1,
+        2,
+      ], Uri.parse('https://example.com/track.m4a'));
       final transport = _TransferTransport(
         const RemoteAssetResponse(
           statusCode: HttpStatus.ok,
@@ -126,7 +143,10 @@ void main() {
     'an HTML body with a misleading content type is rejected for audio',
     () async {
       final partial = File('${tempDirectory.path}/track.m4a.downloading');
-      await partial.writeAsBytes(const [1, 2]);
+      await _seedPrefix(partial, const [
+        1,
+        2,
+      ], Uri.parse('https://example.com/track.m4a'));
       final body = '<!doctype html><html>error</html>'.codeUnits;
       final transport = _TransferTransport(
         RemoteAssetResponse(
@@ -177,7 +197,10 @@ void main() {
 
   test('a complete prefix accepts the 416 HTML range response', () async {
     final partial = File('${tempDirectory.path}/track.m4a.downloading');
-    await partial.writeAsBytes(const [1, 2]);
+    await _seedPrefix(partial, const [
+      1,
+      2,
+    ], Uri.parse('https://example.com/track.m4a'));
     final body = '<html>range not satisfiable</html>'.codeUnits;
     final transport = _TransferTransport(
       RemoteAssetResponse(
@@ -199,6 +222,286 @@ void main() {
     expect(result.totalBytes, 2);
     expect(await partial.readAsBytes(), const [1, 2]);
   });
+
+  test('restarts when a partial has no source marker', () async {
+    final partial = File('${tempDirectory.path}/track.mp3.downloading');
+    await partial.writeAsBytes(const [1, 2]);
+    final transport = _TransferTransport(
+      const RemoteAssetResponse(
+        statusCode: HttpStatus.ok,
+        contentLength: 4,
+        headers: {},
+        stream: Stream.empty(),
+      ),
+      body: const [9, 8, 7, 6],
+    );
+
+    await ResumableFileTransfer(transport: transport).download(
+      uri: Uri.parse('https://example.com/track.mp3'),
+      partialFile: partial,
+      cancellation: RemoteAssetCancellation(),
+    );
+
+    expect(transport.request!.headers['Range'], isNull);
+    expect(await partial.readAsBytes(), const [9, 8, 7, 6]);
+  });
+
+  test('restarts when the source URL changed', () async {
+    final partial = File('${tempDirectory.path}/track.mp3.downloading');
+    await _seedPrefix(partial, const [
+      1,
+      2,
+    ], Uri.parse('https://example.com/old.mp3'));
+    final transport = _TransferTransport(
+      const RemoteAssetResponse(
+        statusCode: HttpStatus.ok,
+        contentLength: 4,
+        headers: {},
+        stream: Stream.empty(),
+      ),
+      body: const [9, 8, 7, 6],
+    );
+
+    await ResumableFileTransfer(transport: transport).download(
+      uri: Uri.parse('https://example.com/new.mp3'),
+      partialFile: partial,
+      cancellation: RemoteAssetCancellation(),
+    );
+
+    expect(transport.request!.headers['Range'], isNull);
+    expect(await partial.readAsBytes(), const [9, 8, 7, 6]);
+  });
+
+  test('restarts when the source length changed', () async {
+    final uri = Uri.parse('https://example.com/track.mp3');
+    final partial = File('${tempDirectory.path}/track.mp3.downloading');
+    await _seedPrefix(partial, const [1, 2], uri, length: 5);
+    final transport = _SequenceTransport([
+      (
+        const RemoteAssetResponse(
+          statusCode: HttpStatus.partialContent,
+          contentLength: 2,
+          headers: {'content-range': 'bytes 2-3/4'},
+          stream: Stream.empty(),
+        ),
+        const [3, 4],
+      ),
+      (
+        const RemoteAssetResponse(
+          statusCode: HttpStatus.ok,
+          contentLength: 4,
+          headers: {},
+          stream: Stream.empty(),
+        ),
+        const [9, 8, 7, 6],
+      ),
+    ]);
+
+    await ResumableFileTransfer(transport: transport).download(
+      uri: uri,
+      partialFile: partial,
+      cancellation: RemoteAssetCancellation(),
+    );
+
+    expect(transport.requests, hasLength(2));
+    expect(transport.requests.first.headers['Range'], 'bytes=2-');
+    expect(transport.requests.last.headers['Range'], isNull);
+    expect(await partial.readAsBytes(), const [9, 8, 7, 6]);
+  });
+
+  test('resumes when the URL changes but the identity is stable', () async {
+    final partial = File('${tempDirectory.path}/track.mp3.downloading');
+    await _seedPrefix(
+      partial,
+      const [1, 2],
+      Uri.parse('https://example.com/old.mp3'),
+      identity: 'track-1',
+    );
+    final transport = _TransferTransport(
+      const RemoteAssetResponse(
+        statusCode: HttpStatus.partialContent,
+        contentLength: 3,
+        headers: {'content-range': 'bytes 2-4/5'},
+        stream: Stream.empty(),
+      ),
+      body: const [3, 4, 5],
+    );
+
+    final result = await ResumableFileTransfer(transport: transport).download(
+      uri: Uri.parse('https://example.com/new.mp3'),
+      partialFile: partial,
+      cancellation: RemoteAssetCancellation(),
+      sourceIdentity: 'track-1',
+    );
+
+    expect(transport.request!.headers['Range'], 'bytes=2-');
+    expect(result.totalBytes, 5);
+    expect(await partial.readAsBytes(), const [1, 2, 3, 4, 5]);
+  });
+
+  test('restarts when the source identity changes', () async {
+    final uri = Uri.parse('https://example.com/track.mp3');
+    final partial = File('${tempDirectory.path}/track.mp3.downloading');
+    await _seedPrefix(partial, const [1, 2], uri, identity: 'old');
+    final transport = _TransferTransport(
+      const RemoteAssetResponse(
+        statusCode: HttpStatus.ok,
+        contentLength: 4,
+        headers: {},
+        stream: Stream.empty(),
+      ),
+      body: const [9, 8, 7, 6],
+    );
+
+    await ResumableFileTransfer(transport: transport).download(
+      uri: uri,
+      partialFile: partial,
+      cancellation: RemoteAssetCancellation(),
+      sourceIdentity: 'new',
+    );
+
+    expect(transport.request!.headers['Range'], isNull);
+    expect(await partial.readAsBytes(), const [9, 8, 7, 6]);
+  });
+
+  test('restarts a no-validator prefix whose first bytes changed', () async {
+    final uri = Uri.parse('https://example.com/track.mp3');
+    final partial = File('${tempDirectory.path}/track.mp3.downloading');
+    await _seedPrefix(partial, const [1, 2], uri, noValidator: true);
+    final transport = _SequenceTransport([
+      (
+        const RemoteAssetResponse(
+          statusCode: HttpStatus.partialContent,
+          contentLength: 2,
+          headers: {'content-range': 'bytes 0-1/4'},
+          stream: Stream.empty(),
+        ),
+        const [9, 9],
+      ),
+      (
+        const RemoteAssetResponse(
+          statusCode: HttpStatus.ok,
+          contentLength: 4,
+          headers: {},
+          stream: Stream.empty(),
+        ),
+        const [9, 9, 9, 9],
+      ),
+    ]);
+
+    await ResumableFileTransfer(transport: transport).download(
+      uri: uri,
+      partialFile: partial,
+      cancellation: RemoteAssetCancellation(),
+    );
+
+    expect(transport.requests, hasLength(2));
+    expect(transport.requests.first.headers['Range'], 'bytes=0-1');
+    expect(transport.requests.last.headers['Range'], isNull);
+    expect(await partial.readAsBytes(), const [9, 9, 9, 9]);
+  });
+
+  test('resumes a no-validator prefix whose first bytes match', () async {
+    final uri = Uri.parse('https://example.com/track.mp3');
+    final partial = File('${tempDirectory.path}/track.mp3.downloading');
+    await _seedPrefix(partial, const [1, 2], uri, noValidator: true);
+    final transport = _SequenceTransport([
+      (
+        const RemoteAssetResponse(
+          statusCode: HttpStatus.partialContent,
+          contentLength: 2,
+          headers: {'content-range': 'bytes 0-1/5'},
+          stream: Stream.empty(),
+        ),
+        const [1, 2],
+      ),
+      (
+        const RemoteAssetResponse(
+          statusCode: HttpStatus.partialContent,
+          contentLength: 3,
+          headers: {'content-range': 'bytes 2-4/5'},
+          stream: Stream.empty(),
+        ),
+        const [3, 4, 5],
+      ),
+    ]);
+
+    final result = await ResumableFileTransfer(transport: transport).download(
+      uri: uri,
+      partialFile: partial,
+      cancellation: RemoteAssetCancellation(),
+    );
+
+    expect(transport.requests, hasLength(2));
+    expect(transport.requests.first.headers['Range'], 'bytes=0-1');
+    expect(transport.requests.last.headers['Range'], 'bytes=2-');
+    expect(result.totalBytes, 5);
+    expect(await partial.readAsBytes(), const [1, 2, 3, 4, 5]);
+  });
+
+  test('a weak ETag uses the prefix probe instead of If-Range', () async {
+    final uri = Uri.parse('https://example.com/track.mp3');
+    final partial = File('${tempDirectory.path}/track.mp3.downloading');
+    await _seedPrefix(partial, const [1, 2], uri, etag: 'W/"v1"');
+    final transport = _SequenceTransport([
+      (
+        const RemoteAssetResponse(
+          statusCode: HttpStatus.partialContent,
+          contentLength: 2,
+          headers: {'content-range': 'bytes 0-1/5'},
+          stream: Stream.empty(),
+        ),
+        const [1, 2],
+      ),
+      (
+        const RemoteAssetResponse(
+          statusCode: HttpStatus.partialContent,
+          contentLength: 3,
+          headers: {'content-range': 'bytes 2-4/5'},
+          stream: Stream.empty(),
+        ),
+        const [3, 4, 5],
+      ),
+    ]);
+
+    await ResumableFileTransfer(transport: transport).download(
+      uri: uri,
+      partialFile: partial,
+      cancellation: RemoteAssetCancellation(),
+    );
+
+    expect(transport.requests, hasLength(2));
+    expect(transport.requests.first.headers['If-Range'], isNull);
+    expect(transport.requests.last.headers['If-Range'], isNull);
+    expect(await partial.readAsBytes(), const [1, 2, 3, 4, 5]);
+  });
+}
+
+Future<void> _seedPrefix(
+  File partial,
+  List<int> bytes,
+  Uri uri, {
+  String? etag,
+  String? lastModified,
+  int? length,
+  String? identity,
+  bool noValidator = false,
+}) async {
+  await partial.parent.create(recursive: true);
+  await partial.writeAsBytes(bytes);
+  final marker = File(
+    p.join(partial.parent.path, '.${p.basename(partial.path)}.source'),
+  );
+  final markerEtag =
+      etag ?? (lastModified == null && !noValidator ? '"seed"' : null);
+  await marker.writeAsString(
+    jsonEncode({
+      'source': identity ?? RemoteAssetKey.canonicalUri(uri),
+      if (markerEtag != null) 'etag': markerEtag,
+      if (lastModified != null) 'lastModified': lastModified,
+      if (length != null) 'length': length,
+    }),
+  );
 }
 
 class _TransferTransport implements RemoteAssetTransport {
@@ -216,6 +519,25 @@ class _TransferTransport implements RemoteAssetTransport {
       contentLength: response.contentLength,
       headers: response.headers,
       stream: Stream.value(body),
+    );
+  }
+}
+
+class _SequenceTransport implements RemoteAssetTransport {
+  _SequenceTransport(this._responses);
+
+  final List<(RemoteAssetResponse, List<int>)> _responses;
+  final List<RemoteAssetTransportRequest> requests = [];
+
+  @override
+  Future<RemoteAssetResponse> open(RemoteAssetTransportRequest request) async {
+    requests.add(request);
+    final response = _responses[requests.length - 1];
+    return RemoteAssetResponse(
+      statusCode: response.$1.statusCode,
+      contentLength: response.$1.contentLength,
+      headers: response.$1.headers,
+      stream: Stream.value(response.$2),
     );
   }
 }
