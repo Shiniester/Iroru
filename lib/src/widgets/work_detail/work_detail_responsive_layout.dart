@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 typedef WorkDetailCoverBuilder =
     Widget Function(BuildContext context, bool isLandscape);
 
-class WorkDetailResponsiveLayout extends StatelessWidget {
+class WorkDetailResponsiveLayout extends StatefulWidget {
   const WorkDetailResponsiveLayout({
     super.key,
     required this.coverBuilder,
@@ -14,6 +14,16 @@ class WorkDetailResponsiveLayout extends StatelessWidget {
   final WorkDetailCoverBuilder coverBuilder;
   final Widget infoSliver;
   final RefreshCallback? onRefresh;
+
+  @override
+  State<WorkDetailResponsiveLayout> createState() =>
+      _WorkDetailResponsiveLayoutState();
+}
+
+class _WorkDetailResponsiveLayoutState
+    extends State<WorkDetailResponsiveLayout> {
+  // Reparent the detail subtree instead of rebuilding it when orientations swap.
+  final _infoSliverKey = GlobalKey(debugLabel: 'work-detail-info-sliver');
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -27,7 +37,11 @@ class WorkDetailResponsiveLayout extends StatelessWidget {
                   .clamp(0.0, double.infinity)
                   .toDouble(),
         ),
-        child: coverBuilder(context, isLandscape),
+        child: widget.coverBuilder(context, isLandscape),
+      );
+      final infoSliver = KeyedSubtree(
+        key: _infoSliverKey,
+        child: widget.infoSliver,
       );
 
       if (isLandscape) {
@@ -58,8 +72,8 @@ class WorkDetailResponsiveLayout extends StatelessWidget {
       ],
     );
 
-    if (onRefresh == null) return scrollable;
+    if (widget.onRefresh == null) return scrollable;
 
-    return RefreshIndicator(onRefresh: onRefresh!, child: scrollable);
+    return RefreshIndicator(onRefresh: widget.onRefresh!, child: scrollable);
   }
 }

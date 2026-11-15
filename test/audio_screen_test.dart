@@ -2750,6 +2750,46 @@ void main() {
     },
   );
 
+  testWidgets(
+    'back handled by a blocking tab route skips the exit hint',
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+      final l10n = S.of(tester.element(find.byType(AudioScreen)));
+      var blocked = 0;
+
+      unawaited(
+        Navigator.of(tester.element(find.byType(AudioScreen))).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => PopScope(
+              canPop: false,
+              onPopInvokedWithResult: (didPop, _) {
+                if (!didPop) blocked++;
+              },
+              child: const Scaffold(
+                body: Center(child: Text('Blocked tab route')),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(blocked, 1);
+      expect(find.text('Blocked tab route'), findsOneWidget);
+      expect(find.text(l10n.pressBackAgainToExit), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('Comic and Video tabs preserve their route state', (
     tester,
   ) async {

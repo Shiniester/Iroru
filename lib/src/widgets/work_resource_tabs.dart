@@ -136,6 +136,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   );
   ScrollPosition? _verticalPosition;
   final _tabScrollOffsets = <WorkResourceTab, double>{};
+  final _tabReachedResourceTop = <WorkResourceTab, bool>{};
   int? _imageCacheWidth;
   bool _imageInspectionScheduled = false;
   Map<String, bool> _downloadedFiles = const {};
@@ -149,6 +150,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   bool _configuringTabs = false;
   double? _unpinnedTransitionOffset;
   bool _recommendationVisited = false;
+  Orientation? _lastOrientation;
   int? _motionTarget;
   int _tabMotionGeneration = 0;
   WorkResourceTab? _transitionSource;
@@ -195,9 +197,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       axis: Axis.vertical,
     )?.position;
     if (_verticalPosition != verticalPosition) {
-      _verticalPosition?.removeListener(_scheduleImageInspection);
+      _verticalPosition?.removeListener(_handleVerticalScroll);
       _verticalPosition = verticalPosition;
-      _verticalPosition?.addListener(_scheduleImageInspection);
+      _verticalPosition?.addListener(_handleVerticalScroll);
     }
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     if (reduceMotion && !_reduceMotion) {
@@ -205,11 +207,16 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       _pagePosition.value = (_motionTarget ?? _selected).toDouble();
     }
     _reduceMotion = reduceMotion;
+    final orientation = MediaQuery.orientationOf(context);
+    final orientationChanged =
+        _lastOrientation != null && _lastOrientation != orientation;
+    _lastOrientation = orientation;
+    if (orientationChanged) _restoreScrollAfterOrientationChange();
   }
 
   @override
   void dispose() {
-    _verticalPosition?.removeListener(_scheduleImageInspection);
+    _verticalPosition?.removeListener(_handleVerticalScroll);
     _imagePrefetchQueue.dispose();
     for (final signal in _imageTargetSignals.values) {
       signal.dispose();
@@ -220,6 +227,40 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       ..dispose();
     _tabs.dispose();
     super.dispose();
+  }
+
+  void _handleVerticalScroll() {
+    _scheduleImageInspection();
+    _captureResourceOffset();
+  }
+
+  void _captureResourceOffset() {
+    if (!mounted || _configuringTabs || _transitionSource != null) return;
+    final offset = _tryResourceScrollOffset();
+    if (offset == null || !offset.isFinite) return;
+    final selected = _selected.clamp(0, _tabKinds.length - 1);
+    final tab = _tabKinds[selected];
+    _tabReachedResourceTop[tab] = offset >= 0;
+    if (offset >= 0) _tabScrollOffsets[tab] = offset;
+  }
+
+  void _restoreScrollAfterOrientationChange() {
+    final selected = _selected.clamp(0, _tabKinds.length - 1);
+    final tab = _tabKinds[selected];
+    _configuringTabs = true;
+    _pagePosition.stop(canceled: true);
+    _pagePosition.value = selected.toDouble();
+    syncTabWithPagePosition(_tabs, _pagePosition.value);
+    _configuringTabs = false;
+    _transitionSource = null;
+    _unpinnedTransitionOffset = null;
+    _motionTarget = null;
+    final generation = ++_tabMotionGeneration;
+    if (!(_tabReachedResourceTop[tab] ?? false)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != _tabMotionGeneration) return;
+      unawaited(_restoreResourceOffset(tab, generation));
+    });
   }
 
   void _updateResources(
@@ -581,6 +622,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     _unpinnedTransitionOffset = resourceOffset < 0 ? resourceOffset : null;
     if (_transitionSource != null) return;
     final source = _tabKinds[_selected.clamp(0, _tabKinds.length - 1)];
+    _tabReachedResourceTop[source] = resourceOffset >= 0;
     final offset = resourceOffset.clamp(0.0, double.infinity).toDouble();
     setState(() {
       _transitionSource = source;
@@ -1408,22 +1450,25 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       _imagePageGatePassed.value = false;
     });
     _tabScrollOffsets[WorkResourceTab.images] = 0;
+    _tabReachedResourceTop[WorkResourceTab.images] = true;
     unawaited(_scrollToResourceTop(animate: true));
   }
 
-  double _resourceScrollOffset() {
+  double? _tryResourceScrollOffset() {
     final position = _verticalPosition;
     final renderObject = _resourceGroupKey.currentContext?.findRenderObject();
     if (position == null ||
         !position.hasContentDimensions ||
         renderObject == null) {
-      return 0;
+      return null;
     }
     final viewport = RenderAbstractViewport.maybeOf(renderObject);
-    if (viewport == null) return 0;
+    if (viewport == null) return null;
     final resourceTop = viewport.getOffsetToReveal(renderObject, 0).offset;
     return position.pixels - resourceTop;
   }
+
+  double _resourceScrollOffset() => _tryResourceScrollOffset() ?? 0;
 
   Future<void> _restoreResourceOffset(
     WorkResourceTab tab,

@@ -306,6 +306,8 @@ For Japanese ASMR works with a chapter index, Audio lists the Work Audio Chapter
 in source order in place of the complete-work audio entry.
 Each tab retains its resource-section scroll position during the current detail
 visit; an unvisited tab starts at the resource section's top.
+Changing orientation keeps the selected tab and its resource-section scroll
+position.
 Swiping before the tab bar pins preserves its position on screen.
 Pages slide out and in at their own browsing positions throughout the transition.
 _Avoid_: App Tab Bar, Works Home Tab

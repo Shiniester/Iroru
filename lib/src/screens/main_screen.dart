@@ -20,7 +20,8 @@ class MainScreen extends ConsumerStatefulWidget {
   ConsumerState<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends ConsumerState<MainScreen> {
+class _MainScreenState extends ConsumerState<MainScreen>
+    with WidgetsBindingObserver {
   late final PageController _pages;
   final _pagesKey = GlobalKey();
   final _selection = ValueNotifier<int?>(0);
@@ -36,6 +37,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _screens = [
       const AudioScreen(key: PageStorageKey('audio_screen')),
       ValueListenableBuilder<int?>(
@@ -80,9 +82,18 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pages.dispose();
     _selection.dispose();
     super.dispose();
+  }
+
+  @override
+  Future<bool> didPopRoute() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    if (_navigation?.handlePlayerLaunchBack() ?? false) return true;
+    _handleExitBack();
+    return true;
   }
 
   @override
@@ -110,48 +121,32 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                 child: ValueListenableBuilder<int?>(
                   valueListenable: _selection,
                   child: _screens[i],
-                  builder: (context, index, child) {
-                    return PopScope(
-                      canPop:
-                          index != i ||
-                          defaultTargetPlatform != TargetPlatform.android,
-                      onPopInvokedWithResult: (didPop, _) {
-                        if (didPop || index != i) return;
-                        if (navigation.handlePlayerLaunchBack() ||
-                            (navigation.tabNavigator(i)?.canPop() ?? false)) {
-                          _lastExitBackAt = null;
-                          return;
+                  builder: (context, index, child) => HeroMode(
+                    enabled: index == i,
+                    child: NavigatorPopHandler<void>(
+                      enabled: navigation.selectedIndex == i,
+                      onPopWithResult: (_) {
+                        if (navigation.selectedIndex == i) {
+                          navigation.tabNavigator(i)?.maybePop<void>();
                         }
-                        _handleExitBack();
                       },
-                      child: HeroMode(
-                        enabled: index == i,
-                        child: NavigatorPopHandler<void>(
-                          enabled: navigation.selectedIndex == i,
-                          onPopWithResult: (_) {
-                            if (navigation.selectedIndex == i) {
-                              navigation.tabNavigator(i)?.maybePop<void>();
-                            }
-                          },
-                          child: ExcludeFocus(
-                            excluding: index != i,
-                            child: Navigator(
-                              key: navigation.tabNavigatorKey(i),
-                              observers: [
-                                navigation.tabObserver(i),
-                                navigation.tabHeroController(i),
-                              ],
-                              onGenerateRoute: (settings) =>
-                                  MaterialPageRoute<void>(
-                                    settings: settings,
-                                    builder: (_) => child!,
-                                  ),
-                            ),
-                          ),
+                      child: ExcludeFocus(
+                        excluding: index != i,
+                        child: Navigator(
+                          key: navigation.tabNavigatorKey(i),
+                          observers: [
+                            navigation.tabObserver(i),
+                            navigation.tabHeroController(i),
+                          ],
+                          onGenerateRoute: (settings) =>
+                              MaterialPageRoute<void>(
+                                settings: settings,
+                                builder: (_) => child!,
+                              ),
                         ),
                       ),
-                    );
-                  },
+                    ),
+                  ),
                 ),
               ),
           ],
