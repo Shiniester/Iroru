@@ -105,8 +105,68 @@ void main() {
     expect(find.text('native-viewer'), findsOneWidget);
   });
 
-  testWidgets('native login challenge stays in the login form', (tester) async {
+  testWidgets(
+    'native login opens verification and retries after access check',
+    (tester) async {
+      final client = _TestMissavClient()..nativeLoginChallenge = true;
+      var verifierCalls = 0;
+      final s = await S.delegate.load(const Locale('en'));
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+            verifierCalls++;
+            return true;
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byType(TextField).first,
+        'viewer@example.test',
+      );
+      await tester.enterText(find.byType(TextField).last, 'password');
+      await tester.tap(find.text(s.login));
+      await tester.pumpAndSettle();
+
+      expect(client.nativeLoginCalls, 2);
+      expect(verifierCalls, 1);
+      expect(find.text('native-viewer'), findsOneWidget);
+      expect(find.byType(TextField), findsNothing);
+    },
+  );
+
+  testWidgets('cancelled verification keeps the login form retryable', (
+    tester,
+  ) async {
     final client = _TestMissavClient()..nativeLoginChallenge = true;
+    final s = await S.delegate.load(const Locale('en'));
+
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+          return false;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'viewer@example.test');
+    await tester.enterText(find.byType(TextField).last, 'password');
+    await tester.tap(find.text(s.login));
+    await tester.pumpAndSettle();
+
+    expect(client.nativeLoginCalls, 1);
+    expect(client.isLoggedIn, isFalse);
+    expect(find.text(s.loginFailed), findsOneWidget);
+    expect(find.byType(TextField), findsNWidgets(2));
+  });
+
+  testWidgets('invalid credentials stay in the login form', (tester) async {
+    final client = _TestMissavClient()..rejectLogin = true;
     var verifierCalls = 0;
     final s = await S.delegate.load(const Locale('en'));
 
@@ -122,7 +182,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, 'viewer@example.test');
-    await tester.enterText(find.byType(TextField).last, 'password');
+    await tester.enterText(find.byType(TextField).last, 'wrong-password');
     await tester.tap(find.text(s.login));
     await tester.pumpAndSettle();
 
@@ -167,6 +227,7 @@ class _TestMissavClient extends MissavClient {
   int logoutCalls = 0;
   int nativeLoginCalls = 0;
   bool nativeLoginChallenge = false;
+  bool rejectLogin = false;
 
   @override
   String get homeUrl => 'https://missav.ai/cn';
@@ -198,7 +259,11 @@ class _TestMissavClient extends MissavClient {
   Future<void> login({required String email, required String password}) async {
     nativeLoginCalls++;
     if (nativeLoginChallenge) {
+      nativeLoginChallenge = false;
       throw MissavVerificationRequiredException(sourceUrl: homeUrl);
+    }
+    if (rejectLogin) {
+      throw MissavAuthenticationException(sourceUrl: homeUrl);
     }
     confirmAccount('native-viewer');
   }

@@ -58,7 +58,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _openBrowser() async {
+  Future<bool> _openBrowser() async {
     setState(() {
       _loading = true;
       _error = null;
@@ -75,6 +75,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
           _verificationError = null;
         });
       }
+      return verified;
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -117,7 +118,14 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
       _error = null;
     });
     try {
-      await _client.login(email: email, password: password);
+      try {
+        await _client.login(email: email, password: password);
+      } on MissavException catch (error) {
+        final needsVerification = error is! MissavAuthenticationException;
+        if (!needsVerification) rethrow;
+        if (!await _openBrowser()) rethrow;
+        await _client.login(email: email, password: password);
+      }
       if (mounted) {
         setState(() {
           _error = null;

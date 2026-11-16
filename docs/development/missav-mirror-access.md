@@ -1,13 +1,13 @@
 # MissAV 镜像访问
 
-MissAV 在 Cloudflare 验证下无法直接读取。应用改用匿名镜像站，避免登录和网页验证。
+MissAV 在 Cloudflare 验证下无法直接读取。应用改用官方备用域名和匿名镜像站。
 方案参考 [HANiEX](https://github.com/lwprfs/HANiEX) 的 MissAV 主机列表和 Recombee 搜索。
 
 ## 访问顺序
 
 1. 用户在设置页选择线路时，先测速该线路。
-2. 未选择线路时，并发请求自动候选域名的目录页，使用延迟最低且返回正常的主机。
-3. 镜像站返回正常页面时，保留该站作为本次运行的内容主机。
+2. 未选择线路时，并发请求自动候选域名的目录页。`missav.ws` 和 `missav.live` 优先于第三方镜像。
+3. 候选域名返回正常页面时，保留该站作为本次运行的内容主机。
 4. 所有镜像站均失败时，请求 `https://missav.ai`；仍遇到验证页时恢复浏览器会话和“验证访问”流程。
 
 镜像站会把 `/cn` 等路径重定向到 `/dmNNN/...`。
@@ -15,14 +15,14 @@ MissAV 在 Cloudflare 验证下无法直接读取。应用改用匿名镜像站�
 
 ## 域名测速
 
-镜像站列表共 34 个域名，全部通过以下筛选：
+线路列表共 36 个域名，全部通过以下筛选：
 
 - `https://<域名>/status.html` 返回 HTTP 200 和 `ok`。
 - `https://<域名>/cn` 返回 HTTP 200，响应头不含 `cf-mitigated: challenge`。
 
 测速请求 `https://<域名>/status.html?ts=<时间戳>`。
 只有状态码 200、正文为 `ok` 且没有验证标记的域名计入延迟。
-自动选择直接请求 5 个候选域名的 `/<locale>/release`。
+自动选择直接请求 7 个候选域名的 `/<locale>/release`。
 目录页请求超时为 3 秒。
 只有目录页返回 HTTP 200、包含 HTML 且没有验证标记的域名参与最终选优。
 完整列表在 [missav_mirrors.dart](../../lib/src/videos/missav_mirrors.dart)。
@@ -57,12 +57,12 @@ POST https://client-rapi-missav.recombee.com/missav-default/search/users/anonymo
 
 ## 账号 Cookie
 
-MissAV 账号 Cookie 发送给 `https://missav.ai` 和当前生效的镜像线路。
-未选中的镜像候选不接收 Cookie。
+MissAV 账号 Cookie 只发送给官方域名 `missav.ai`、`missav.ws` 和 `missav.live`。
+第三方镜像不接收账号 Cookie。
 登录、收藏、播放列表和观看历史使用同一源站账号态。
 镜像响应不写回源站会话，避免覆盖本地 Cookie。
-登录由账号页提交；隐藏浏览器只通过 Cloudflare 验证。
-登录成功后关闭隐藏浏览器，内容回到当前线路。
+登录由账号页提交；验证窗口只通过 Cloudflare。
+登录成功后关闭验证浏览器，内容回到当前线路。
 镜像详情页不请求源站账号 API；账号 API 返回验证或登录错误时只清空收藏状态，不阻塞详情页。
 
 ## 检查结果

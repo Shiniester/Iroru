@@ -16,6 +16,8 @@ class MissavMirror {
 }
 
 const missavMirrors = <MissavMirror>[
+  MissavMirror('missav.ws'),
+  MissavMirror('missav.live'),
   MissavMirror('www.missav.watch'),
   MissavMirror('www.missav01.net'),
   MissavMirror('www.missav02.net'),
@@ -53,6 +55,8 @@ const missavMirrors = <MissavMirror>[
 ];
 
 const _automaticHosts = {
+  'missav.ws',
+  'missav.live',
   'www.missav01.net',
   'www.missav666.cc',
   'www.thisav.pw',
@@ -133,6 +137,13 @@ class MissavMirrorProber {
         '/status.html',
         timeout,
         requireOkBody: true,
+        cancelToken: cancelToken,
+      );
+    }
+    if (!result.isAvailable) {
+      result = await probeContent(
+        mirror,
+        '/en/release',
         cancelToken: cancelToken,
       );
     }

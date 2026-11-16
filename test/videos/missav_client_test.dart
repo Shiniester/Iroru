@@ -77,10 +77,21 @@ class _CancelAwareAdapter extends _Adapter {
 }
 
 class _FakeMirrorProber extends MissavMirrorProber {
-  _FakeMirrorProber({this.fastestHost, this.unavailableHost});
+  _FakeMirrorProber({
+    this.fastestHost,
+    this.unavailableHost,
+    this.availableHosts = const {},
+  });
 
   final String? fastestHost;
   final String? unavailableHost;
+  final Set<String> availableHosts;
+
+  bool _unavailable(String host) =>
+      host == unavailableHost ||
+      (const {'missav.ws', 'missav.live'}.contains(host) &&
+          host != fastestHost &&
+          !availableHosts.contains(host));
 
   @override
   Future<List<MissavMirrorLatency>> probeAll(
@@ -94,12 +105,12 @@ class _FakeMirrorProber extends MissavMirrorProber {
             .map(
               (mirror) => MissavMirrorLatency(
                 mirror: mirror,
-                millis: mirror.host == unavailableHost
+                millis: _unavailable(mirror.host)
                     ? null
                     : mirror.host == fastestHost
                     ? 10
                     : 800,
-                error: mirror.host == unavailableHost ? 'HTTP 503' : null,
+                error: _unavailable(mirror.host) ? 'HTTP 503' : null,
               ),
             )
             .toList()
@@ -121,12 +132,12 @@ class _FakeMirrorProber extends MissavMirrorProber {
     Duration contentTimeout = const Duration(seconds: 5),
   }) async => MissavMirrorLatency(
     mirror: mirror,
-    millis: mirror.host == unavailableHost
+    millis: _unavailable(mirror.host)
         ? null
         : mirror.host == fastestHost
         ? 10
         : 100,
-    error: mirror.host == unavailableHost ? 'HTTP 503' : null,
+    error: _unavailable(mirror.host) ? 'HTTP 503' : null,
   );
 }
 
@@ -3232,48 +3243,81 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     );
   });
 
-  test(
-    'login sends credentials to the canonical source, not the mirror',
-    () async {
-      final fastest = missavMirrors.firstWhere(
-        (mirror) => mirror.host == 'www.missav9.net',
+  test('prefers a reachable official host over a faster mirror', () async {
+    final adapter = _Adapter((request) {
+      if (request.uri.host == 'missav.ws') {
+        return _response(_searchCatalogHtml(['official-video']));
+      }
+      if (request.uri.host == 'www.missav9.net') {
+        return _response(_searchCatalogHtml(['mirror-video']));
+      }
+      return _response(
+        '<title>Just a moment...</title>',
+        statusCode: HttpStatus.forbidden,
       );
-      final adapter = _Adapter((request) {
-        if (request.uri.host == fastest.host) {
-          return _response(_searchCatalogHtml(['mirror-video']));
-        }
-        if (request.uri.path.endsWith('/api/login')) {
-          return _response('{"user":{"email":"viewer@example.invalid"}}');
-        }
-        return _response('<html></html>');
-      });
-      final client = MissavClient(
-        dio: Dio()..httpClientAdapter = adapter,
-        metadataDio: _emptyMetadataDio(),
-        secureStorage: _MemorySecureStorage(),
-        mirrorProber: _FakeMirrorProber(fastestHost: fastest.host),
-        restoreSavedSession: (_, _) async {},
-      );
-      addTearDown(client.dispose);
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+      mirrorProber: _FakeMirrorProber(
+        fastestHost: 'www.missav9.net',
+        availableHosts: {'missav.ws'},
+      ),
+      restoreSavedSession: (_, _) async {},
+    );
+    addTearDown(client.dispose);
 
-      await client.browse('https://missav.ai/cn/release');
-      expect(client.activeMirrorHost, fastest.host);
+    final page = await client.browse('https://missav.ai/cn/release');
 
-      await client.login(
-        email: 'viewer@example.invalid',
-        password: 'sample-password',
-      );
+    expect(page.videos.single.id, 'official-video');
+    expect(client.activeMirrorHost, 'missav.ws');
+  });
 
-      final canonicalPage = adapter.requests.firstWhere(
-        (request) =>
-            request.uri.host == 'missav.ai' &&
-            request.method == 'GET' &&
-            request.uri.path == '/cn',
-      );
-      expect(canonicalPage.uri.host, 'missav.ai');
-      expect(client.isLoggedIn, isTrue);
-    },
-  );
+  test('login sends credentials to the active source host', () async {
+    final official = missavMirrors.firstWhere(
+      (mirror) => mirror.host == 'missav.ws',
+    );
+    final adapter = _Adapter((request) {
+      if (request.uri.host != official.host) {
+        return _response(
+          '<title>Just a moment...</title>',
+          statusCode: HttpStatus.forbidden,
+        );
+      }
+      if (request.uri.path.endsWith('/api/login')) {
+        return _response('{"user":{"email":"viewer@example.invalid"}}');
+      }
+      return _response(_searchCatalogHtml(['mirror-video']));
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+      mirrorProber: _FakeMirrorProber(fastestHost: official.host),
+      restoreSavedSession: (_, _) async {},
+    );
+    addTearDown(client.dispose);
+
+    await client.browse('https://missav.ai/cn/release');
+    expect(client.activeMirrorHost, official.host);
+
+    await client.login(
+      email: 'viewer@example.invalid',
+      password: 'sample-password',
+    );
+
+    final loginRequest = adapter.requests.firstWhere(
+      (request) =>
+          request.method == 'POST' && request.uri.path == '/en/api/login',
+    );
+    expect(loginRequest.uri.host, official.host);
+    expect(
+      adapter.requests.any((request) => request.uri.host == 'missav.ai'),
+      isFalse,
+    );
+    expect(client.isLoggedIn, isTrue);
+  });
 
   test('keeps a saved mirror preference', () async {
     const savedHost = 'www.thisav02.com';
@@ -3364,7 +3408,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     final mirrorRequest = nativeAdapter.requests.firstWhere(
       (request) => request.uri.host == 'www.missav9.net',
     );
-    expect(_cookieHeader(mirrorRequest), 'session=saved');
+    expect(_cookieHeader(mirrorRequest), '');
   });
 
   test('falls back to the saved browser after a native challenge', () async {
@@ -3510,7 +3554,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     },
   );
 
-  test('login starts a hidden browser before touching the source', () async {
+  test('login uses the verified browser without restoring another', () async {
     final nativeAdapter = _Adapter(
       (_) => _response(
         '<title>Just a moment...</title>',
@@ -3535,22 +3579,21 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       secureStorage: _MemorySecureStorage(),
       restoreSavedSession: (client, expectedGeneration) async {
         restoreCalls++;
-        await client.importVerifiedSession(
-          cookieHeader: 'session=browser',
-          userAgent: 'Browser UA',
-          expectedGeneration: expectedGeneration,
-        );
-        client.useVerifiedBrowserTransport(browserAdapter);
       },
     );
     addTearDown(client.dispose);
+    await client.importVerifiedSession(
+      cookieHeader: 'XSRF-TOKEN=token%3D',
+      userAgent: 'Browser UA',
+    );
+    client.useVerifiedBrowserTransport(browserAdapter);
 
     await client.login(
       email: 'viewer@example.invalid',
       password: 'sample-password',
     );
 
-    expect(restoreCalls, 1);
+    expect(restoreCalls, 0);
     expect(nativeAdapter.requests, isEmpty);
     expect(
       browserAdapter.requests.any(
@@ -3588,18 +3631,15 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = nativeAdapter,
       secureStorage: _MemorySecureStorage(),
       mirrorProber: _FakeMirrorProber(fastestHost: mirrorHost),
-      restoreSavedSession: (client, expectedGeneration) async {
-        await client.importVerifiedSession(
-          cookieHeader: 'session=browser',
-          userAgent: 'Browser UA',
-          expectedGeneration: expectedGeneration,
-        );
-        client.useVerifiedBrowserTransport(browserAdapter);
-      },
     );
     addTearDown(client.dispose);
     await client.initialize();
     client.selectMirror('https://$mirrorHost');
+    await client.importVerifiedSession(
+      cookieHeader: 'session=browser',
+      userAgent: 'Browser UA',
+    );
+    client.useVerifiedBrowserTransport(browserAdapter);
 
     await client.login(
       email: 'viewer@example.invalid',
