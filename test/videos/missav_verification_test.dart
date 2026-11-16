@@ -97,7 +97,7 @@ void main() {
 
   for (final loginStatus in [200, 401]) {
     test(
-      'verified browser stays usable after login (status=$loginStatus)',
+      'login closes the verified browser only after success (status=$loginStatus)',
       () async {
         final oldPlatform = WebViewPlatform.instance;
         WebViewPlatform.instance = _FakeWebViewPlatform(Future.value(const []));
@@ -105,7 +105,8 @@ void main() {
           if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
         });
         final controller = WebViewController();
-        final client = MissavClient(secureStorage: _MemorySecureStorage());
+        final storage = _MemorySecureStorage();
+        final client = MissavClient(secureStorage: storage);
         addTearDown(client.dispose);
         late final MissavBrowserAdapter adapter;
         late final int verifiedGeneration;
@@ -152,6 +153,7 @@ void main() {
             ),
           ),
           disposeBrowser: () async {},
+          readCookieHeader: () async => 'session=login',
         );
         await client.importVerifiedSession(
           cookieHeader: 'session=verified',
@@ -160,6 +162,7 @@ void main() {
         client.useVerifiedBrowserTransport(adapter);
         verifiedGeneration = client.sessionGeneration;
         expect((await client.browse(client.homeUrl)).url, client.homeUrl);
+        final writesBeforeLogin = storage.writeCalls;
 
         final login = client.login(
           email: 'viewer@example.test',
@@ -167,16 +170,19 @@ void main() {
         );
         if (loginStatus == 200) {
           await login;
+          expect(adapter.isClosed, isTrue);
+          expect(storage.writeCalls, greaterThan(writesBeforeLogin));
         } else {
           await expectLater(
             login,
             throwsA(isA<MissavAuthenticationException>()),
           );
+          expect(adapter.isClosed, isFalse);
+          expect(storage.writeCalls, writesBeforeLogin);
+          expect((await client.browse(client.homeUrl)).url, client.homeUrl);
+          expect(await controller.currentUrl(), 'about:blank');
         }
         expect(client.sessionGeneration, greaterThan(verifiedGeneration));
-        expect(adapter.isClosed, isFalse);
-        expect((await client.browse(client.homeUrl)).url, client.homeUrl);
-        expect(await controller.currentUrl(), 'about:blank');
 
         expect(
           () => ensureMissavBrowserConnectionCurrent(
@@ -497,41 +503,49 @@ void main() {
       () async {
         final client = MissavClient(secureStorage: _MemorySecureStorage());
         addTearDown(client.dispose);
-        late final MissavBrowserAdapter adapter;
-        adapter = MissavBrowserAdapter(
-          runJavaScript: (script) async {
-            final match = RegExp(r'const request = (.*);').firstMatch(script)!;
-            final request = jsonDecode(match.group(1)!) as Map;
-            adapter.receiveMessage({
-              'id': request['id'],
-              'nonce': request['nonce'],
-              'origin': MissavClient.origin,
-              'status': 200,
-              'url': request['url'],
-              'headers': {'content-type': 'application/json'},
-              'body': '{"user":{"name":"viewer"}}',
-            });
-          },
-          currentUrl: () async => 'https://missav.ai/cn',
-          navigateDocument: (uri, cancelled) => navigateMissavDocument(
-            uri,
-            cancelled,
-            navigate: (_) async {},
-            read: (_) async => {
-              'url': uri.toString(),
-              'html': challenge
-                  ? '<html><title>Just a moment...</title></html>'
-                  : '<html><body><main></main></body></html>',
-              'responseStatus': status,
+        MissavBrowserAdapter buildAdapter() {
+          late final MissavBrowserAdapter adapter;
+          adapter = MissavBrowserAdapter(
+            runJavaScript: (script) async {
+              final match = RegExp(
+                r'const request = (.*);',
+              ).firstMatch(script)!;
+              final request = jsonDecode(match.group(1)!) as Map;
+              adapter.receiveMessage({
+                'id': request['id'],
+                'nonce': request['nonce'],
+                'origin': MissavClient.origin,
+                'status': 200,
+                'url': request['url'],
+                'headers': {'content-type': 'application/json'},
+                'body': '{"user":{"name":"viewer"}}',
+              });
             },
-            stop: () async {},
-          ),
-          disposeBrowser: () async {},
-        );
-        client.useVerifiedBrowserTransport(adapter);
+            currentUrl: () async => 'https://missav.ai/cn',
+            navigateDocument: (uri, cancelled) => navigateMissavDocument(
+              uri,
+              cancelled,
+              navigate: (_) async {},
+              read: (_) async => {
+                'url': uri.toString(),
+                'html': challenge
+                    ? '<html><title>Just a moment...</title></html>'
+                    : '<html><body><main></main></body></html>',
+                'responseStatus': status,
+              },
+              stop: () async {},
+            ),
+            disposeBrowser: () async {},
+            readCookieHeader: () async => 'session=viewer',
+          );
+          return adapter;
+        }
+
+        client.useVerifiedBrowserTransport(buildAdapter());
         await client.login(email: 'viewer@example.test', password: 'sample');
         expect(client.isLoggedIn, isTrue);
 
+        client.useVerifiedBrowserTransport(buildAdapter());
         final collection = client.browse(client.collectionUrl('favorites'));
         if (status != null && status >= 400) {
           await expectLater(

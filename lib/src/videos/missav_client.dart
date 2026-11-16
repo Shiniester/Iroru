@@ -61,6 +61,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   static const origin = 'https://missav.ai';
   static final _sourceDomains = {
     'missav.ai',
+    'thisav66.com',
     for (final mirror in missavMirrors) missavMirrorDomain(mirror.host),
   };
   static final _mirrorHosts = {
@@ -358,6 +359,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       if (_disposed || generation != _sessionGeneration) return false;
       if (!result.isAvailable) {
         _preferredMirror = null;
+        try {
+          final preferences = await SharedPreferences.getInstance();
+          await preferences.setString(missavMirrorBaseUrlKey, '');
+        } catch (_) {
+          // Keep the in-memory fallback when preferences are unavailable.
+        }
+        if (!_disposed) notifyListeners();
         return false;
       }
       _baseUrl = mirror.baseUrl;
@@ -1321,7 +1329,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final sourceId = initialDetails.sourceId;
     Object? accountError;
     StackTrace? accountTrace;
-    if (sourceId != null && includeAccountState) {
+    // Mirror pages do not share the canonical session; keep account state local.
+    if (sourceId != null && includeAccountState && _baseUrl == origin) {
       final viewUri = Uri.parse(
         '$origin/api/items/${Uri.encodeComponent(sourceId)}/view',
       );
@@ -1334,8 +1343,11 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
           _updateAccountFromSource(viewBody['user']);
         }
       } catch (error, trace) {
-        accountError = error;
-        accountTrace = trace;
+        if (error is! MissavVerificationRequiredException &&
+            error is! MissavAuthenticationException) {
+          accountError = error;
+          accountTrace = trace;
+        }
         saved = null;
       }
     }
@@ -1445,9 +1457,36 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
           sourceUrl: uri.toString(),
         );
       }
+      var canCloseBrowser = _browserAdapter != null;
+      if (_browserAdapter case final MissavBrowserAdapter browser) {
+        final readCookies = browser.readCookieHeader;
+        if (readCookies == null) {
+          canCloseBrowser = false;
+        } else {
+          try {
+            final browserCookie = await readCookies();
+            if (browserCookie.isEmpty) {
+              canCloseBrowser = false;
+            } else {
+              await importVerifiedSession(
+                cookieHeader: browserCookie,
+                userAgent: _userAgent,
+                expectedGeneration: generation,
+              );
+            }
+          } catch (_) {
+            canCloseBrowser = false;
+          }
+        }
+      }
       _accountName = _accountNameFrom(user) ?? email;
       _setAccountState(loggedIn: true, notify: false);
-      notifyListeners();
+      if (_browserAdapter != null && canCloseBrowser) {
+        // The hidden browser only verifies the source session.
+        selectMirror(_preferredMirror);
+      } else {
+        notifyListeners();
+      }
     } on MissavException {
       rethrow;
     } on DioException catch (error) {
@@ -1710,6 +1749,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final requestGeneration = generation ?? _sessionGeneration;
     final requestCancelToken = cancelToken ?? _sessionCancelToken;
     final isApi = uri.pathSegments.contains('api');
+    final activeMirrorHost = Uri.parse(_baseUrl).host;
     var requestUri = isApi || canonical
         ? _sourceUri(uri.toString())
         : _remapSource(_sourceUri(uri.toString()));
@@ -1731,9 +1771,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         headers['Accept-Language'] = 'en-US,en;q=0.9';
         headers['Cache-Control'] = 'no-cache';
         final cookie = _cookie;
-        if (requestUri.host == _canonicalHost &&
-            cookie != null &&
-            cookie.isNotEmpty) {
+        // Keep the source session off mirrors the user is not using.
+        final forwardsSession =
+            requestUri.host == _canonicalHost ||
+            (requestUri.host == activeMirrorHost &&
+                _isMirrorHost(requestUri.host));
+        if (forwardsSession && cookie != null && cookie.isNotEmpty) {
           headers['Cookie'] = cookie;
           final xsrfToken = _cookieValue('XSRF-TOKEN');
           if (xsrfToken != null) {

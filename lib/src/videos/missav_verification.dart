@@ -956,6 +956,8 @@ Future<void> connectMissavBrowserSession(
           await _disposeDesktopBrowser(browser);
           _clearBrowserOwner(browserAdapter);
         },
+        readCookieHeader: () async =>
+            missavVerificationCookieHeader(await browser.getAllCookies()),
       );
       adapter = browserAdapter;
       browser.addJavaScriptHandler(
@@ -1059,6 +1061,7 @@ Future<void> connectMissavBrowserSession(
             await releaseMissavAndroidProxy(proxyToRelease);
           }
         },
+        readCookieHeader: _mobileCookieHeader,
       );
       adapter = browserAdapter;
       await _awaitConnectionPhase(

@@ -34,6 +34,8 @@ MissAV 在 Cloudflare 验证下无法直接读取。应用改用匿名镜像站�
 在视频设置的 **MissAV 线路** 中，可查看全部域名的延迟、选择线路、重新测速或恢复自动选择。
 选择结果写入 `missav_mirror_base_url`。
 自动选择只使用测速通过的非 Cloudflare 域名。
+不可用线路保留展示，但不能选择。
+旧版镜像域名 `thisav66.com` 不参与测速，只用于识别已保存的页面地址；请求改写到当前线路。
 
 ## 搜索
 
@@ -53,12 +55,15 @@ POST https://client-rapi-missav.recombee.com/missav-default/search/users/anonymo
 应用解析打包脚本后执行同样的改写。
 播放器和下载器收到的请求头使用镜像站页面作为 `Referer` 和 `Origin`。
 
-## 账号隔离
+## 账号 Cookie
 
-MissAV 账号 Cookie 只发送给 `https://missav.ai`。
-镜像站请求不携带 Cookie。
-登录、收藏、播放列表和观看历史仍使用源站账号接口。
+MissAV 账号 Cookie 发送给 `https://missav.ai` 和当前生效的镜像线路。
+未选中的镜像候选不接收 Cookie。
+登录、收藏、播放列表和观看历史使用同一源站账号态。
+镜像响应不写回源站会话，避免覆盖本地 Cookie。
 登录由账号页提交；隐藏浏览器只通过 Cloudflare 验证。
+登录成功后关闭隐藏浏览器，内容回到当前线路。
+镜像详情页不请求源站账号 API；账号 API 返回验证或登录错误时只清空收藏状态，不阻塞详情页。
 
 ## 检查结果
 
@@ -80,11 +85,11 @@ MissAV 账号 Cookie 只发送给 `https://missav.ai`。
 
 | 检查范围 | 结果 |
 | --- | --- |
-| `flutter test --no-pub test/videos/missav_client_test.dart` | 112 项通过，1 项跳过 |
-| `flutter test --no-pub test/videos/missav_mirrors_test.dart test/videos/missav_mirror_settings_test.dart` | 4 项通过 |
+| `flutter test --no-pub test/videos/missav_client_test.dart` | 117 项通过，1 项跳过 |
+| `flutter test --no-pub test/videos/missav_mirrors_test.dart test/videos/missav_mirror_settings_test.dart` | 5 项通过 |
 | `flutter analyze --no-pub` 指定本次修改文件 | 通过 |
-| `flutter test --no-pub test/videos` | 643 项通过，1 项跳过；2 项既有抽屉测试失败，基线同样失败 |
+| `flutter test --no-pub test/videos` | 649 项通过，1 项跳过；2 项既有抽屉测试失败，基线同样失败 |
 | 真实镜像探测：目录返回 12 条，搜索返回 24 条，分类目录返回 37 项，分类页返回 12 条，详情提取 `jmpres` 媒体地址 | 通过 |
-| 真实自动测速：选择 `www.njavtv.art`，目录返回 12 条 | 通过 |
+| 真实自动测速：选择可用线路（最近一次为 `www.missav666.cc`），目录返回 12 条 | 通过 |
 
 本轮未在 Android 或 iOS 设备上验证镜像站播放和下载。

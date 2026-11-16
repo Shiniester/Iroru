@@ -195,10 +195,17 @@ class _MissavMirrorSettingsScreenState
                   trailing: selectedBaseUrl == mirror.baseUrl
                       ? Text(s.videoMirrorInUse)
                       : TextButton(
-                          onPressed: () => unawaited(_select(mirror)),
+                          onPressed:
+                              !_testing &&
+                                  (_results[mirror.host]?.isAvailable ?? false)
+                              ? () => unawaited(_select(mirror))
+                              : null,
                           child: Text(s.videoMirrorSelect),
                         ),
-                  onTap: _testing ? null : () => unawaited(_select(mirror)),
+                  onTap:
+                      !_testing && (_results[mirror.host]?.isAvailable ?? false)
+                      ? () => unawaited(_select(mirror))
+                      : null,
                 ),
             ],
           ),
