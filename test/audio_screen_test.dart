@@ -160,6 +160,17 @@ class _Works extends WorksNotifier {
     );
   }
 
+  void fail() {
+    state = state.copyWith(
+      modeStates: {
+        ...state.modeStates,
+        state.displayMode: state.modeStates[state.displayMode]!.copyWith(
+          error: 'network failed',
+        ),
+      },
+    );
+  }
+
   void useDistinctModeTitles() {
     final modeStates = Map<DisplayMode, WorksModeSnapshot>.from(
       state.modeStates,
@@ -552,7 +563,7 @@ void main() {
 
   for (final size in [const Size(390, 844), const Size(1280, 720)]) {
     testWidgets(
-      'offline audio keeps retry and its download FAB usable ($size)',
+      'offline audio shows retry and settings in the content ($size)',
       (tester) async {
         tester.view.physicalSize = size;
         tester.view.devicePixelRatio = 1;
@@ -573,26 +584,36 @@ void main() {
         final s = S.of(context);
         final header = find.byKey(const ValueKey('library-page-header'));
         final initialTop = tester.getTopLeft(header).dy;
-        _requestAudioPage(tester, 'downloads');
-        await tester.pumpAndSettle();
         auth.setOffline(true);
         await tester.pumpAndSettle();
-        final notice = find.ancestor(
-          of: find.text(s.offlineModeMessage),
-          matching: find.byType(Card),
+        final message = find.text(s.offlineModeMessage);
+        expect(message, findsOneWidget);
+        expect(
+          find.ancestor(of: message, matching: find.byType(TopNoticeCard)),
+          findsNothing,
         );
         expect(tester.getTopLeft(header).dy, initialTop);
-        expect(
-          tester.getRect(find.byType(FloatingActionButton)).bottom,
-          lessThan(tester.getRect(notice).top),
-        );
+
+        final settings = find.widgetWithText(TextButton, s.audioSettings);
+        expect(settings.hitTestable(), findsOneWidget);
+        await tester.tap(settings);
+        await tester.pumpAndSettle();
+        expect(find.byType(SettingsScreen), findsOneWidget);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+
+        _requestAudioPage(tester, 'downloads');
+        await tester.pumpAndSettle();
+        expect(find.text(s.offlineModeMessage), findsNothing);
+        expect(find.byType(FloatingActionButton), findsOneWidget);
         await tester.tap(find.byType(FloatingActionButton));
         expect(navigation.tabNavigator(appAudioTabIndex)!.canPop(), isTrue);
         navigation.tabNavigator(appAudioTabIndex)!.pop();
         await tester.pumpAndSettle();
 
-        await tester.pump(const Duration(seconds: 4));
-        final retry = find.widgetWithText(TextButton, s.retry);
+        _requestAudioPage(tester, 'home');
+        await tester.pumpAndSettle();
+        final retry = find.widgetWithText(FilledButton, s.retry);
         expect(retry.hitTestable(), findsOneWidget);
         await tester.tap(retry);
         await tester.pumpAndSettle();
@@ -606,12 +627,12 @@ void main() {
         await tester.tap(retry);
         await tester.pump();
         expect(find.text(s.offlineModeMessage), findsOneWidget);
-        expect(tester.widget<TextButton>(retry).onPressed, isNull);
+        expect(tester.widget<FilledButton>(retry).onPressed, isNull);
         await tester.tap(retry);
         expect(auth.retryCalls, 3);
         failure.complete(false);
         await tester.pumpAndSettle();
-        expect(tester.widget<TextButton>(retry).onPressed, isNotNull);
+        expect(tester.widget<FilledButton>(retry).onPressed, isNotNull);
 
         final success = Completer<bool>();
         auth.retryResult = success;
@@ -626,6 +647,73 @@ void main() {
       },
     );
   }
+
+  testWidgets('offline connection view follows the ASMR.ONE source only', (
+    tester,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      AudioSourceNotifier.preferenceKey,
+      audio_source.AudioSource.jpAsmr.name,
+    );
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    final context = tester.element(find.byType(AudioScreen));
+    final auth =
+        ProviderScope.containerOf(context).read(authProvider.notifier)
+            as _AuthenticatedAudio;
+    final message = S.of(context).offlineModeMessage;
+
+    auth.setOffline(true);
+    await tester.pumpAndSettle();
+    expect(find.text(message), findsNothing);
+
+    _requestAudioSource(tester, audio_source.AudioSource.asmrOne);
+    await tester.pumpAndSettle();
+    expect(find.text(message), findsOneWidget);
+
+    _requestAudioSource(tester, audio_source.AudioSource.jpAsmr);
+    await tester.pumpAndSettle();
+    expect(find.text(message), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('source load failures use the top notice for every source', (
+    tester,
+  ) async {
+    for (final source in audio_source.AudioSource.values) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(AudioSourceNotifier.preferenceKey, source.name);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced);
+      final context = tester.element(find.byType(AudioScreen));
+      final container = ProviderScope.containerOf(context);
+      final s = S.of(context);
+
+      (container.read(worksProvider.notifier) as _Works).fail();
+      await tester.pumpAndSettle();
+
+      final notice = find.ancestor(
+        of: find.text(s.loadFailed),
+        matching: find.byType(TopNoticeCard),
+      );
+      expect(notice, findsOneWidget);
+      expect(container.read(audioSourceProvider), source);
+      expect(
+        tester.getRect(notice).top,
+        greaterThanOrEqualTo(
+          tester
+              .getRect(find.byKey(const ValueKey('library-page-header')))
+              .bottom,
+        ),
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('offline audio keeps page geometry through player and popups', (
     tester,
@@ -730,12 +818,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Global offline notification'), findsOneWidget);
     expect(find.text(message).hitTestable(), findsOneWidget);
+    SnackBarUtil.clearAll();
+    await tester.pumpAndSettle();
+    expect(find.text('Global offline notification'), findsNothing);
+    expect(find.text(message).hitTestable(), findsOneWidget);
     auth.setOffline(false);
     await tester.pumpAndSettle();
     expect(find.text(message), findsNothing);
-    expect(find.text('Global offline notification'), findsOneWidget);
-    SnackBarUtil.clearAll();
-    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 
@@ -1725,40 +1814,38 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'first library visits expose management and open subtitle search',
-    (tester) async {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('my_tabs_show_subtitle_library', true);
-      final reduced = ValueNotifier(true);
-      addTearDown(reduced.dispose);
-      await _pumpAudioScreen(tester, reduced, settle: false);
-      await tester.pump(const Duration(milliseconds: 300));
-      final s = S.of(tester.element(find.byType(AudioScreen)));
-      _requestAudioPage(tester, 'downloads');
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pump();
-      expect(_browseTile(tester, s.select).onTap, isNotNull);
-      expect(_browseTile(tester, s.sortOptions).onTap, isNotNull);
+  testWidgets('first library visits expose sort and open subtitle search', (
+    tester,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('my_tabs_show_subtitle_library', true);
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced, settle: false);
+    await tester.pump(const Duration(milliseconds: 300));
+    final s = S.of(tester.element(find.byType(AudioScreen)));
+    _requestAudioPage(tester, 'downloads');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+    expect(_browseTile(tester, s.sortOptions).onTap, isNotNull);
 
-      _requestAudioPage(tester, 'subtitleLibrary');
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pump();
-      expect(_browseTile(tester, s.importSubtitle).onTap, isNotNull);
-      await tester.tap(find.byKey(const ValueKey('library-page-search')));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(
-        find.byWidgetPredicate(
-          (widget) => widget is SubtitleLibraryScreen && widget.searchPage,
-        ),
-        findsOneWidget,
-      );
-      expect(tester.testTextInput.isVisible, isFalse);
-      await tester.pumpWidget(const SizedBox());
-      expect(tester.takeException(), isNull);
-    },
-  );
+    _requestAudioPage(tester, 'subtitleLibrary');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+    expect(_browseTile(tester, s.importSubtitle).onTap, isNotNull);
+    await tester.tap(find.byKey(const ValueKey('library-page-search')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is SubtitleLibraryScreen && widget.searchPage,
+      ),
+      findsOneWidget,
+    );
+    expect(tester.testTextInput.isVisible, isFalse);
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('reordering pages preserves history state and search scope', (
     tester,
@@ -1987,12 +2074,16 @@ void main() {
     );
     await tester.ensureVisible(translation);
     await tester.pumpAndSettle();
-    final toggle = find.descendant(of: drawer, matching: find.byType(Switch));
-    expect(tester.widget<Switch>(toggle).value, isTrue);
+    expect(
+      find.descendant(of: drawer, matching: find.byType(Switch)),
+      findsNothing,
+    );
+    expect(_browseTile(tester, s.autoTranslateWorkDetails).selected, isTrue);
 
     await tester.tap(translation);
     await tester.pumpAndSettle();
     expect(container.read(autoTranslateWorkDetailsProvider), isFalse);
+    expect(_browseTile(tester, s.autoTranslateWorkDetails).selected, isFalse);
     expect(
       prefs.getBool(AutoTranslateWorkDetailsNotifier.preferenceKey),
       isFalse,
@@ -2003,10 +2094,11 @@ void main() {
         .read(autoTranslateWorkDetailsProvider.notifier)
         .setEnabled(true);
     await tester.pumpAndSettle();
-    expect(tester.widget<Switch>(toggle).value, isTrue);
-    await tester.tap(toggle);
+    expect(_browseTile(tester, s.autoTranslateWorkDetails).selected, isTrue);
+    await tester.tap(translation);
     await tester.pumpAndSettle();
     expect(container.read(autoTranslateWorkDetailsProvider), isFalse);
+    expect(_browseTile(tester, s.autoTranslateWorkDetails).selected, isFalse);
     expect(
       prefs.getBool(AutoTranslateWorkDetailsNotifier.preferenceKey),
       isFalse,
@@ -2014,18 +2106,10 @@ void main() {
 
     _requestAudioPage(tester, 'history');
     await tester.pumpAndSettle();
-    expect(
-      (_browseTile(tester, s.autoTranslateWorkDetails).trailing as Switch)
-          .value,
-      isFalse,
-    );
+    expect(_browseTile(tester, s.autoTranslateWorkDetails).selected, isFalse);
     _requestAudioSource(tester, audio_source.AudioSource.jpAsmr);
     await tester.pumpAndSettle();
-    expect(
-      (_browseTile(tester, s.autoTranslateWorkDetails).trailing as Switch)
-          .value,
-      isFalse,
-    );
+    expect(_browseTile(tester, s.autoTranslateWorkDetails).selected, isFalse);
     expect(tester.takeException(), isNull);
   });
 
@@ -2596,6 +2680,118 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.byType(AudioScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'root back shows exit hint before leaving',
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+      final l10n = S.of(tester.element(find.byType(AudioScreen)));
+      final exitCalls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'SystemNavigator.pop') exitCalls.add(call);
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+
+      expect(find.text(l10n.pressBackAgainToExit), findsOneWidget);
+      expect(find.byType(AudioScreen), findsOneWidget);
+      expect(exitCalls, isEmpty);
+
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+
+      expect(exitCalls, hasLength(1));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'back inside a tab route skips the exit hint',
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+      final l10n = S.of(tester.element(find.byType(AudioScreen)));
+
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(AudioScreen)),
+          builder: (_) =>
+              const Scaffold(body: Center(child: Text('Tab route'))),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Tab route'), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Tab route'), findsNothing);
+      expect(find.text(l10n.pressBackAgainToExit), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'back handled by a blocking tab route skips the exit hint',
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+      final l10n = S.of(tester.element(find.byType(AudioScreen)));
+      var blocked = 0;
+
+      unawaited(
+        Navigator.of(tester.element(find.byType(AudioScreen))).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => PopScope(
+              canPop: false,
+              onPopInvokedWithResult: (didPop, _) {
+                if (!didPop) blocked++;
+              },
+              child: const Scaffold(
+                body: Center(child: Text('Blocked tab route')),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(blocked, 1);
+      expect(find.text('Blocked tab route'), findsOneWidget);
+      expect(find.text(l10n.pressBackAgainToExit), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
@@ -3293,6 +3489,167 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'back cancels a player launch preview without popping the tab detail',
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(
+        tester,
+        reduced,
+        screen: const MainScreen(),
+        track: const AudioTrack(
+          id: 'back-cancel-preview-track',
+          title: 'Audio',
+          url: 'https://example.invalid/audio.mp3',
+        ),
+      );
+      final l10n = S.of(tester.element(find.byType(AudioScreen)));
+      final navigation = AppNavigationScope.of(
+        tester.element(find.byType(AudioScreen)),
+      );
+      const detailKey = ValueKey('preview-back-tab-detail');
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(AudioScreen)),
+          builder: (_) => const Scaffold(
+            body: Center(
+              child: Text('Preview back tab detail', key: detailKey),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(detailKey), findsOneWidget);
+      expect(navigation.tabNavigator(appAudioTabIndex)!.canPop(), isTrue);
+      final detailRoute = ModalRoute.of(tester.element(find.byKey(detailKey)))!;
+      expect(detailRoute.popGestureEnabled, isTrue);
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(
+          find.byKey(const ValueKey('mini-player-upward-launcher')),
+        ),
+      );
+      await gesture.moveBy(const Offset(0, -120));
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.byType(AudioPlayerScreen, skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(detailRoute.popGestureEnabled, isFalse);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AudioPlayerScreen, skipOffstage: false), findsNothing);
+      expect(find.byKey(detailKey), findsOneWidget);
+      expect(navigation.tabNavigator(appAudioTabIndex)!.canPop(), isTrue);
+      expect(find.text(l10n.pressBackAgainToExit), findsNothing);
+
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+      expect(find.byType(AudioPlayerScreen), findsNothing);
+      expect(find.byKey(detailKey), findsOneWidget);
+      expect(detailRoute.popGestureEnabled, isTrue);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byKey(detailKey), findsNothing);
+      expect(find.byType(AudioScreen), findsOneWidget);
+      expect(find.text(l10n.pressBackAgainToExit), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'player launch preview shields taps after covering the tab detail',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(
+        tester,
+        reduced,
+        screen: const MainScreen(),
+        track: const AudioTrack(
+          id: 'preview-hit-shield-track',
+          title: 'Audio',
+          url: 'https://example.invalid/audio.mp3',
+        ),
+      );
+
+      var taps = 0;
+      const targetKey = ValueKey('preview-covered-tap-target');
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(AudioScreen)),
+          builder: (_) => Scaffold(
+            body: Center(
+              child: GestureDetector(
+                key: targetKey,
+                behavior: HitTestBehavior.opaque,
+                onTap: () => taps++,
+                child: const SizedBox(
+                  width: 180,
+                  height: 80,
+                  child: Center(child: Text('Covered page action')),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(targetKey).hitTestable(), findsOneWidget);
+      final targetCenter = tester.getCenter(find.byKey(targetKey));
+      final gesture = await tester.startGesture(
+        tester.getCenter(
+          find.byKey(const ValueKey('mini-player-upward-launcher')),
+        ),
+      );
+      await gesture.moveBy(const Offset(0, -120));
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.byType(AudioPlayerScreen, skipOffstage: false),
+        findsOneWidget,
+      );
+
+      await gesture.moveBy(const Offset(0, -600));
+      await tester.pump();
+      expect(
+        tester
+            .getTopLeft(
+              find.byKey(
+                const ValueKey('player-route-vertical-translation'),
+                skipOffstage: false,
+              ),
+            )
+            .dy,
+        lessThan(targetCenter.dy),
+      );
+      await tester.tapAt(targetCenter);
+      await tester.pump();
+      expect(taps, 0);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(find.byType(AudioPlayerScreen), findsOneWidget);
+      expect(taps, 0);
+
+      Navigator.of(tester.element(find.byType(AudioPlayerScreen))).pop();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   for (final size in [const Size(390, 844), const Size(1280, 720)]) {
     testWidgets(

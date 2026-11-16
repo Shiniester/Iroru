@@ -253,6 +253,18 @@ void main() {
     expect(player.playing, isTrue);
   });
 
+  test('a successful seek resumes playback when the player paused', () async {
+    const target = Duration(seconds: 25);
+    final seeking = service.seek(target);
+    player.playing = false;
+    player.finishSeek();
+
+    expect(await seeking, isTrue);
+    expect(player.position, target);
+    expect(player.playing, isTrue);
+    expect(player.reloadPositions, isEmpty);
+  });
+
   test(
     'a native error after seek returns reloads at the target on play',
     () async {
@@ -427,19 +439,22 @@ void main() {
   test(
     'stopping or replacing the track clears the old seek error ownership',
     () async {
-      final seeking = service.seek(const Duration(minutes: 2));
+      const target = Duration(minutes: 2);
+      final seeking = service.seek(target);
       player.finishSeek();
       await seeking;
       await service.stop();
       player.failSeek();
       await service.play();
-      expect(player.reloadPositions, isEmpty);
+      expect(player.reloadPositions, [target]);
+      expect(player.stopCount, 1);
       final next = track.copyWith(id: 'next');
       await service.updateQueue([next], autoplay: true);
       player.failSeek();
       await Future<void>.delayed(Duration.zero);
       expect(player.playing, isTrue);
-      expect(player.reloadPositions, isEmpty);
+      expect(player.reloadPositions, [target]);
+      expect(player.stopCount, 1);
       expect(service.currentTrack, next);
     },
   );

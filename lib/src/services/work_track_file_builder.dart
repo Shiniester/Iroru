@@ -7,20 +7,14 @@ class WorkTrackFileBuilder {
   final String token;
 
   Work withTracks({required Work work, required List<dynamic> files}) {
-    return work.copyWith(
-      children: _toAudioFiles(files, _normalizedHost, work.isJapaneseAsmr),
-    );
+    return work.copyWith(children: _toAudioFiles(files, _normalizedHost));
   }
 
   List<AudioFile> toAudioFiles(List<dynamic> files) {
-    return _toAudioFiles(files, _normalizedHost, false);
+    return _toAudioFiles(files, _normalizedHost);
   }
 
-  List<AudioFile> _toAudioFiles(
-    List<dynamic> files,
-    String normalizedHost,
-    bool preferDownloadUrl,
-  ) {
+  List<AudioFile> _toAudioFiles(List<dynamic> files, String normalizedHost) {
     return files.map((file) {
       final fileMap = Map<String, dynamic>.from(file as Map);
       final type = fileMap['type'] as String?;
@@ -32,11 +26,7 @@ class WorkTrackFileBuilder {
       List<AudioFile>? children;
       final rawChildren = fileMap['children'];
       if (rawChildren is List) {
-        children = _toAudioFiles(
-          rawChildren,
-          normalizedHost,
-          preferDownloadUrl,
-        );
+        children = _toAudioFiles(rawChildren, normalizedHost);
       }
 
       return AudioFile(
@@ -49,13 +39,7 @@ class WorkTrackFileBuilder {
         startTimeMs: (fileMap['startTimeMs'] as num?)?.toInt(),
         endTimeMs: (fileMap['endTimeMs'] as num?)?.toInt(),
         originalDownloadUrl: fileMap['originalDownloadUrl'] as String?,
-        mediaDownloadUrl: _downloadUrlFor(
-          fileMap,
-          normalizedHost,
-          hash,
-          type,
-          preferDownloadUrl,
-        ),
+        mediaDownloadUrl: _downloadUrlFor(fileMap, normalizedHost, hash, type),
       );
     }).toList();
   }
@@ -65,12 +49,9 @@ class WorkTrackFileBuilder {
     String normalizedHost,
     String? hash,
     String? type,
-    bool preferDownloadUrl,
   ) {
     final mediaDownloadUrl = file['mediaDownloadUrl'];
-    if (preferDownloadUrl &&
-        mediaDownloadUrl != null &&
-        mediaDownloadUrl.toString().isNotEmpty) {
+    if (mediaDownloadUrl != null && mediaDownloadUrl.toString().isNotEmpty) {
       return mediaDownloadUrl.toString();
     }
     final mediaStreamUrl = file['mediaStreamUrl'];

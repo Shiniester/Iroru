@@ -67,6 +67,9 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   int _selectedIndex = 0;
   bool _navigationVisible = true;
   bool _playerLaunchPreviewActive = false;
+  final List<bool Function()> _playerLaunchBackHandlers = [];
+  final _playerPreviewPopEntry = _PlayerPreviewPopEntry();
+  ModalRoute<dynamic>? _playerPreviewPopRoute;
   Animation<double>? _fullscreenTransition;
   TransitionRoute<dynamic>? _audioPlayerNavigationRoute;
   EdgeInsets? _audioPlayerLandscapeInsets;
@@ -231,6 +234,8 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
 
   @override
   void dispose() {
+    _releasePlayerPreviewPop();
+    _playerPreviewPopEntry.dispose();
     for (final sheet in _sheetRoutes.values) {
       sheet.coveredByPage.removeListener(_sheetCoverageChanged);
     }
@@ -269,12 +274,48 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
     if (_playerLaunchPreviewActive == active) return;
     if (active && _navigationVisible) _captureAudioPlayerLandscapeInsets();
     _playerLaunchPreviewActive = active;
+    if (active) {
+      _holdPlayerPreviewPop();
+    } else {
+      _releasePlayerPreviewPop();
+    }
     if (!active &&
         audioPlayerRoute == null &&
         _closingAudioPlayerRoutes.isEmpty) {
       _audioPlayerLandscapeInsets = null;
     }
     _refresh(forceNotify: true);
+  }
+
+  void _holdPlayerPreviewPop() {
+    if (_playerPreviewPopRoute != null) return;
+    final route = _tabObservers[_selectedIndex].currentPage;
+    if (route == null) return;
+    _playerPreviewPopRoute = route;
+    route.registerPopEntry(_playerPreviewPopEntry);
+  }
+
+  void _releasePlayerPreviewPop() {
+    final route = _playerPreviewPopRoute;
+    if (route == null) return;
+    route.unregisterPopEntry(_playerPreviewPopEntry);
+    _playerPreviewPopRoute = null;
+  }
+
+  void addPlayerLaunchBackHandler(bool Function() handler) {
+    _playerLaunchBackHandlers.add(handler);
+  }
+
+  void removePlayerLaunchBackHandler(bool Function() handler) {
+    _playerLaunchBackHandlers.remove(handler);
+  }
+
+  /// Returns true when an in-progress Mini Player launch consumed the back.
+  bool handlePlayerLaunchBack() {
+    for (final handler in _playerLaunchBackHandlers) {
+      if (handler()) return true;
+    }
+    return false;
   }
 
   void _captureAudioPlayerLandscapeInsets() {
@@ -474,6 +515,19 @@ class _AppTabNavigatorObserver extends NavigatorObserver {
           route is PageRoute<dynamic> && controller._sheetRoutes.isNotEmpty,
     );
   }
+}
+
+class _PlayerPreviewPopEntry implements PopEntry<Object?> {
+  @override
+  final ValueNotifier<bool> canPopNotifier = ValueNotifier<bool>(false);
+
+  @override
+  void onPopInvoked(bool didPop) {}
+
+  @override
+  void onPopInvokedWithResult(bool didPop, Object? result) {}
+
+  void dispose() => canPopNotifier.dispose();
 }
 
 class AppNavigationScope extends InheritedNotifier<AppNavigationController> {

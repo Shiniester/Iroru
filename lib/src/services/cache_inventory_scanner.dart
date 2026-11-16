@@ -124,6 +124,7 @@ class CacheInventoryScanner {
             followLinks: false,
           )) {
             if (entity is! File) continue;
+            if (p.basename(entity.path).startsWith('.')) continue;
             final normalizedPath = p.normalize(entity.path);
             if (!visited.add(normalizedPath)) continue;
             try {

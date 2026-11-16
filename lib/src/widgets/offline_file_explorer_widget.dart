@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/work.dart';
+import '../models/audio_tap_playlist_mode.dart';
 import '../models/download_task.dart';
 import '../services/download_path_service.dart';
 import '../services/download_service.dart';
@@ -29,6 +30,7 @@ import '../providers/download_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/file_tree_utils.dart';
+import '../utils/l10n_extensions.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/string_utils.dart';
 import 'app_navigation_scope.dart';
@@ -58,6 +60,7 @@ class OfflineFileExplorerWidget extends ConsumerStatefulWidget {
   final Future<bool> Function()? initialLoadReady;
   final bool translate;
   final String? Function()? translatedWorkTitle;
+  final WorkResourceSession? session;
 
   const OfflineFileExplorerWidget({
     super.key,
@@ -68,6 +71,7 @@ class OfflineFileExplorerWidget extends ConsumerStatefulWidget {
     this.initialLoadReady,
     this.translate = false,
     this.translatedWorkTitle,
+    this.session,
   });
 
   @override
@@ -78,7 +82,7 @@ class OfflineFileExplorerWidget extends ConsumerStatefulWidget {
 class _OfflineFileExplorerWidgetState
     extends ConsumerState<OfflineFileExplorerWidget> {
   List<dynamic> _localFiles = []; // 仅包含本地存在的文件
-  final Set<String> _expandedFolders = {}; // 记录展开的文件夹路径
+  late final WorkResourceSession _session;
   final Map<String, bool> _manualFolderOverrides = {};
   final _audioVariantClassifier = const PlayerAudioVariantClassifier();
   List<PlayerAudioVariant> _audioVariants = const [];
@@ -94,6 +98,8 @@ class _OfflineFileExplorerWidgetState
   Future<bool>? _subtitleScanTask;
   String? _workDirPath;
   List<String> _visibleNames = const [];
+
+  Set<String> get _expandedFolders => _session.expandedFolders;
 
   FilePreviewResolver get _previewResolver => FilePreviewResolver(
     downloadRootPath: () async {
@@ -132,6 +138,7 @@ class _OfflineFileExplorerWidgetState
   @override
   void initState() {
     super.initState();
+    _session = widget.session ?? WorkResourceSession();
     _fileListController = ref.read(fileListControllerProvider.notifier);
     ref.listenManual(audioFormatPreferenceProvider, (previous, preference) {
       unawaited(_syncPreferredExpandedFolders(preference));
@@ -399,15 +406,14 @@ class _OfflineFileExplorerWidgetState
   Future<void> _playAudioFile(
     dynamic audioFile,
     String parentPath, {
+    AudioTapPlaylistMode? modeOverride,
     List<dynamic>? audioFiles,
   }) async {
     if (!mounted) return;
     final work = widget.work;
     final useTranslations = widget.translate;
     final translatedTitles = useTranslations
-        ? Map<String, String>.unmodifiable(
-            _translationController.translations,
-          )
+        ? Map<String, String>.unmodifiable(_translationController.translations)
         : null;
     final translatedAlbumTitle = useTranslations
         ? widget.translatedWorkTitle?.call()
@@ -457,9 +463,9 @@ class _OfflineFileExplorerWidgetState
         '[OfflineFileExplorer] 播放目标: title="$title", '
         'workDir=${target.workDir}, localPath=${target.localPath}',
       );
-      final playlistMode = await ref
-          .read(audioTapPlaylistModeProvider.notifier)
-          .getMode();
+      final playlistMode =
+          modeOverride ??
+          await ref.read(audioTapPlaylistModeProvider.notifier).getMode();
       if (!mounted) return;
       final plan = await _audioPlaybackPlanBuilder.build(
         fileTree: _localFiles,
@@ -513,6 +519,12 @@ class _OfflineFileExplorerWidgetState
                 work: work,
                 playlistMode: playlistMode,
               );
+          if (mounted && playlistMode != AudioTapPlaylistMode.replaceQueue) {
+            SnackBarUtil.showSuccess(
+              context,
+              playlistMode.localizedName(context),
+            );
+          }
       }
     } catch (e, st) {
       _log.captureOutput('[OfflineFileExplorer] 播放异常: title="$title", $e');
@@ -522,7 +534,13 @@ class _OfflineFileExplorerWidgetState
     }
   }
 
-  Future<void> _showAudioActionMenu(String title) async {
+  Future<void> _showFileActionMenu(
+    dynamic file,
+    String title,
+    String parentPath, {
+    List<dynamic>? audioFiles,
+  }) async {
+    final isAudio = _tapResolver.resolve(file) == FileExplorerTapAction.audio;
     await showBottomSheetMenu<void>(
       context: context,
       children: [
@@ -530,6 +548,65 @@ class _OfflineFileExplorerWidgetState
           builder: (sheetContext) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (isAudio) ...[
+                ListTile(
+                  key: const ValueKey('file-action-add-to-queue'),
+                  leading: const Icon(Icons.playlist_add),
+                  title: Text(
+                    AudioTapPlaylistMode.addToQueue.localizedName(context),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _playAudioFile(
+                      file,
+                      parentPath,
+                      modeOverride: AudioTapPlaylistMode.addToQueue,
+                      audioFiles: audioFiles,
+                    );
+                  },
+                ),
+                ListTile(
+                  key: const ValueKey('file-action-play-next'),
+                  leading: const Icon(Icons.queue_play_next),
+                  title: Text(
+                    AudioTapPlaylistMode.playNext.localizedName(context),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _playAudioFile(
+                      file,
+                      parentPath,
+                      modeOverride: AudioTapPlaylistMode.playNext,
+                      audioFiles: audioFiles,
+                    );
+                  },
+                ),
+                ListTile(
+                  key: const ValueKey('file-action-replace-queue'),
+                  leading: const Icon(Icons.playlist_play),
+                  title: Text(
+                    AudioTapPlaylistMode.replaceQueue.localizedName(context),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _playAudioFile(
+                      file,
+                      parentPath,
+                      modeOverride: AudioTapPlaylistMode.replaceQueue,
+                      audioFiles: audioFiles,
+                    );
+                  },
+                ),
+              ],
+              ListTile(
+                key: const ValueKey('file-action-delete'),
+                leading: const Icon(Icons.delete_outline),
+                title: Text(S.of(context).delete),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _deleteFile(file, parentPath);
+                },
+              ),
               ListTile(
                 key: const ValueKey('file-action-copy-name'),
                 leading: const Icon(Icons.copy_outlined),
@@ -800,6 +877,8 @@ class _OfflineFileExplorerWidgetState
       expandedFolders: _expandedFolders,
       onToggleFolder: _toggleFolder,
       onFileTap: _handleFileTap,
+      onFileLongPress: (file, title, path) =>
+          _showFileActionMenu(file, title, path),
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
       audioMetadataBuilder: _buildFileMetadata,
@@ -830,11 +909,13 @@ class _OfflineFileExplorerWidgetState
       audioMetadataBuilder: _buildFileMetadata,
       audioDurationBuilder: _buildAudioDuration,
       audioTrailingBuilder: _buildFileActions,
-      onAudioLongPress: (_, title, _, _) => _showAudioActionMenu(title),
+      onAudioLongPress: (file, title, path, files) =>
+          _showFileActionMenu(file, title, path, audioFiles: files),
       onPlayVideo: (file, path) => unawaited(_playVideo(file, path)),
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,
       audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
+      session: _session,
       onImageTap: _previewImageFile,
       resolveImage: (file) async {
         final items = await _previewResolver.buildOfflineImageItems(

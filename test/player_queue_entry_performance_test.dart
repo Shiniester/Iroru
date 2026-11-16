@@ -175,17 +175,15 @@ void main() {
       final height =
           tester.view.physicalSize.height / tester.view.devicePixelRatio;
       expect(offset(), reduceMotion ? 0 : height);
-      await tester.pump(const Duration(milliseconds: 130));
+      await tester.pump(const Duration(milliseconds: 175));
       expect(
         offset(),
         closeTo(
-          reduceMotion
-              ? 0
-              : height * (1 - Curves.fastEaseInToSlowEaseOut.transform(0.5)),
+          reduceMotion ? 0 : height * (1 - Curves.easeOutCubic.transform(0.5)),
           0.001,
         ),
       );
-      await tester.pump(const Duration(milliseconds: 130));
+      await tester.pump(const Duration(milliseconds: 175));
       expect(offset(), 0);
       expect(find.byKey(const ValueKey('compact-player-pages')), findsNothing);
       await tester.binding.handlePopRoute();

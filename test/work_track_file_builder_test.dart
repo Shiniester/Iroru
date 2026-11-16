@@ -25,6 +25,27 @@ void main() {
     );
   });
 
+  test('keeps the source download URL for normal bulk downloads', () {
+    const builder = WorkTrackFileBuilder(host: '', token: '');
+    final work = builder.withTracks(
+      work: const Work(id: 42, title: 'Work'),
+      files: [
+        {
+          'type': 'audio',
+          'title': 'track.wav',
+          'hash': 'track-hash',
+          'mediaStreamUrl': 'https://media.example/stream.m4a',
+          'mediaDownloadUrl': 'https://media.example/original.wav',
+        },
+      ],
+    );
+
+    expect(
+      work.children!.single.mediaDownloadUrl,
+      'https://media.example/original.wav',
+    );
+  });
+
   test('keeps chapter bounds through bulk-download and offline metadata', () {
     const builder = WorkTrackFileBuilder(host: '', token: '');
     final chapter = builder.toAudioFiles([
@@ -51,7 +72,10 @@ void main() {
     final offlineChapter = AudioFile.fromJson(offlineMetadata.single);
     expect(FileTreeUtils.property(offlineChapter, 'startTimeMs'), 425000);
     expect(FileTreeUtils.property(offlineChapter, 'endTimeMs'), 1313000);
-    expect(offlineChapter.originalDownloadUrl, 'https://files.example/chapter.flac');
+    expect(
+      offlineChapter.originalDownloadUrl,
+      'https://files.example/chapter.flac',
+    );
     expect(AudioFile.fromJson(const {'title': 'old.mp3'}).startTimeMs, isNull);
   });
 

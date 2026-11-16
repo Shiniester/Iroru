@@ -209,6 +209,7 @@ void main() {
       final server = await _server((request) async {
         final range = request.headers.value(HttpHeaders.rangeHeader);
         ranges.add(range);
+        request.response.headers.set(HttpHeaders.etagHeader, '"video-v1"');
         if (range == null && !firstChunkSent.isCompleted) {
           final response = request.response;
           response.bufferOutput = false;

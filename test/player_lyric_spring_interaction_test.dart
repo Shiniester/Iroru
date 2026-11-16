@@ -29,6 +29,71 @@ void main() {
     );
   });
 
+  testWidgets('deferred lyric preview slides up when it mounts', (
+    tester,
+  ) async {
+    final lyrics = List.generate(
+      20,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'intro lyric $index',
+      ),
+    );
+    final generation = ValueNotifier(0);
+    addTearDown(generation.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          lyricControllerProvider.overrideWith(
+            (ref) =>
+                _Lyrics(ref, LyricState(lyrics: lyrics, trackKey: 'intro')),
+          ),
+          playbackPositionProvider.overrideWith(
+            () => _TestPlaybackPositionNotifier(null),
+          ),
+          positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: Scaffold(
+            body: ValueListenableBuilder<int>(
+              valueListenable: generation,
+              builder: (context, value, _) => Center(
+                child: SizedBox(
+                  height: 220,
+                  child: ThreeLineLyricDisplay(
+                    key: ValueKey('entrance-preview-$value'),
+                    lineCount: 5,
+                    animateEntranceIntro: value > 0,
+                    onSeekRequested: (_) {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    generation.value = 1;
+    await tester.pump();
+    final translation = find.descendant(
+      of: find.byType(ThreeLineLyricDisplay),
+      matching: find.byType(FractionalTranslation),
+    );
+    double offsetY() =>
+        tester.widget<FractionalTranslation>(translation).translation.dy;
+    expect(offsetY(), closeTo(1, 0.001));
+
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(offsetY(), greaterThan(0));
+    expect(offsetY(), lessThan(1));
+
+    await tester.pump(const Duration(seconds: 5));
+    expect(offsetY(), closeTo(0, 0.001));
+  });
+
   for (final compact in [false, true]) {
     for (final playing in [false, true]) {
       testWidgets(

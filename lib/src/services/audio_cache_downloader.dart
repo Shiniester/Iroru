@@ -82,6 +82,7 @@ class AudioCacheDownloader {
           uri: request.uri,
           partialFile: partial,
           cancellation: operation.cancellation,
+          sourceIdentity: request.hash,
           headers: _headersProvider(),
         );
         if (operation.cancellation.isCancelled) return false;

@@ -1,7 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../l10n/app_localizations.dart';
+import '../utils/snackbar_util.dart';
 import '../widgets/app_navigation_scope.dart';
 import '../widgets/tab_page_motion.dart';
 import 'audio_screen.dart';
@@ -16,7 +20,8 @@ class MainScreen extends ConsumerStatefulWidget {
   ConsumerState<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends ConsumerState<MainScreen> {
+class _MainScreenState extends ConsumerState<MainScreen>
+    with WidgetsBindingObserver {
   late final PageController _pages;
   final _pagesKey = GlobalKey();
   final _selection = ValueNotifier<int?>(0);
@@ -24,11 +29,15 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   AppNavigationController? _navigation;
   bool _reduceMotion = false;
   int _currentIndex = 0;
+  DateTime? _lastExitBackAt;
   late final List<Widget> _screens;
+
+  static const _exitBackInterval = Duration(seconds: 2);
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _screens = [
       const AudioScreen(key: PageStorageKey('audio_screen')),
       ValueListenableBuilder<int?>(
@@ -73,15 +82,26 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pages.dispose();
     _selection.dispose();
     super.dispose();
   }
 
   @override
+  Future<bool> didPopRoute() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    _handleExitBack();
+    return true;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final navigation = _navigation!;
-    return PageStorage(
+    final previewActive = navigation.playerLaunchPreviewActive;
+    final consumePreviewBack =
+        defaultTargetPlatform == TargetPlatform.android && previewActive;
+    final tabs = PageStorage(
       bucket: _bucket,
       child: TabPageWarmup(
         key: _pagesKey,
@@ -108,7 +128,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                     child: NavigatorPopHandler<void>(
                       enabled: navigation.selectedIndex == i,
                       onPopWithResult: (_) {
-                        if (navigation.selectedIndex == i) {
+                        if (!previewActive && navigation.selectedIndex == i) {
                           navigation.tabNavigator(i)?.maybePop<void>();
                         }
                       },
@@ -134,6 +154,30 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           ],
         ),
       ),
+    );
+    return PopScope<void>(
+      canPop: !consumePreviewBack,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || defaultTargetPlatform != TargetPlatform.android) return;
+        _lastExitBackAt = null;
+        if (consumePreviewBack) navigation.handlePlayerLaunchBack();
+      },
+      child: tabs,
+    );
+  }
+
+  void _handleExitBack() {
+    final now = DateTime.now();
+    final lastBackAt = _lastExitBackAt;
+    if (lastBackAt != null && now.difference(lastBackAt) < _exitBackInterval) {
+      SystemNavigator.pop();
+      return;
+    }
+    _lastExitBackAt = now;
+    SnackBarUtil.showInfo(
+      context,
+      S.of(context).pressBackAgainToExit,
+      duration: _exitBackInterval,
     );
   }
 }

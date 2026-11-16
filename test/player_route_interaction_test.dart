@@ -90,8 +90,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 120));
     expect(route.debugTransitionValue, 0);
     await tester.pump(const Duration(milliseconds: 16));
-    expect(route.debugTransitionValue, closeTo(16 / 380, 0.001));
-    await tester.pump(const Duration(milliseconds: 364));
+    expect(route.debugTransitionValue, closeTo(16 / 350, 0.001));
+    await tester.pump(const Duration(milliseconds: 334));
     expect(route.debugTransitionValue, 1);
     expect(builds, 1);
     navigatorKey.currentState!.pop();
@@ -212,7 +212,7 @@ void main() {
     expect(find.text('interactive-player'), findsNothing);
   });
 
-  testWidgets('standard player route decelerates while opening and closing', (
+  testWidgets('standard player route follows easeOutCubic in both directions', (
     tester,
   ) async {
     final navigatorKey = GlobalKey<NavigatorState>();
@@ -227,6 +227,7 @@ void main() {
       builder: (_) => const Scaffold(body: Text('curve-player')),
     );
     unawaited(navigatorKey.currentState!.push<void>(route));
+    await tester.pump();
     await tester.pump();
     final translationFinder = find.byKey(
       const ValueKey('player-route-vertical-translation'),
@@ -271,10 +272,39 @@ void main() {
         tester.getTopLeft(translationFinder).dy / route.debugRouteTranslation;
     expect(
       firstClosingDistance,
-      greaterThan(halfwayClosingDistance - firstClosingDistance),
+      lessThan(halfwayClosingDistance - firstClosingDistance),
     );
     await tester.pumpAndSettle();
     expect(find.text('curve-player'), findsNothing);
+  });
+
+  testWidgets('player cover entry waits for its first frame before motion', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(400, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        home: const Scaffold(body: Text('cover-host')),
+      ),
+    );
+    final route = AudioPlayerPageRoute<void>(
+      builder: (_) => const Scaffold(body: Text('cover-player')),
+    );
+    unawaited(navigatorKey.currentState!.push<void>(route));
+    await tester.pump();
+    expect(route.debugTransitionValue, 0);
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(route.debugTransitionValue, 0);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(route.debugTransitionValue, closeTo(16 / 350, 0.001));
+    navigatorKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('interactive player route exposes one-to-one visual progress', (
@@ -307,7 +337,7 @@ void main() {
     expect(route.debugTransitionValue, closeTo(0.99, 0.001));
     expect(
       route.debugSettleDuration(showRoute: true),
-      const Duration(microseconds: 3800),
+      const Duration(microseconds: 3500),
     );
     route.cancelVerticalDismissGesture();
     await tester.pump(const Duration(milliseconds: 3));
@@ -344,9 +374,7 @@ void main() {
     expect(find.text('progress-player'), findsOneWidget);
   });
 
-  testWidgets('compact queue entry uses 260ms and retains 380ms dismissal', (
-    tester,
-  ) async {
+  testWidgets('player and queue entries share 350ms', (tester) async {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
@@ -364,19 +392,14 @@ void main() {
         );
         unawaited(navigatorKey.currentState!.push(route));
         await tester.pumpAndSettle();
-        expect(
-          route.transitionDuration,
-          width == 390 && mode == PlayerDismissVisualMode.secondary
-              ? const Duration(milliseconds: 260)
-              : playerRouteTransitionDuration,
-        );
+        expect(route.transitionDuration, playerRouteTransitionDuration);
         expect(route.reverseTransitionDuration, playerRouteTransitionDuration);
         navigatorKey.currentState!.pop();
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 190));
+        await tester.pump(const Duration(milliseconds: 175));
         expect(
           route.debugVisualValue,
-          closeTo(Curves.easeInCubic.transform(0.5), 0.001),
+          closeTo(Curves.easeOutCubic.transform(0.5), 0.001),
         );
         await tester.pumpAndSettle();
       }

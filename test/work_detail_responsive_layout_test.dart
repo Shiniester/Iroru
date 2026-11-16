@@ -4,6 +4,22 @@ import 'package:kikoeru_flutter/src/widgets/work_detail/work_detail_responsive_l
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/widgets/file_explorer_tree_panel.dart';
 
+class _InfoProbe extends StatefulWidget {
+  const _InfoProbe();
+
+  @override
+  State<_InfoProbe> createState() => _InfoProbeState();
+}
+
+class _InfoProbeState extends State<_InfoProbe> {
+  static var _nextId = 0;
+  final _id = _nextId++;
+
+  @override
+  Widget build(BuildContext context) =>
+      SliverToBoxAdapter(child: Text('probe-$_id'));
+}
+
 Widget _testApp({required Orientation orientation, required Widget child}) {
   final size = orientation == Orientation.landscape
       ? const Size(900, 500)
@@ -172,5 +188,27 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(refreshCount, 1);
+  });
+
+  testWidgets('keeps one info subtree across orientation changes', (
+    tester,
+  ) async {
+    Widget build(Orientation orientation) => _testApp(
+      orientation: orientation,
+      child: WorkDetailResponsiveLayout(
+        coverBuilder: (_, __) => const Text('cover'),
+        infoSliver: const _InfoProbe(),
+      ),
+    );
+
+    await tester.pumpWidget(build(Orientation.portrait));
+    final before = tester.state<_InfoProbeState>(find.byType(_InfoProbe));
+    expect(find.text('probe-${before._id}'), findsOneWidget);
+
+    await tester.pumpWidget(build(Orientation.landscape));
+    final after = tester.state<_InfoProbeState>(find.byType(_InfoProbe));
+    expect(identical(before, after), isTrue);
+    expect(find.text('probe-${before._id}'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

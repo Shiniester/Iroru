@@ -2256,6 +2256,7 @@ void main() {
 
     _openPlayer(navigation, child: const ColoredBox(color: Color(0xff13579b)));
     await tester.pump();
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(tester.getRect(rail), initialRect);
     expect(tester.getRect(home), initialHomeRect);
@@ -2748,24 +2749,33 @@ void main() {
                   image.dispose();
                 }
               }))!;
+          // Ignore sub-perceptual compositing shifts; a moving rail changes
+          // whole icons and text, far above this threshold.
+          bool railPixelChanged(int a, int b) {
+            for (var shift = 0; shift < 32; shift += 8) {
+              if ((((a >> shift) & 0xFF) - ((b >> shift) & 0xFF)).abs() > 8) {
+                return true;
+              }
+            }
+            return false;
+          }
 
           final before = await readRail();
           await tester.tap(find.byKey(ValueKey(target)));
           for (final elapsed in [0, 16, 16, 16]) {
             await tester.pump(Duration(milliseconds: elapsed));
-            expect(navigation.audioPlayerRoute, isNotNull);
-            expect(
-              navigation.audioPlayerNavigationTransition!.value,
-              lessThan(0.5),
-            );
+            // Tap entry pre-warms the player off-screen before the root route
+            // exists, so the navigation must stay untouched until the handoff.
+            expect(navigation.audioPlayerRoute, isNull);
             final actual = await readRail();
             final changed = [
               for (var i = 0; i < actual.length; i++)
-                if (actual[i] != before[i]) i,
+                if (railPixelChanged(actual[i], before[i])) i,
             ];
             expect(changed, isEmpty, reason: 'after $elapsed ms');
           }
           await tester.pumpAndSettle();
+          expect(navigation.audioPlayerRoute, isNotNull);
           navigation.navigator!.pop();
           await tester.pumpAndSettle();
           expect(tester.takeException(), isNull);
@@ -2816,6 +2826,7 @@ void main() {
     }
 
     await tester.pump();
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(tester.getTopLeft(mini).dy, greaterThan(initialMiniRect.top));
     expect(tester.getRect(mini).left, initialMiniRect.left);
@@ -2841,7 +2852,7 @@ void main() {
     unawaited(route.completed.then((_) => exitCompleted = true));
     navigation.navigator!.pop();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 330));
     expect(exitCompleted, isFalse);
     expect(mini, findsNothing);
     await expectPlayerCoversRail();
@@ -2863,6 +2874,29 @@ void main() {
     await tester.tap(settings);
     await tester.pump();
     expect(navigation.selectedIndex, 3);
+  });
+
+  testWidgets('tap entry hides the Dock before the player finishes opening', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(tester);
+    await tester.tap(
+      find.byKey(const ValueKey('mini-player-track-swipe-region')),
+    );
+    for (
+      var frame = 0;
+      frame < 40 && navigation.audioPlayerRoute == null;
+      frame++
+    ) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(navigation.audioPlayerRoute, isNotNull);
+    expect(find.byType(AppBottomDock), findsNothing);
+    await tester.pumpAndSettle();
+    navigation.navigator!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(AppBottomDock), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   for (final size in [const Size(390, 844), const Size(1280, 720)]) {

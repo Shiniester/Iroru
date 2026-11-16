@@ -2253,6 +2253,95 @@ void main() {
     expect(queue!.map((file) => file['hash']), ['one', 'two', 'ten']);
   });
 
+  testWidgets('audio groups by folder and replaces the queue within it', (
+    tester,
+  ) async {
+    final tree = ValueNotifier<List<dynamic>>([
+      {
+        'type': 'folder',
+        'title': 'A',
+        'children': [
+          {'type': 'audio', 'title': 'a1.wav', 'hash': 'a1'},
+          {'type': 'audio', 'title': 'a2.wav', 'hash': 'a2'},
+        ],
+      },
+      {
+        'type': 'folder',
+        'title': 'B',
+        'children': [
+          {'type': 'audio', 'title': 'b1.wav', 'hash': 'b1'},
+        ],
+      },
+    ]);
+    addTearDown(tree.dispose);
+    List<dynamic>? queue;
+    await _pumpResources(tester, tree, onPlay: (_, __, files) => queue = files);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('work-audio-folder-A')), findsOneWidget);
+    expect(find.byKey(const ValueKey('work-audio-folder-B')), findsOneWidget);
+    expect(find.text('A'), findsOneWidget);
+    expect(find.text('B'), findsOneWidget);
+    expect(
+      tester
+          .widget<ListTile>(find.byKey(const ValueKey('work-audio-A/a1.wav')))
+          .subtitle,
+      isNull,
+    );
+
+    await tester.tap(find.text('a1.wav'));
+    expect(queue!.map((file) => file['hash']), ['a1', 'a2']);
+  });
+
+  testWidgets('long audio folder paths keep the final segment visible', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(300, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const folder =
+        'AAAAAAAAAAAAAAAAAAAA/BBBBBBBBBBBBBBBBBBBB/'
+        'CCCCCCCCCCCCCCCCCCCC/FinalFolder';
+    final tree = ValueNotifier<List<dynamic>>([
+      {
+        'type': 'folder',
+        'title': 'AAAAAAAAAAAAAAAAAAAA',
+        'children': [
+          {
+            'type': 'folder',
+            'title': 'BBBBBBBBBBBBBBBBBBBB',
+            'children': [
+              {
+                'type': 'folder',
+                'title': 'CCCCCCCCCCCCCCCCCCCC',
+                'children': [
+                  {
+                    'type': 'folder',
+                    'title': 'FinalFolder',
+                    'children': [
+                      {'type': 'audio', 'title': 'a.wav', 'hash': 'a'},
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    addTearDown(tree.dispose);
+    await _pumpResources(tester, tree);
+    await tester.pumpAndSettle();
+
+    final header = find.byKey(const ValueKey('work-audio-folder-$folder'));
+    expect(header, findsOneWidget);
+    final text = tester.widget<Text>(
+      find.descendant(of: header, matching: find.byType(Text)),
+    );
+    expect(text.data, startsWith('…'));
+    expect(text.data, endsWith('FinalFolder'));
+    expect(text.data, isNot(folder));
+  });
+
   testWidgets(
     'defaults to preferred audio with an eye for the best work subtitle',
     (tester) async {
@@ -2286,7 +2375,7 @@ void main() {
       );
       await tester.tap(find.text('track02.wav'));
       expect(selected['hash'], 'audio2');
-      expect(queue!.map((file) => file['hash']), ['audio1', 'audio2']);
+      expect(queue!.map((file) => file['hash']), ['audio2']);
       await tester.tap(
         find.byKey(const ValueKey('work-audio-subtitle-A/track01.wav')),
       );
@@ -2376,6 +2465,7 @@ void main() {
       final tile = tester.widget<ListTile>(audio);
       expect((tile.leading! as Icon).color, Colors.green);
       expect((tile.title! as Text).style!.fontSize, 14);
+      expect(tester.getSize(audio).height, 40);
       expect(tester.getRect(audio).width, width - 32);
       expect(tester.getRect(find.byIcon(Icons.audiotrack).first).left, 16);
       final resourceTab = tester.getRect(
@@ -2394,6 +2484,10 @@ void main() {
         of: audio,
         matching: find.byIcon(Icons.visibility),
       );
+      final audioRect = tester.getRect(audio);
+      final eyeRect = tester.getRect(eye);
+      expect(eyeRect.top, greaterThanOrEqualTo(audioRect.top));
+      expect(eyeRect.bottom, lessThanOrEqualTo(audioRect.bottom));
       expect(
         tester
             .widget<IconButton>(
@@ -2406,6 +2500,41 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       tree.dispose();
     }
+  });
+
+  testWidgets('audio rows share the resource file row spacing', (tester) async {
+    final files = _files();
+    final tree = ValueNotifier<List<dynamic>>(files);
+    addTearDown(tree.dispose);
+    await _pumpResources(
+      tester,
+      tree,
+      expandedFolders: const {'A'},
+      resourceSliver: FileTreeView(
+        items: files,
+        expandedFolders: const {'A'},
+        onToggleFolder: (_) {},
+        onFileTap: (_, __, ___) {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final audio = find.byKey(const ValueKey('work-audio-A/track01.wav'));
+    final audioHeight = tester.getSize(audio).height;
+    expect(audioHeight, 40);
+
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pumpAndSettle();
+    final resourceRow = find
+        .ancestor(
+          of: find.descendant(
+            of: find.byType(FileTreeView),
+            matching: find.text('track01.wav'),
+          ),
+          matching: find.byType(InkWell),
+        )
+        .first;
+    expect(tester.getSize(resourceRow).height, audioHeight);
   });
 
   testWidgets('audio duration follows subtitle preview and stays optional', (
@@ -2450,7 +2579,8 @@ void main() {
       find.byKey(const ValueKey('work-audio-subtitle-voice.wav')),
       findsOneWidget,
     );
-    final trailing = tester.widget<ListTile>(tile).trailing! as Row;
+    final trailing =
+        (tester.widget<ListTile>(tile).trailing! as SizedBox).child! as Row;
     expect(trailing.children.map((child) => child.runtimeType), [
       Text,
       IconButton,
@@ -2468,11 +2598,13 @@ void main() {
     ];
     await tester.pumpAndSettle();
     final missingDuration =
-        tester
-                .widget<ListTile>(
-                  find.byKey(const ValueKey('work-audio-unknown.wav')),
-                )
-                .trailing!
+        (tester
+                        .widget<ListTile>(
+                          find.byKey(const ValueKey('work-audio-unknown.wav')),
+                        )
+                        .trailing!
+                    as SizedBox)
+                .child!
             as Row;
     expect(missingDuration.children.map((child) => child.runtimeType), [Text]);
     expect(
@@ -2604,7 +2736,7 @@ void main() {
           BorderRadius.circular(workCoverCompactRadius),
         );
       }
-      expect(tester.getRect(find.byType(Card).first).left, 16);
+      expect(tester.getRect(find.byType(Card).first).left, 24);
       await tester.tap(find.text('two.png'));
       expect(selected['hash'], 'image2');
       tree.value = _files();
@@ -2623,8 +2755,11 @@ void main() {
   testWidgets('image target errors can retry on narrow and wide layouts', (
     tester,
   ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
     for (final width in [390.0, 1200.0]) {
-      await tester.binding.setSurfaceSize(Size(width, 844));
+      tester.view.physicalSize = Size(width, 844);
       final tree = ValueNotifier(_files(images: true));
       var attempts = 0;
       await _pumpResources(
@@ -2644,7 +2779,10 @@ void main() {
             tester.getRect(find.byType(TabBar)).bottom,
         16,
       );
-      expect(tester.getRect(find.byType(Card).first).left, 16);
+      expect(
+        tester.getRect(find.byType(Card).first).left,
+        width > 844 ? 24 : 8,
+      );
       await tester.tap(find.byTooltip('Retry').first);
       await tester.pumpAndSettle();
       expect(attempts, 3);
@@ -2652,7 +2790,6 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       tree.dispose();
     }
-    await tester.binding.setSurfaceSize(null);
   });
 
   testWidgets('images paginate by twenty and report only the selected page', (

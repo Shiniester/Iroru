@@ -628,27 +628,29 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
 
   Widget _buildBody(SearchResultState searchState, LayoutType layoutType) {
     if (searchState.error != null && searchState.works.isEmpty) {
-      return AsyncStateView(
-        icon: Icon(
-          Icons.error_outline,
-          size: 64,
-          color: Theme.of(context).colorScheme.error,
-        ),
-        title: Text(
-          S.of(context).loadFailed,
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        message: Text(
-          searchState.error!,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+      return ScrollableStateView(
+        child: AsyncStateView(
+          icon: Icon(
+            Icons.error_outline,
+            size: 64,
+            color: Theme.of(context).colorScheme.error,
           ),
-          textAlign: TextAlign.center,
-        ),
-        action: ElevatedButton.icon(
-          onPressed: () => ref.read(searchResultProvider.notifier).refresh(),
-          icon: const Icon(Icons.refresh),
-          label: Text(S.of(context).retry),
+          title: Text(
+            S.of(context).loadFailed,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          message: Text(
+            searchState.error!,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          action: ElevatedButton.icon(
+            onPressed: () => ref.read(searchResultProvider.notifier).refresh(),
+            icon: const Icon(Icons.refresh),
+            label: Text(S.of(context).retry),
+          ),
         ),
       );
     }

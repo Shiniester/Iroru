@@ -64,45 +64,11 @@ class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
   int _currentPage = 1;
   static const int _pageSize = 30;
 
-  bool get isSelectionMode => _isSelectionMode;
-  int get selectedCount => _selectedWorkIds.length;
-  bool get allSelected {
-    final workIds = _readCompletedTasks().keys;
-    return workIds.isNotEmpty && _selectedWorkIds.containsAll(workIds);
-  }
-
-  void toggleSelectionModeFromDrawer() => _toggleSelectionMode();
-
-  void selectAllFromDrawer() => _selectAll(_readCompletedTasks());
-
-  void deselectAllFromDrawer() => _deselectAll();
-
-  Future<void> deleteSelectedFromDrawer() =>
-      _deleteSelectedWorks(_readCompletedTasks());
-
   void showSortDialogFromDrawer() => _showSortDialog();
-
-  Future<void> refreshMetadataFromDrawer() => _refreshMetadata();
 
   Future<void> openDownloadFolderFromDrawer() => _openDownloadFolder();
 
   void _notifyDrawerChanged() => widget.onDrawerChanged?.call();
-
-  Map<int, List<DownloadTask>> _readCompletedTasks() {
-    final downloadService = ref.read(downloadServiceProvider);
-    final taskIds =
-        ref.read(downloadTaskIdsProvider).valueOrNull ??
-        downloadService.taskIds;
-    final tasks = taskIds
-        .map(downloadService.taskById)
-        .whereType<DownloadTask>()
-        .where((task) => task.status == DownloadStatus.completed);
-    final grouped = <int, List<DownloadTask>>{};
-    for (final task in tasks) {
-      grouped.putIfAbsent(task.workId, () => []).add(task);
-    }
-    return grouped;
-  }
 
   // 搜索相关
   final TextEditingController _searchController = TextEditingController();
@@ -190,6 +156,16 @@ class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
       if (!_isSelectionMode) {
         _selectedWorkIds.clear();
       }
+    });
+    _notifyDrawerChanged();
+    _toolbarModeChanged();
+  }
+
+  void exitSelection() {
+    if (!_isSelectionMode) return;
+    setState(() {
+      _isSelectionMode = false;
+      _selectedWorkIds.clear();
     });
     _notifyDrawerChanged();
     _toolbarModeChanged();
@@ -692,127 +668,139 @@ class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
     final currentPageWorkIds = sortedWorkIds.sublist(startIndex, endIndex);
     final toolbarTop = widget.toolbarTop;
     final layoutType = ref.watch(audioLayoutProvider);
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final metrics = resolveCollectionGridMetrics(
-                context,
-                layoutType: layoutType,
-                availableWidth: constraints.maxWidth,
-                availableHeight: constraints.maxHeight,
-              );
-              return VirtualizedSliverCollection<int>(
-                retainedItemCount: 100,
-                collectionController: _collectionController,
-                pageStorageKey: const PageStorageKey('local-downloads-feed'),
-                items: currentPageWorkIds,
-                itemId: (workId) => workId,
-                layout: layoutType == LayoutType.list
-                    ? VirtualizedCollectionLayout.list
-                    : VirtualizedCollectionLayout.masonry,
-                masonryCrossAxisCount: layoutType == LayoutType.list
-                    ? null
-                    : metrics.crossAxisCount,
-                masonryCrossAxisSpacing: metrics.spacing,
-                masonryMainAxisSpacing: metrics.spacing,
-                padding: EdgeInsets.fromLTRB(
-                  metrics.padding.left,
-                  widget.embedded ? 0 : toolbarTop + 60,
-                  metrics.padding.right,
-                  metrics.padding.bottom,
-                ),
-                physics: ScrollOptimization.physics,
-                pagination: totalCount == 0
-                    ? null
-                    : VirtualizedPagination(
-                        currentPage: currentPage,
-                        pageSize: _pageSize,
-                        totalCount: totalCount,
-                        hasMore: currentPage < totalPages,
-                        isLoading: false,
-                        onPreviousPage: _previousPage,
-                        onNextPage: () => _nextPage(totalPages),
-                        onGoToPage: _goToPage,
-                        nextPageOnOverscroll: true,
-                        scrollToTop: false,
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                      ),
-                showEndIndicator: false,
-                emptyBuilder: (context) => Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        allGroupedTasks.isEmpty
-                            ? Icons.download_outlined
-                            : Icons.search_off,
-                        size: 64,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        allGroupedTasks.isEmpty
-                            ? S.of(context).noLocalDownloads
-                            : S.of(context).noResults,
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+    return PopScope(
+      canPop: !_isSelectionMode,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) exitSelection();
+      },
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final metrics = resolveCollectionGridMetrics(
+                  context,
+                  layoutType: layoutType,
+                  availableWidth: constraints.maxWidth,
+                  availableHeight: constraints.maxHeight,
+                );
+                return VirtualizedSliverCollection<int>(
+                  retainedItemCount: 100,
+                  collectionController: _collectionController,
+                  pageStorageKey: const PageStorageKey('local-downloads-feed'),
+                  onRefresh: _refreshMetadata,
+                  items: currentPageWorkIds,
+                  itemId: (workId) => workId,
+                  layout: layoutType == LayoutType.list
+                      ? VirtualizedCollectionLayout.list
+                      : VirtualizedCollectionLayout.masonry,
+                  masonryCrossAxisCount: layoutType == LayoutType.list
+                      ? null
+                      : metrics.crossAxisCount,
+                  masonryCrossAxisSpacing: metrics.spacing,
+                  masonryMainAxisSpacing: metrics.spacing,
+                  padding: EdgeInsets.fromLTRB(
+                    metrics.padding.left,
+                    widget.embedded
+                        ? (_isSelectionMode ? toolbarTop + 60 : 0)
+                        : toolbarTop + 60,
+                    metrics.padding.right,
+                    metrics.padding.bottom,
                   ),
-                ),
-                itemBuilder: (context, workId, index) {
-                  final workTasks = groupedTasks[workId]!;
-                  return _buildWorkCard(
-                    workId: workId,
-                    workTasks: workTasks,
-                    firstTask: _preferredMetadataTask(workTasks),
-                    isSelected: _selectedWorkIds.contains(workId),
-                    layoutType: layoutType,
-                  );
-                },
-              );
-            },
-          ),
-        ),
-        if (!widget.embedded && widget.primaryToolbarVisible == null)
-          Positioned(
-            top: toolbarTop,
-            left: FloatingToolbarLayout.horizontalPadding(context),
-            right: FloatingToolbarLayout.horizontalPadding(context),
-            child: FloatingToolbarRow(
-              scrollable: true,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: _buildPrimaryToolbar(allGroupedTasks),
-                ),
-                _buildSecondaryToolbar(),
-              ],
+                  physics: ScrollOptimization.physics,
+                  pagination: totalCount == 0
+                      ? null
+                      : VirtualizedPagination(
+                          currentPage: currentPage,
+                          pageSize: _pageSize,
+                          totalCount: totalCount,
+                          hasMore: currentPage < totalPages,
+                          isLoading: false,
+                          onPreviousPage: _previousPage,
+                          onNextPage: () => _nextPage(totalPages),
+                          onGoToPage: _goToPage,
+                          nextPageOnOverscroll: true,
+                          scrollToTop: false,
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                        ),
+                  showEndIndicator: false,
+                  emptyBuilder: (context) => Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          allGroupedTasks.isEmpty
+                              ? Icons.download_outlined
+                              : Icons.search_off,
+                          size: 64,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          allGroupedTasks.isEmpty
+                              ? S.of(context).noLocalDownloads
+                              : S.of(context).noResults,
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  itemBuilder: (context, workId, index) {
+                    final workTasks = groupedTasks[workId]!;
+                    return _buildWorkCard(
+                      workId: workId,
+                      workTasks: workTasks,
+                      firstTask: _preferredMetadataTask(workTasks),
+                      isSelected: _selectedWorkIds.contains(workId),
+                      layoutType: layoutType,
+                    );
+                  },
+                );
+              },
             ),
-          )
-        else if (!widget.embedded)
-          FloatingToolbarPositionFollower(
-            primaryToolbarVisible: widget.primaryToolbarVisible!,
-            visibleTop: toolbarTop,
-            hiddenTop: widget.collapsedToolbarTop ?? toolbarTop,
-            left: FloatingToolbarLayout.horizontalPadding(context),
-            right: FloatingToolbarLayout.horizontalPadding(context),
-            child: FloatingToolbarRow(
-              scrollable: true,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: _buildPrimaryToolbar(allGroupedTasks),
-                ),
-                _buildSecondaryToolbar(),
-              ],
-            ),
           ),
-      ],
+          if ((!widget.embedded || _isSelectionMode) &&
+              widget.primaryToolbarVisible == null)
+            Positioned(
+              top: toolbarTop,
+              left: FloatingToolbarLayout.horizontalPadding(context),
+              right: FloatingToolbarLayout.horizontalPadding(context),
+              child: FloatingToolbarRow(
+                scrollable: true,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: _buildPrimaryToolbar(allGroupedTasks),
+                  ),
+                  _buildSecondaryToolbar(),
+                ],
+              ),
+            )
+          else if (!widget.embedded)
+            FloatingToolbarPositionFollower(
+              primaryToolbarVisible: widget.primaryToolbarVisible!,
+              visibleTop: toolbarTop,
+              hiddenTop: widget.collapsedToolbarTop ?? toolbarTop,
+              left: FloatingToolbarLayout.horizontalPadding(context),
+              right: FloatingToolbarLayout.horizontalPadding(context),
+              child: FloatingToolbarRow(
+                scrollable: true,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: _buildPrimaryToolbar(allGroupedTasks),
+                  ),
+                  _buildSecondaryToolbar(),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 

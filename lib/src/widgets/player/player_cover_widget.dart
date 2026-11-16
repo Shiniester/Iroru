@@ -645,17 +645,9 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
                     ),
                   ],
                 ),
-                foregroundDecoration: BoxDecoration(
-                  borderRadius: radius,
-                  border: Border.all(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.18),
-                  ),
-                ),
-                // Keep the stable artwork frame's shadow and border outside
-                // the clip. Only the image/transition layers are clipped so
-                // their fixed 14dp corners remain stable while scaling.
+                // Keep the stable artwork frame's shadow outside the clip.
+                // Only the image/transition layers are clipped so their fixed
+                // 14dp corners remain stable while scaling.
                 child: ClipRRect(
                   key: const ValueKey('player-cover-transition-clip'),
                   clipBehavior: Clip.antiAlias,

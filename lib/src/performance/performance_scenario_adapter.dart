@@ -99,7 +99,7 @@ class _ProfilePlayerStage extends StatelessWidget {
           brightness: Brightness.dark,
         );
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 280),
+          duration: const Duration(milliseconds: 500),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,

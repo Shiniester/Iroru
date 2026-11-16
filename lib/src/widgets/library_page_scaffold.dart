@@ -17,6 +17,7 @@ class LibraryPageScaffold extends StatefulWidget {
     this.deferDrawerActions = false,
     this.drawerFooter,
     this.floatingActionButton,
+    this.topNotice,
     this.bottomNavigationBar,
   });
 
@@ -28,6 +29,7 @@ class LibraryPageScaffold extends StatefulWidget {
   final bool deferDrawerActions;
   final Widget? drawerFooter;
   final Widget? floatingActionButton;
+  final Widget? topNotice;
   final Widget? bottomNavigationBar;
 
   @override
@@ -81,7 +83,7 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
         drawer: Drawer(
           key: const ValueKey('library-drawer'),
           backgroundColor: theme.scaffoldBackgroundColor,
-          width: math.min(224, width - 48),
+          width: math.min(200, width - 48),
           child: widget.deferDrawerActions
               ? _LibraryDrawerLifecycle(
                   key: _drawerLifecycleKey,
@@ -181,6 +183,7 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
                 ),
               ),
             ),
+            if (widget.topNotice != null) widget.topNotice!,
             Expanded(
               child: Builder(
                 builder: (context) => GestureDetector(

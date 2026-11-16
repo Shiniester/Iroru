@@ -574,6 +574,107 @@ void main() {
         ? 'Set KIKOFLU_AUDIO_LIBMPV to run real service/native output.'
         : false,
   );
+
+  test(
+    'service seek with stateful effects lands at the requested position',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final directory = await Directory.systemTemp.createTemp(
+        'kiko-effects-seek-',
+      );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            (_) async => directory.path,
+          );
+      const rate = 48000;
+      final source = File('${directory.path}/long.wav');
+      await source.writeAsBytes(
+        audioEffectsWav(
+          List.generate(rate * 45, (n) => (n % 1000, -(n % 1000))),
+          rate,
+        ),
+      );
+      final player = audio.AudioPlayer(
+        androidApplyAudioAttributes: false,
+        useProxyForRequestHeaders: false,
+        handleInterruptions: false,
+        handleAudioSessionActivation: false,
+      );
+      late NativePlayer native;
+      final service = AudioPlayerService.forTesting(
+        player,
+        nativePlayerId: player.platformId,
+        sessionStore: MemorySessionStore(),
+        nativePlayerInitializer: (value) async {
+          native = value;
+          await native.setProperty('ao', 'null');
+        },
+      );
+      try {
+        await service.updateAudioEffects(
+          AudioEffectsSettings(
+            equalizerEnabled: true,
+            gains: AudioEffectsSettings.curves[EqualizerPreset.bassBoost],
+            channelMode: AudioChannelMode.swap,
+            binauralMode: BinauralMode.stereo,
+            stereoAmount: 100,
+            sceneEnabled: true,
+            scene: AudioScene.bathroom,
+            sceneAmount: 100,
+          ),
+        );
+        await service.updateQueue([
+          model.AudioTrack(
+            id: 'long',
+            title: 'long.wav',
+            url: source.uri.toString(),
+          ),
+        ], autoplay: true);
+        final deadline = DateTime.now().add(const Duration(seconds: 10));
+        while ((double.tryParse(await native.getProperty('time-pos')) ?? 0) <
+            0.5) {
+          if (DateTime.now().isAfter(deadline)) {
+            throw TimeoutException('playback did not start');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        for (final seconds in [30, 10, 35, 5, 25, 40, 15, 32, 8, 28]) {
+          expect(
+            await service.seek(Duration(seconds: seconds)),
+            isTrue,
+            reason: 'seek to $seconds s',
+          );
+          expect(
+            double.tryParse(await native.getProperty('time-pos')) ?? 0,
+            closeTo(seconds, .25),
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        }
+        final position =
+            double.tryParse(await native.getProperty('time-pos')) ?? 0;
+        await Future<void>.delayed(const Duration(seconds: 1));
+        expect(
+          double.tryParse(await native.getProperty('time-pos')) ?? 0,
+          greaterThan(position + .5),
+        );
+      } finally {
+        await service.dispose();
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+              const MethodChannel('plugins.flutter.io/path_provider'),
+              null,
+            );
+        await directory.delete(recursive: true);
+      }
+    },
+    skip: library == null
+        ? 'Set KIKOFLU_AUDIO_LIBMPV to run real service/native positions.'
+        : false,
+  );
 }
 
 Future<List<(double, double)>> _readCompletePcm(File output, int frames) async {

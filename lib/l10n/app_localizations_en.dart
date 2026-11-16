@@ -2072,6 +2072,9 @@ class SEn extends S {
   String get exitSelection => 'Exit selection';
 
   @override
+  String get pressBackAgainToExit => 'Press back again to exit';
+
+  @override
   String get reload => 'Reload';
 
   @override
@@ -4041,6 +4044,9 @@ class SEn extends S {
   String get comicReaderSettings => 'Reader settings';
 
   @override
+  String get comicReadingAndInterface => 'Reading and interface';
+
+  @override
   String get comicSearchTargets => 'Search targets';
 
   @override
@@ -4370,6 +4376,24 @@ class SEn extends S {
 
   @override
   String get videoSettings => 'Video settings';
+
+  @override
+  String get playback => 'Playback';
+
+  @override
+  String get videoInterface => 'Interface';
+
+  @override
+  String get videoAccountAndSources => 'Account and sources';
+
+  @override
+  String get videoAccountSignedIn => 'Signed in';
+
+  @override
+  String get videoAccountSignedOut => 'Not signed in';
+
+  @override
+  String get downloadsAndStorage => 'Downloads and storage';
 
   @override
   String get videoCardMakers => 'Studio';
@@ -4778,6 +4802,10 @@ class SEn extends S {
 
   @override
   String get videoPlayerAlwaysOnTop => 'Always on top';
+
+  @override
+  String get videoPlayerAlwaysOnTopNextSession =>
+      'Applies the next time the player opens';
 
   @override
   String get videoPlayerCancelAlwaysOnTop => 'Stop keeping on top';

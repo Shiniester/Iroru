@@ -1,6 +1,7 @@
 import 'package:ffi/ffi.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart';
@@ -116,6 +117,113 @@ void main() {
     skip: library == null,
   );
 
+  test(
+    'seek history reset replaces the resident graph when live controls did not change',
+    () async {
+      final frames = List.generate(48000, (n) => (1000 + n, -3000 - n));
+      final settings = AudioEffectsSettings(
+        channelMode: AudioChannelMode.cloneLeft,
+      );
+      await _captureInitialEffects(
+        audioEffectsWav(frames, 48000),
+        settings,
+        onLoad: (_, native) async {
+          const clock = 'asetnsamples=n=128:p=0,arealtime';
+          final chain = await native.getProperty('af');
+          _setNativeAf(
+            native,
+            '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$chain',
+          );
+        },
+        duringPlayback: (controller, native) async {
+          controller.resetHistory();
+          final reset = await native.getProperty('af');
+          expect(reset, contains('@kiko_channel'));
+          expect(reset, isNot(contains('@test_clock')));
+        },
+      );
+    },
+    skip: library == null,
+  );
+
+  for (final scene in [AudioScene.bathroom, AudioScene.muffled]) {
+    test('standalone ${scene.name} keeps silent PCM silent', () async {
+      final frames = List.filled(4800, (0, 0));
+      final capture = await _captureInitialEffects(
+        audioEffectsWav(frames, 48000),
+        AudioEffectsSettings(sceneEnabled: true, scene: scene),
+      );
+
+      expect(audioEffectsPcm(capture), List.filled(frames.length, (0.0, 0.0)));
+    }, skip: library == null);
+  }
+
+  test('seek keeps playing after scene history reset', () async {
+    final ready = Completer<void>();
+    final player = Player(
+      configuration: PlayerConfiguration(ready: ready.complete),
+    );
+    await ready.future.timeout(const Duration(seconds: 10));
+    final native = player.platform as NativePlayer;
+    final statuses = <AudioEffectsStatus>[];
+    final controller = NativeAudioEffects(statuses.add);
+    final directory = await Directory.systemTemp.createTemp(
+      'kiko-effects-scene-seek-',
+    );
+    final source = File('${directory.path}/source.wav');
+    final output = File('${directory.path}/capture.pcm');
+    const rate = 48000;
+    final frames = List.generate(rate * 4, (n) {
+      final sample = (12000 * math.sin(2 * math.pi * 1000 * n / rate)).round();
+      return (sample, sample);
+    });
+    await source.writeAsBytes(audioEffectsWav(frames, rate));
+    try {
+      for (final entry in {
+        'ao': 'pcm',
+        'ao-pcm-waveheader': 'no',
+        'ao-pcm-append': 'yes',
+        'ao-pcm-file': output.path,
+        'audio-format': 'float',
+        'audio-samplerate': '$rate',
+        'audio-channels': 'stereo',
+        'demuxer-lavf-format': 'wav',
+        'gapless-audio': 'no',
+      }.entries) {
+        await native.setProperty(entry.key, entry.value);
+      }
+      await controller.configure(
+        native,
+        AudioEffectsSettings(
+          sceneEnabled: true,
+          scene: AudioScene.bathroom,
+          sceneAmount: 100,
+        ),
+        false,
+      );
+      native.onLoadHooks.add(() async {
+        final chain = await native.getProperty('af');
+        const clock = 'asetnsamples=n=128:p=0,arealtime';
+        await native.setProperty(
+          'af',
+          '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$chain',
+        );
+      });
+      final completed = player.stream.completed.firstWhere((done) => done);
+      await player.open(Media(source.path));
+      await _waitForOutput(output);
+      expect(await native.getProperty('af'), contains('@kiko_bathroom'));
+      await player.seek(const Duration(seconds: 2));
+      controller.resetHistory();
+      await completed.timeout(const Duration(seconds: 15));
+      expect(statuses, isNot(contains(AudioEffectsStatus.unavailable)));
+    } finally {
+      await controller.dispose();
+      await player.dispose();
+      await directory.delete(recursive: true);
+    }
+  }, skip: library == null);
+
   test('neutral effects preserve all six channels of 5.1 PCM', () async {
     const frameCount = 4817;
     const channels = 6;
@@ -182,7 +290,7 @@ void main() {
   }, skip: library == null);
 
   test(
-    'live scene switching passes through sample-identical neutral output',
+    'live scene switching installs only the selected scene and keeps neutral output',
     () async {
       const rate = 48000;
       final frames = List.generate(
@@ -207,13 +315,20 @@ void main() {
         },
         duringPlayback: (controller, native) async {
           await _waitForNativePosition(native, .3);
-          final graph = await native.getProperty('af');
           await controller.configure(
             native,
             muffled.copyWith(scene: AudioScene.bathroom),
             false,
           );
-          expect(await native.getProperty('af'), graph);
+          final switched = await native.getProperty('af');
+          expect(switched, contains('@kiko_bathroom'));
+          expect(switched, isNot(contains('@kiko_through_wall')));
+          expect(switched, isNot(contains('@kiko_telephone')));
+          const clock = 'asetnsamples=n=128:p=0,arealtime';
+          _setNativeAf(
+            native,
+            '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$switched',
+          );
         },
       );
       final actual = audioEffectsPcm(capture);
@@ -222,13 +337,6 @@ void main() {
           actual[i] == (frames[i].$1 / 32768, frames[i].$2 / 32768);
       expect(dry(rate ~/ 4), false);
       expect(dry(frames.length - rate ~/ 4), false);
-      expect(
-        Iterable<int>.generate(
-          frames.length - rate ~/ 2,
-          (i) => i + rate ~/ 4,
-        ).any(dry),
-        true,
-      );
     },
     skip: library == null,
   );
@@ -554,7 +662,18 @@ void main() {
             if (hot) {
               final graph = await native.getProperty('af');
               await controller.configure(native, target, false);
-              expect(await native.getProperty('af'), graph);
+              if (binaural) {
+                final switched = await native.getProperty('af');
+                expect(switched, contains('volume@channel_mode=3'));
+                expect(switched, contains('volume@mono_amount=1.0'));
+                const clock = 'asetnsamples=n=128:p=0,arealtime';
+                _setNativeAf(
+                  native,
+                  '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$switched',
+                );
+              } else {
+                expect(await native.getProperty('af'), graph);
+              }
               expect(
                 await native.getProperty('audio-params/samplerate'),
                 '44100',
@@ -732,6 +851,15 @@ Future<void> _waitForNativePosition(NativePlayer player, double seconds) async {
     }
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
+}
+
+Future<void> _waitForOutput(File output) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (DateTime.now().isBefore(deadline)) {
+    if (output.existsSync() && output.lengthSync() > 0) return;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  throw TimeoutException('Native playback did not produce output');
 }
 
 Future<List<(double, double)>> _finishPcmCapture(

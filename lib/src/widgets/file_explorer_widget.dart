@@ -95,6 +95,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
   final Future<bool> Function()? initialLoadReady;
   final bool translate;
   final String? Function()? translatedWorkTitle;
+  final WorkResourceSession? session;
 
   const FileExplorerWidget({
     super.key,
@@ -108,6 +109,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
     this.initialLoadReady,
     this.translate = false,
     this.translatedWorkTitle,
+    this.session,
   });
 
   @override
@@ -117,7 +119,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
 class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   Work get _work => widget.currentWork?.call() ?? widget.work;
   List<dynamic> _rootFiles = [];
-  final Set<String> _expandedFolders = {}; // 记录展开的文件夹路径
+  late final WorkResourceSession _session;
   final Map<String, bool> _manualFolderOverrides = {};
   final _audioVariantClassifier = const PlayerAudioVariantClassifier();
   List<PlayerAudioVariant> _audioVariants = const [];
@@ -137,6 +139,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   bool _downloadScanRunning = false;
   bool _downloadScanRequested = false;
   List<String> _visibleNames = const [];
+
+  Set<String> get _expandedFolders => _session.expandedFolders;
 
   FilePreviewResolver get _previewResolver => FilePreviewResolver(
     downloadRootPath: () async {
@@ -172,6 +176,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   @override
   void initState() {
     super.initState();
+    _session = widget.session ?? WorkResourceSession();
     widget.controller?._attach(this);
     ref.listenManual(audioFormatPreferenceProvider, (previous, preference) {
       unawaited(_syncPreferredExpandedFolders(preference));
@@ -496,9 +501,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     final work = _work;
     final useTranslations = widget.translate;
     final translatedTitles = useTranslations
-        ? Map<String, String>.unmodifiable(
-            _translationController.translations,
-          )
+        ? Map<String, String>.unmodifiable(_translationController.translations)
         : null;
     final translatedAlbumTitle = useTranslations
         ? widget.translatedWorkTitle?.call()
@@ -1118,6 +1121,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,
       audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
+      session: _session,
       onImageTap: _previewImageFile,
       resolveImage: (file) async {
         final auth = ref.read(authProvider);

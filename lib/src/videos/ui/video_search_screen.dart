@@ -12,6 +12,7 @@ import '../../utils/snackbar_util.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
+import '../../widgets/async_state_view.dart';
 import '../../widgets/responsive_dialog.dart';
 import '../../widgets/search_condition_chip.dart';
 import '../../widgets/search_history_section.dart';
@@ -2032,32 +2033,34 @@ class _VideoSearchFilterPickerState extends State<_VideoSearchFilterPicker> {
   }
 
   Widget _errorView(S s) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            _verificationError == null
-                ? s.videoLoadFailed
-                : s.videoVerificationRequired,
-            textAlign: TextAlign.center,
-          ),
-          Wrap(
-            alignment: WrapAlignment.center,
-            children: [
-              if (_verificationError != null && widget.verifyAccess != null)
-                TextButton.icon(
-                  onPressed: _verifyingAccess ? null : _verifyAndRetry,
-                  icon: const Icon(Icons.verified_user_outlined),
-                  label: Text(s.videoVerifyAccess),
+    return ScrollableStateView(
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _verificationError == null
+                  ? s.videoLoadFailed
+                  : s.videoVerificationRequired,
+              textAlign: TextAlign.center,
+            ),
+            Wrap(
+              alignment: WrapAlignment.center,
+              children: [
+                if (_verificationError != null && widget.verifyAccess != null)
+                  TextButton.icon(
+                    onPressed: _verifyingAccess ? null : _verifyAndRetry,
+                    icon: const Icon(Icons.verified_user_outlined),
+                    label: Text(s.videoVerifyAccess),
+                  ),
+                TextButton(
+                  onPressed: _loading ? null : () => _load(_requestedUrl),
+                  child: Text(s.retry),
                 ),
-              TextButton(
-                onPressed: _loading ? null : () => _load(_requestedUrl),
-                child: Text(s.retry),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -21,6 +21,12 @@ _Avoid_: Player navigation, bottom menu
 The app page for browsing videos from a Video Source.
 _Avoid_: Video player, source website
 
+**Video Settings (视频设置)**:
+The settings hub for Video Playback Settings, video card display and Video
+Collection Layout, Video Source Accounts, Video Downloads, and video search
+history. It is distinct from Video Playback Settings and the Video Screen.
+_Avoid_: Video Playback Settings
+
 **Video Collection Layout (视频集合布局)**:
 The presentation of video cards and Video Playlist cards as a big grid, small
 grid, or list.
@@ -300,6 +306,10 @@ For Japanese ASMR works with a chapter index, Audio lists the Work Audio Chapter
 in source order in place of the complete-work audio entry.
 Each tab retains its resource-section scroll position during the current detail
 visit; an unvisited tab starts at the resource section's top.
+Changing orientation keeps the selected tab and its resource-section scroll
+position.
+The selected tab, per-tab scroll positions, image page, and expanded resource
+folders persist for the current Work Details Screen visit.
 Swiping before the tab bar pins preserves its position on screen.
 Pages slide out and in at their own browsing positions throughout the transition.
 _Avoid_: App Tab Bar, Works Home Tab
@@ -307,6 +317,12 @@ _Avoid_: App Tab Bar, Works Home Tab
 **Work Resource Video (作品资源视频)**:
 A video file supplied among an audio work's resources, separate from videos
 cataloged by a Video Source.
+
+**Audio Folder Group (音频文件夹分组)**:
+The audio files shown under one folder path in a Work Details Screen's Audio
+tab. The folder path appears once as the group heading. "替换播放队列" uses
+only the selected file's group.
+_Avoid_: Whole-work audio queue, audio directory tree
 
 **Same-folder Work Videos (同文件夹作品视频)**:
 Work Resource Videos directly contained in the same resource folder. Videos in
@@ -447,6 +463,10 @@ that component while retaining the voice audio.
 播放音效与音源版本中已有的效果音分开设置。
 _Avoid_: Sound Effects, 效果音
 
+**Equalizer Preset (均衡器预设)**:
+播放音效中的固定频段曲线，取值为默认、清亮、低音增强、清脆拍打、沉闷拍打或人声增强。
+_Avoid_: EQ 模式, 音效预设
+
 **Channel Mode (声道模式)**:
 播放时保留、交换或克隆左右声道的规则。
 “反转”表示交换左右声道。
@@ -454,6 +474,7 @@ _Avoid_: 波形反相
 
 **Scene Effects (场景效果)**:
 模拟浴室回声、闷声或电话音等听感的播放音效。
+“闷声”指被手或织物遮挡的近讲声，不是隔墙声。
 
 **Ejaculation Audio (射精音)**:
 The ejaculation or climax audio component of an audio variant, classified
@@ -550,6 +571,12 @@ At the final slice, Repeat Mode determines whether playback returns to the first
 slice or advances to the next track.
 _Avoid_: Slice Preview, audio-file trimming
 
+**Audio Download (音声下载)**:
+A complete audio file saved for offline use. An Audio Download uses the source's
+download representation and never resumes from or substitutes Automatic Audio
+Cache, which may hold a different container of the same track.
+_Avoid_: Automatic Audio Cache, playback buffer
+
 **Automatic Audio Cache (音频自动缓存)**:
 Saving online audio in the background for later playback. A cache entry becomes
 playable only when the entire file is saved. Cache progress, failure, or
@@ -610,6 +637,12 @@ with the same header and sidebar behavior as the Audio Screen. Its selected
 Favorites entry shows the Local Favorite and Source Favorite choices, while
 Comic Collection Layout remains shared across pages.
 _Avoid_: Works Home Tab, discovery page
+
+**Comic Settings (漫画设置)**:
+The settings hub for Comic Source accounts, Reader Settings, comic collection
+display, and comic downloads and image storage. It is distinct from Reader
+Settings and the Comic Screen.
+_Avoid_: Reader Settings
 
 **Comic Details Screen (漫画详情页)**:
 The page describing one comic's synopsis, tags, chapters, available source comments,

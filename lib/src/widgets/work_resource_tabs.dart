@@ -47,6 +47,31 @@ const _resourcePagePadding = EdgeInsets.symmetric(horizontal: 16);
 
 enum WorkResourceTab { resources, audio, images, videos, recommendations }
 
+class WorkResourceSession {
+  WorkResourceTab? selectedTab;
+  int imagePage = 1;
+  bool recommendationVisited = false;
+  final Set<String> expandedFolders = <String>{};
+  final Map<WorkResourceTab, double> _scrollOffsets = {};
+  final Map<WorkResourceTab, bool> _reachedResourceTop = {};
+
+  double? scrollOffsetFor(WorkResourceTab tab) => _scrollOffsets[tab];
+
+  bool reachedResourceTopFor(WorkResourceTab tab) =>
+      _reachedResourceTop[tab] ?? false;
+
+  void recordScrollOffset(WorkResourceTab tab, double offset) {
+    if (!offset.isFinite) return;
+    _reachedResourceTop[tab] = offset >= 0;
+    _scrollOffsets[tab] = offset.clamp(0.0, double.infinity).toDouble();
+  }
+
+  void resetScrollOffset(WorkResourceTab tab) {
+    _scrollOffsets[tab] = 0;
+    _reachedResourceTop[tab] = true;
+  }
+}
+
 class WorkResourceTabs extends ConsumerStatefulWidget {
   const WorkResourceTabs({
     super.key,
@@ -74,6 +99,7 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
     this.onVisibleNamesChanged,
     this.downloadedFiles = const {},
     this.audioWithLibrarySubtitles = const {},
+    this.session,
   });
 
   final int workId;
@@ -100,6 +126,7 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
   final ValueChanged<List<String>>? onVisibleNamesChanged;
   final Map<String, bool> downloadedFiles;
   final Set<String> audioWithLibrarySubtitles;
+  final WorkResourceSession? session;
 
   @override
   ConsumerState<WorkResourceTabs> createState() => _WorkResourceTabsState();
@@ -117,8 +144,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   List<dynamic> _images = const [];
   List<FileTreeVideoFile> _videos = const [];
   List<PlayerAudioVariant> _audio = const [];
-  List<dynamic> _queue = const [];
   List<PlayerSubtitleCandidate?> _subtitles = const [];
+  List<({String? folder, int? index})> _audioRows = const [];
+  Map<String, List<dynamic>> _audioFolderFiles = const {};
   int? _workId;
   final _imageTargets = <dynamic, Future<PreviewFileItem?>>{};
   final _resolvedImageTargets = <dynamic, PreviewFileItem>{};
@@ -134,7 +162,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     prepare: _prepareImage,
   );
   ScrollPosition? _verticalPosition;
-  final _tabScrollOffsets = <WorkResourceTab, double>{};
+  late final WorkResourceSession _session;
   int? _imageCacheWidth;
   bool _imageInspectionScheduled = false;
   Map<String, bool> _downloadedFiles = const {};
@@ -142,21 +170,30 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   late AnimationController _pagePosition;
   late TabController _tabs;
   final _resourceGroupKey = GlobalKey();
-  int _imagePage = 1;
   bool _reduceMotion = false;
   bool _tabSyncScheduled = false;
   bool _configuringTabs = false;
   double? _unpinnedTransitionOffset;
-  bool _recommendationVisited = false;
+  Orientation? _lastOrientation;
   int? _motionTarget;
   int _tabMotionGeneration = 0;
   WorkResourceTab? _transitionSource;
   late List<WorkResourceTab> _pageKinds;
   late List<WorkResourceTab> _tabKinds;
 
+  int get _imagePage => _session.imagePage;
+  set _imagePage(int value) => _session.imagePage = value;
+  int get _maxImagePage =>
+      math.max(1, (_images.length / _imagesPerPage).ceil());
+
+  bool get _recommendationVisited => _session.recommendationVisited;
+  set _recommendationVisited(bool value) =>
+      _session.recommendationVisited = value;
+
   @override
   void initState() {
     super.initState();
+    _session = widget.session ?? WorkResourceSession();
     _images = FileTreeUtils.imageFilesRecursive(widget.fileTree);
     _videos = FileTreeUtils.videoFilesRecursive(
       widget.fileTree,
@@ -167,11 +204,15 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       widget.recommendationBuilder != null &&
           ref.read(workDetailDisplayProvider).showRecommendations,
     );
-    _selected = _tabKinds.indexOf(widget.initialTab);
+    final savedTab = _session.selectedTab;
+    _selected = savedTab == null ? -1 : _tabKinds.indexOf(savedTab);
+    if (_selected < 0) _selected = _tabKinds.indexOf(widget.initialTab);
     if (_selected < 0) _selected = _tabKinds.indexOf(WorkResourceTab.audio);
     if (_selected < 0) _selected = 0;
-    _recommendationVisited =
-        _tabKinds[_selected] == WorkResourceTab.recommendations;
+    if (_tabKinds[_selected] == WorkResourceTab.recommendations) {
+      _session.recommendationVisited = true;
+    }
+    _session.selectedTab = _tabKinds[_selected];
     _tabs = TabController(
       length: _tabKinds.length,
       initialIndex: _selected,
@@ -194,9 +235,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       axis: Axis.vertical,
     )?.position;
     if (_verticalPosition != verticalPosition) {
-      _verticalPosition?.removeListener(_scheduleImageInspection);
+      _verticalPosition?.removeListener(_handleVerticalScroll);
       _verticalPosition = verticalPosition;
-      _verticalPosition?.addListener(_scheduleImageInspection);
+      _verticalPosition?.addListener(_handleVerticalScroll);
     }
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     if (reduceMotion && !_reduceMotion) {
@@ -204,11 +245,21 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       _pagePosition.value = (_motionTarget ?? _selected).toDouble();
     }
     _reduceMotion = reduceMotion;
+    final orientation = MediaQuery.orientationOf(context);
+    final firstDependencies = _lastOrientation == null;
+    final orientationChanged =
+        _lastOrientation != null && _lastOrientation != orientation;
+    _lastOrientation = orientation;
+    if (orientationChanged) {
+      _restoreScrollAfterOrientationChange();
+    } else if (firstDependencies) {
+      _restoreInitialScrollIfNeeded();
+    }
   }
 
   @override
   void dispose() {
-    _verticalPosition?.removeListener(_scheduleImageInspection);
+    _verticalPosition?.removeListener(_handleVerticalScroll);
     _imagePrefetchQueue.dispose();
     for (final signal in _imageTargetSignals.values) {
       signal.dispose();
@@ -219,6 +270,50 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       ..dispose();
     _tabs.dispose();
     super.dispose();
+  }
+
+  void _handleVerticalScroll() {
+    _scheduleImageInspection();
+    _captureResourceOffset();
+  }
+
+  void _captureResourceOffset() {
+    if (!mounted || _configuringTabs || _transitionSource != null) return;
+    final offset = _tryResourceScrollOffset();
+    if (offset == null || !offset.isFinite) return;
+    final selected = _selected.clamp(0, _tabKinds.length - 1);
+    final tab = _tabKinds[selected];
+    _session.recordScrollOffset(tab, offset);
+  }
+
+  void _restoreScrollAfterOrientationChange() {
+    final selected = _selected.clamp(0, _tabKinds.length - 1);
+    final tab = _tabKinds[selected];
+    _configuringTabs = true;
+    _pagePosition.stop(canceled: true);
+    _pagePosition.value = selected.toDouble();
+    syncTabWithPagePosition(_tabs, _pagePosition.value);
+    _configuringTabs = false;
+    _transitionSource = null;
+    _unpinnedTransitionOffset = null;
+    _motionTarget = null;
+    final generation = ++_tabMotionGeneration;
+    if (!_session.reachedResourceTopFor(tab)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != _tabMotionGeneration) return;
+      unawaited(_restoreResourceOffset(tab, generation));
+    });
+  }
+
+  void _restoreInitialScrollIfNeeded() {
+    final selected = _selected.clamp(0, _tabKinds.length - 1);
+    final tab = _tabKinds[selected];
+    if (!_session.reachedResourceTopFor(tab)) return;
+    final generation = ++_tabMotionGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != _tabMotionGeneration) return;
+      unawaited(_restoreResourceOffset(tab, generation));
+    });
   }
 
   void _updateResources(
@@ -255,7 +350,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         widget.fileTree,
         videoBeforeAudio: widget.videoBeforeAudio,
       );
-      _imagePage = 1;
+      _imagePage = _imagePage.clamp(1, _maxImagePage);
       _imageTargets.clear();
       _resolvedImageTargets.clear();
       for (final signal in _imageTargetSignals.values) {
@@ -277,7 +372,6 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       widget.audioVariants,
       preference: preference,
     );
-    _queue = _audio.map((variant) => variant.source).toList(growable: false);
     const repository = PlayerSubtitleCandidateRepository();
     // ponytail: scans subtitles per selected track; index names if large catalogs dominate.
     _subtitles = [
@@ -296,6 +390,20 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
             )
             .where((candidate) => candidate.matchesCurrentAudio)
             .firstOrNull,
+    ];
+    final folderIndices = <String, List<int>>{};
+    for (var index = 0; index < _audio.length; index++) {
+      folderIndices.putIfAbsent(_audio[index].parentPath, () => []).add(index);
+    }
+    _audioFolderFiles = {
+      for (final entry in folderIndices.entries)
+        entry.key: [for (final index in entry.value) _audio[index].source],
+    };
+    _audioRows = [
+      for (final entry in folderIndices.entries) ...[
+        (folder: entry.key, index: null),
+        for (final index in entry.value) (folder: null, index: index),
+      ],
     ];
   }
 
@@ -417,7 +525,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                 onDragCancel: () => _settlePagePosition(0),
                 pageResourceOffsets: [
                   for (final tab in _pageKinds)
-                    _unpinnedTransitionOffset ?? _tabScrollOffsets[tab] ?? 0,
+                    _unpinnedTransitionOffset ??
+                        _session.scrollOffsetFor(tab) ??
+                        0,
                 ],
                 leadingExtent: leadingExtent,
                 minimumPageExtent: math.max(
@@ -436,10 +546,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                         !_pageKinds.contains(tab)) {
                       return;
                     }
-                    _tabScrollOffsets[tab] =
-                        ((_tabScrollOffsets[tab] ?? 0) + correction)
-                            .clamp(0.0, double.infinity)
-                            .toDouble();
+                    _session.recordScrollOffset(
+                      tab,
+                      (_session.scrollOffsetFor(tab) ?? 0) + correction,
+                    );
                     setState(() {});
                   });
                 },
@@ -447,14 +557,14 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                   for (final tab in _pageKinds)
                     SliverPadding(
                       key: ValueKey(tab),
-                      padding: tab == WorkResourceTab.recommendations
+                      padding:
+                          tab == WorkResourceTab.recommendations ||
+                              tab == WorkResourceTab.images
                           ? collectionCardPadding(
                               context,
                               padding: const EdgeInsets.only(top: 16),
                             )
-                          : _resourcePagePadding.copyWith(
-                              top: tab == WorkResourceTab.images ? 16 : 0,
-                            ),
+                          : _resourcePagePadding,
                       sliver: _pageFor(tab, context),
                     ),
                 ],
@@ -522,6 +632,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     _pageKinds = nextPages;
     _tabKinds = nextTabs;
     _selected = selected;
+    _session.selectedTab = nextTabs[selected];
     _motionTarget = null;
     _tabs.dispose();
     _tabs = TabController(
@@ -567,10 +678,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     _unpinnedTransitionOffset = resourceOffset < 0 ? resourceOffset : null;
     if (_transitionSource != null) return;
     final source = _tabKinds[_selected.clamp(0, _tabKinds.length - 1)];
-    final offset = resourceOffset.clamp(0.0, double.infinity).toDouble();
+    _session.recordScrollOffset(source, resourceOffset);
     setState(() {
       _transitionSource = source;
-      _tabScrollOffsets[source] = offset;
     });
   }
 
@@ -629,6 +739,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
             !_recommendationVisited)) {
       setState(() {
         _selected = selected;
+        _session.selectedTab = _tabKinds[selected];
         if (_tabKinds[selected] == WorkResourceTab.recommendations) {
           _recommendationVisited = true;
         }
@@ -730,8 +841,14 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     return SliverMainAxisGroup(
       slivers: [
         SliverList.builder(
-          itemCount: _audio.length,
-          itemBuilder: (context, index) {
+          itemCount: _audioRows.length,
+          itemBuilder: (context, rowIndex) {
+            final row = _audioRows[rowIndex];
+            final folder = row.folder;
+            if (folder != null) {
+              return _buildAudioFolderHeader(folder: folder);
+            }
+            final index = row.index!;
             final variant = _audio[index];
             final entry = _entry(
               variant.source,
@@ -756,6 +873,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
             return ListTile(
               key: ValueKey('work-audio-${variant.fullPath}'),
               contentPadding: EdgeInsets.zero,
+              minTileHeight: UiControlSize.compact,
               leading: Icon(
                 widget.downloadedFiles[hash] == true
                     ? Icons.download_done
@@ -766,16 +884,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                 entry.displayTitle,
                 style: const TextStyle(fontSize: 14),
               ),
-              subtitle: variant.parentPath.isEmpty
-                  ? null
-                  : Text(
-                      variant.parentPath,
-                      style: const TextStyle(fontSize: 12),
-                    ),
               onTap: () => widget.onPlayAudio(
                 variant.source,
                 variant.parentPath,
-                _queue,
+                _audioFolderFiles[variant.parentPath]!,
               ),
               onLongPress: widget.onAudioLongPress == null
                   ? () => _copyName(entry.displayTitle)
@@ -783,31 +895,72 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                       variant.source,
                       entry.displayTitle,
                       variant.parentPath,
-                      _queue,
+                      _audioFolderFiles[variant.parentPath]!,
                     ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (actions != null) actions,
-                  if (metadata != null) metadata,
-                  if (subtitle != null ||
-                      widget.audioWithLibrarySubtitles.contains(variant.title))
-                    IconButton(
-                      key: ValueKey('work-audio-subtitle-${variant.fullPath}'),
-                      tooltip: S.of(context).preview,
-                      icon: const Icon(Icons.visibility),
-                      color: Colors.blue,
-                      iconSize: 20,
-                      onPressed: () =>
-                          unawaited(_previewAudioSubtitle(variant, subtitle)),
-                    ),
-                  if (duration != null) duration,
-                ],
+              trailing: SizedBox(
+                height: UiControlSize.compact,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (actions != null) actions,
+                    if (metadata != null) metadata,
+                    if (subtitle != null ||
+                        widget.audioWithLibrarySubtitles.contains(
+                          variant.title,
+                        ))
+                      IconButton(
+                        key: ValueKey(
+                          'work-audio-subtitle-${variant.fullPath}',
+                        ),
+                        tooltip: S.of(context).preview,
+                        icon: const Icon(Icons.visibility),
+                        color: Colors.blue,
+                        iconSize: 20,
+                        onPressed: () =>
+                            unawaited(_previewAudioSubtitle(variant, subtitle)),
+                      ),
+                    if (duration != null) duration,
+                  ],
+                ),
               ),
             );
           },
         ),
       ],
+    );
+  }
+
+  Widget _buildAudioFolderHeader({required String folder}) {
+    final label = folder.isEmpty ? S.of(context).rootDirectory : folder;
+    final style = TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+      color: Colors.grey[700],
+    );
+    return Padding(
+      key: ValueKey('work-audio-folder-$folder'),
+      padding: const EdgeInsets.only(top: 12, bottom: 4),
+      child: Row(
+        children: [
+          Icon(Icons.folder_outlined, size: 16, color: Colors.grey[600]),
+          const SizedBox(width: 6),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) => Text(
+                _leadingEllipsisText(
+                  context,
+                  label,
+                  style,
+                  constraints.maxWidth,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.clip,
+                style: style,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1340,8 +1493,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   }
 
   void _changeImagePage(int page) {
-    final maxPage = (_images.length / _imagesPerPage).ceil();
-    if (page < 1 || page > maxPage || page == _imagePage) return;
+    if (page < 1 || page > _maxImagePage || page == _imagePage) return;
     _imagePrefetchQueue.update(
       items: const [],
       visible: const [],
@@ -1351,23 +1503,25 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       _imagePage = page;
       _imagePageGatePassed.value = false;
     });
-    _tabScrollOffsets[WorkResourceTab.images] = 0;
+    _session.resetScrollOffset(WorkResourceTab.images);
     unawaited(_scrollToResourceTop(animate: true));
   }
 
-  double _resourceScrollOffset() {
+  double? _tryResourceScrollOffset() {
     final position = _verticalPosition;
     final renderObject = _resourceGroupKey.currentContext?.findRenderObject();
     if (position == null ||
         !position.hasContentDimensions ||
         renderObject == null) {
-      return 0;
+      return null;
     }
     final viewport = RenderAbstractViewport.maybeOf(renderObject);
-    if (viewport == null) return 0;
+    if (viewport == null) return null;
     final resourceTop = viewport.getOffsetToReveal(renderObject, 0).offset;
     return position.pixels - resourceTop;
   }
+
+  double _resourceScrollOffset() => _tryResourceScrollOffset() ?? 0;
 
   Future<void> _restoreResourceOffset(
     WorkResourceTab tab,
@@ -1387,7 +1541,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       final resourceTop = viewport.getOffsetToReveal(renderObject, 0).offset;
       final offset =
           (resourceTop +
-                  (_unpinnedTransitionOffset ?? _tabScrollOffsets[tab] ?? 0))
+                  (_unpinnedTransitionOffset ??
+                      _session.scrollOffsetFor(tab) ??
+                      0))
               .clamp(position.minScrollExtent, position.maxScrollExtent)
               .toDouble();
       if (position.pixels != offset) position.jumpTo(offset);
@@ -1427,6 +1583,81 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     });
     _scheduleImageInspection();
   }
+}
+
+String _leadingEllipsisText(
+  BuildContext context,
+  String text,
+  TextStyle style,
+  double maxWidth,
+) {
+  if (text.isEmpty || maxWidth <= 0) return '';
+  if (!maxWidth.isFinite) return text;
+
+  final defaultStyle = DefaultTextStyle.of(context);
+  final effectiveStyle = defaultStyle.style.merge(style);
+  final textScaler = MediaQuery.textScalerOf(context);
+  final textDirection = Directionality.of(context);
+  final locale = Localizations.maybeLocaleOf(context);
+
+  double widthOf(String value) {
+    final painter = TextPainter(
+      text: TextSpan(text: value, style: effectiveStyle),
+      textDirection: textDirection,
+      textScaler: textScaler,
+      locale: locale,
+      textHeightBehavior: defaultStyle.textHeightBehavior,
+      maxLines: 1,
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
+  }
+
+  if (widthOf(text) <= maxWidth) return text;
+
+  const ellipsis = '…';
+  if (widthOf(ellipsis) > maxWidth) return '';
+
+  final separator = text.lastIndexOf('/');
+  final head = separator < 0 ? '' : text.substring(0, separator + 1);
+  final tail = separator < 0 ? text : text.substring(separator + 1);
+  var result = ellipsis;
+
+  if (widthOf('$ellipsis$tail') <= maxWidth) {
+    result = '$ellipsis$tail';
+    final headCharacters = head.characters.toList(growable: false);
+    var low = 0;
+    var high = headCharacters.length;
+    while (low <= high) {
+      final middle = (low + high) ~/ 2;
+      final candidate =
+          '$ellipsis${headCharacters.skip(headCharacters.length - middle).join()}$tail';
+      if (widthOf(candidate) <= maxWidth) {
+        result = candidate;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+    }
+    return result;
+  }
+
+  final tailCharacters = tail.characters.toList(growable: false);
+  var low = 0;
+  var high = tailCharacters.length;
+  while (low <= high) {
+    final middle = (low + high) ~/ 2;
+    final candidate =
+        '$ellipsis${tailCharacters.skip(tailCharacters.length - middle).join()}';
+    if (widthOf(candidate) <= maxWidth) {
+      result = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return result;
 }
 
 class _ResourceTabsHeaderDelegate extends SliverPersistentHeaderDelegate {

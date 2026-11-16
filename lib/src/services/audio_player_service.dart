@@ -2856,14 +2856,17 @@ class AudioPlayerService {
     final published = _publishedTrack;
     final track = _trackForPlaybackIntent();
     if (track == null) return;
-    if (_sourceNeedsReload || published?.id != track.id) {
+    final idle = _player.processingState == ProcessingState.idle;
+    if (_sourceNeedsReload || published?.id != track.id || idle) {
       await _enqueueTrackLoad(
         track,
         emitCurrentTrack: published?.id != track.id,
         autoplay: true,
         direction: PlayerTrackChangeDirection.none,
         sourceToReload: _failedSeekSource,
-        initialPosition: _failedSeekPosition,
+        initialPosition:
+            _failedSeekPosition ??
+            (idle && published?.id == track.id ? _player.position : null),
       ).future;
       return;
     }
@@ -3138,10 +3141,8 @@ class AudioPlayerService {
     );
   }
 
-  Future<void> _seekNativePlayer(Duration? position, {int? index}) {
-    _nativeEffects.resetHistory();
-    return _player.seek(position, index: index);
-  }
+  Future<void> _seekNativePlayer(Duration? position, {int? index}) =>
+      _player.seek(position, index: index);
 
   Future<bool> seek(Duration position) => _seek(position, userInitiated: true);
 
@@ -3150,6 +3151,7 @@ class AudioPlayerService {
     required bool userInitiated,
     bool sliceJump = false,
   }) async {
+    final wasPlaying = _desiredPlaying && _player.playing;
     final coverSeekToken =
         currentTrack != null && (_player.playing || _coverSeekToken != null)
         ? Object()
@@ -3195,6 +3197,10 @@ class AudioPlayerService {
         coverSeekToken: coverSeekToken,
         jump: jump,
       );
+      if (succeeded) _nativeEffects.resetHistory();
+      if (succeeded && wasPlaying && _desiredPlaying && !_player.playing) {
+        _startPlaybackWithSideEffects();
+      }
       return succeeded;
     } finally {
       if (jump != null && identical(_positionJump, jump)) {
@@ -3296,8 +3302,10 @@ class AudioPlayerService {
       final receipt = JustAudioMediaKit.positionConfirmation(id);
       if (receipt != null) {
         position = await Future.any([receipt, jump.cancelled.future]);
-      } else if (_player.processingState == ProcessingState.idle) {
-        // just_audio keeps a local position after disposing the stopped player.
+      } else if (_player.processingState == ProcessingState.idle &&
+          !_desiredPlaying) {
+        // A paused player keeps a local position after its source was stopped.
+        // An idle player that should be playing has lost its source.
         position = _player.position;
       } else {
         return false;
@@ -3447,6 +3455,27 @@ class AudioPlayerService {
     _TrackLoadRequest? cachedTrackLoad;
     bool isCurrentSeekResult([_TrackLoadRequest? cacheReload]) =>
         cacheReload == null ? isCurrentSeek() : isCurrentSeekLoad(cacheReload);
+    Future<bool> recoverSeek({AudioSource? source}) async {
+      final track = currentTrack;
+      if (track == null) return false;
+      _beginCoverSeekOperation(coverSeekToken, loading: true);
+      final recovery = _enqueueTrackLoad(
+        track,
+        emitCurrentTrack: false,
+        autoplay: _desiredPlaying,
+        direction: PlayerTrackChangeDirection.none,
+        sourceToReload: source,
+        initialPosition: targetPosition,
+      );
+      await recovery.future;
+      final succeeded =
+          isCurrentSeekLoad(recovery) &&
+          await _confirmPositionJump(jump, () => isCurrentSeekLoad(recovery));
+      if (succeeded) {
+        _completeCoverSeekOperation(coverSeekToken, targetPosition);
+      }
+      return succeeded;
+    }
 
     if (source is UriAudioSource &&
         (source.uri.scheme == 'http' || source.uri.scheme == 'https') &&
@@ -3523,26 +3552,7 @@ class AudioPlayerService {
           final track = currentTrack;
           if (track == null) rethrow;
           if (identical(_seekError, nativeError)) _seekError = null;
-          _beginCoverSeekOperation(coverSeekToken, loading: true);
-          final recovery = _enqueueTrackLoad(
-            track,
-            emitCurrentTrack: false,
-            autoplay: _desiredPlaying && _player.playing,
-            direction: PlayerTrackChangeDirection.none,
-            sourceToReload: source,
-            initialPosition: targetPosition,
-          );
-          await recovery.future;
-          final succeeded =
-              isCurrentSeekLoad(recovery) &&
-              await _confirmPositionJump(
-                jump,
-                () => isCurrentSeekLoad(recovery),
-              );
-          if (succeeded) {
-            _completeCoverSeekOperation(coverSeekToken, targetPosition);
-          }
-          return succeeded;
+          return recoverSeek(source: source);
         }
       } finally {
         if (identical(_seekError, nativeError)) _seekError = null;
@@ -3554,12 +3564,19 @@ class AudioPlayerService {
       _beginCoverSeekOperation(coverSeekToken);
       await _seekNativePlayer(targetPosition);
     }
-    if (!isCurrentSeekResult(cachedTrackLoad) ||
-        !await _confirmPositionJump(
-          jump,
-          () => isCurrentSeekResult(cachedTrackLoad),
-        )) {
+    if (!isCurrentSeekResult(cachedTrackLoad)) {
       return false;
+    }
+    if (!await _confirmPositionJump(
+      jump,
+      () => isCurrentSeekResult(cachedTrackLoad),
+    )) {
+      if (!isCurrentSeekResult(cachedTrackLoad) ||
+          _player.processingState != ProcessingState.idle) {
+        return false;
+      }
+      // The seek was accepted locally but the player lost its source.
+      return recoverSeek();
     }
     _completeCoverSeekOperation(coverSeekToken, targetPosition);
     if (!_handlingTrackCompletion &&

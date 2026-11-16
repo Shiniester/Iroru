@@ -62,11 +62,22 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
   double _latestExtent = 1;
   _InteractivePlayerOpenSession? _interactiveSession;
   int _sessionGeneration = 0;
+  AppNavigationController? _navigationController;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final navigation = AppNavigationScope.maybeOf(context);
+    if (identical(navigation, _navigationController)) return;
+    _navigationController?.removePlayerLaunchBackHandler(_handleBack);
+    _navigationController = navigation;
+    navigation?.addPlayerLaunchBackHandler(_handleBack);
   }
 
   @override
@@ -85,6 +96,24 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
   Future<void> openQueue() => _openSurface(PlayerInitialSurface.queue);
 
   Future<void> _openSurface(PlayerInitialSurface initialSurface) async {
+    if (!mounted || _launchInProgress) return;
+    final session = MediaQuery.disableAnimationsOf(context)
+        ? null
+        : _startInteractiveSession(initialSurface: initialSurface);
+    if (session == null) {
+      await _pushSurface(initialSurface);
+      return;
+    }
+    final opened = await session.open();
+    if (!mounted || !identical(_interactiveSession, session)) return;
+    _interactiveSession = null;
+    if (opened) return;
+    _launchInProgress = false;
+    if (session.canceled) return;
+    await _pushSurface(initialSurface);
+  }
+
+  Future<void> _pushSurface(PlayerInitialSurface initialSurface) async {
     if (!mounted || _launchInProgress) return;
     _launchInProgress = true;
     try {
@@ -195,8 +224,12 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
     _clearPointer();
   }
 
-  void _startInteractiveSession() {
-    if (!mounted || _interactiveSession != null || _launchInProgress) return;
+  _InteractivePlayerOpenSession? _startInteractiveSession({
+    PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
+  }) {
+    if (!mounted || _interactiveSession != null || _launchInProgress) {
+      return null;
+    }
     final rootNavigator = AppNavigationScope.navigatorOf(context);
     final navigationController = AppNavigationScope.maybeOf(context);
     final overlay = Overlay.of(context, rootOverlay: true);
@@ -208,6 +241,7 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
       rootNavigator: rootNavigator,
       navigationController: navigationController,
       configuration: configuration,
+      initialSurface: initialSurface,
       onRootRouteClosed: () {
         if (!mounted || generation != _sessionGeneration) return;
         _launchInProgress = false;
@@ -216,6 +250,7 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
     _interactiveSession = session;
     session.update(distance: _latestOpenDistance, extent: _latestExtent);
     unawaited(session.start());
+    return session;
   }
 
   Future<void> _finishInteractiveSession(
@@ -266,8 +301,19 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
     _clearPointer();
   }
 
+  bool _handleBack() {
+    final session = _interactiveSession;
+    if (session == null || session.isDisposed) return false;
+    // The cancel settle waits for the next frame, so resolve at once and let
+    // the following frames tear the preview down.
+    unawaited(_cancelInteractiveSession(session));
+    _clearPointer();
+    return true;
+  }
+
   @override
   void dispose() {
+    _navigationController?.removePlayerLaunchBackHandler(_handleBack);
     WidgetsBinding.instance.removeObserver(this);
     _abortInteractiveSession();
     _clearPointer();
@@ -283,6 +329,7 @@ class _InteractivePlayerOpenSession {
     required this.rootNavigator,
     required this.navigationController,
     required this.configuration,
+    required this.initialSurface,
     required this.onRootRouteClosed,
   });
 
@@ -290,6 +337,7 @@ class _InteractivePlayerOpenSession {
   final NavigatorState rootNavigator;
   final AppNavigationController? navigationController;
   final AudioPlayerOpenConfiguration configuration;
+  final PlayerInitialSurface initialSurface;
   final VoidCallback onRootRouteClosed;
 
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
@@ -301,8 +349,8 @@ class _InteractivePlayerOpenSession {
   double _extent = 1;
   bool _started = false;
   bool _disposed = false;
-  bool _settling = false;
   bool _playerLaunchPreviewActive = false;
+  bool canceled = false;
 
   Future<void> start() async {
     if (_started || _disposed) return;
@@ -313,7 +361,7 @@ class _InteractivePlayerOpenSession {
     }
     _entry = OverlayEntry(
       builder: (context) => Positioned.fill(
-        child: IgnorePointer(
+        child: AbsorbPointer(
           child: HeroControllerScope.none(
             child: Navigator(
               key: _navigatorKey,
@@ -344,7 +392,10 @@ class _InteractivePlayerOpenSession {
       abort();
       return;
     }
-    final route = configuration.createRoute(playerKey: _playerPageKey);
+    final route = configuration.createRoute(
+      playerKey: _playerPageKey,
+      initialSurface: initialSurface,
+    );
     _route = route;
     unawaited(navigator.push<void>(route));
     await WidgetsBinding.instance.endOfFrame;
@@ -358,7 +409,7 @@ class _InteractivePlayerOpenSession {
   }
 
   void update({required double distance, required double extent}) {
-    if (_disposed || _settling) return;
+    if (_disposed) return;
     _distance = distance.clamp(0.0, extent);
     _extent = extent.clamp(1, double.infinity);
     _route?.updateVerticalOpenGesture(distance: _distance, extent: _extent);
@@ -368,7 +419,19 @@ class _InteractivePlayerOpenSession {
     return _settle(complete: true, velocity: velocity, extent: extent);
   }
 
+  /// Runs the pre-warmed entrance to completion, then hands off to the root
+  /// Navigator. Used by tap entry, which has no release velocity to decide.
+  Future<bool> open() {
+    return _settle(
+      complete: true,
+      velocity: 0,
+      extent: _extent,
+      forceComplete: true,
+    );
+  }
+
   Future<bool> cancel() {
+    canceled = true;
     return _settle(complete: false, velocity: 0, extent: _extent);
   }
 
@@ -376,9 +439,9 @@ class _InteractivePlayerOpenSession {
     required bool complete,
     required double velocity,
     required double extent,
+    bool forceComplete = false,
   }) async {
-    if (_disposed || _settling) return false;
-    _settling = true;
+    if (_disposed) return false;
     if (!_routeReady.isCompleted) {
       try {
         await _routeReady.future;
@@ -393,9 +456,14 @@ class _InteractivePlayerOpenSession {
       abort();
       return false;
     }
-    final opened = complete
-        ? await route.endVerticalOpenGesture(velocity: velocity, extent: extent)
-        : await route.cancelVerticalOpenGesture();
+    final opened = !complete
+        ? await route.cancelVerticalOpenGesture()
+        : forceComplete
+        ? await route.completeVerticalOpenGesture()
+        : await route.endVerticalOpenGesture(
+            velocity: velocity,
+            extent: extent,
+          );
     if (_disposed) return false;
     if (!opened) {
       _removeOverlay();
@@ -406,6 +474,7 @@ class _InteractivePlayerOpenSession {
     final rootRoute = configuration.createRoute(
       playerKey: _playerPageKey,
       handoff: true,
+      initialSurface: initialSurface,
     );
     _removeOverlay();
     unawaited(rootNavigator.push<void>(rootRoute));
@@ -442,4 +511,6 @@ class _InteractivePlayerOpenSession {
     _entry?.remove();
     _entry = null;
   }
+
+  bool get isDisposed => _disposed;
 }

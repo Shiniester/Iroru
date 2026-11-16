@@ -283,10 +283,10 @@ void main() {
       );
       expect(
         _backgroundAnimatedContainers(tester).map((widget) => widget.duration),
-        everyElement(const Duration(milliseconds: 280)),
+        everyElement(const Duration(milliseconds: 500)),
       );
 
-      for (final elapsed in const [16, 32, 64, 96, 160, 280]) {
+      for (final elapsed in const [16, 32, 64, 96, 160, 280, 500]) {
         await tester.pump(Duration(milliseconds: elapsed));
         final paintedColors = _paintedBackgroundColors(tester);
         expect(

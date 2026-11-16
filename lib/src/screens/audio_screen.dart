@@ -24,10 +24,12 @@ import '../providers/works_provider.dart'
 import '../utils/l10n_extensions.dart';
 import '../utils/scroll_optimization.dart';
 import '../utils/server_utils.dart';
+import '../utils/snackbar_util.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/ui_tokens.dart';
 import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/app_navigation_scope.dart';
+import '../widgets/async_state_view.dart';
 import '../widgets/audio_account_prompt.dart';
 import 'account_management_screen.dart';
 import '../widgets/download_fab.dart';
@@ -80,13 +82,16 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     MyTabsDisplaySettings settings, {
     required AudioSource source,
     required bool isOfficialServer,
+    required bool offline,
   }) {
     final tabs = <_TabInfo>[
       _TabInfo(
         id: 'works',
         title: S.of(context).navHome,
         icon: Icons.home_outlined,
-        widget: const WorksScreen(embedded: true),
+        widget: offline
+            ? _buildConnectionError(context)
+            : const WorksScreen(embedded: true),
       ),
     ];
 
@@ -99,7 +104,9 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
                 id: page,
                 title: S.of(context).libraryMarks,
                 icon: Icons.bookmark,
-                widget: _buildOnlineBookmarksPage(),
+                widget: offline
+                    ? _buildConnectionError(context)
+                    : _buildOnlineBookmarksPage(),
               ),
             );
           }
@@ -123,7 +130,9 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
                 id: page,
                 title: S.of(context).libraryFavorites,
                 icon: Icons.favorite_border,
-                widget: PlaylistsScreen(key: _playlistsKey),
+                widget: offline
+                    ? _buildConnectionError(context)
+                    : PlaylistsScreen(key: _playlistsKey),
               ),
             );
           }
@@ -233,7 +242,12 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   }) async {
     if (index < 0 || index >= _tabIds.length) return;
     final request = ++_pageRequest;
+    final leavingPageId = _selectedPageId;
     setState(() => _selectedPageId = selectedPageId);
+    if (leavingPageId != selectedPageId) {
+      _downloadsKey.currentState?.exitSelection();
+      _subtitleKey.currentState?.exitSelection();
+    }
     _pageTarget.value = index;
     await moveToTabPage(_pages, index, reduceMotion: !animate || _reduceMotion);
     if (!mounted || request != _pageRequest) return;
@@ -650,12 +664,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       LibraryDrawerTile(
         icon: Icons.translate,
         title: s.autoTranslateWorkDetails,
-        trailing: Switch(
-          value: autoTranslate,
-          onChanged: (enabled) => ref
-              .read(autoTranslateWorkDetailsProvider.notifier)
-              .setEnabled(enabled),
-        ),
+        selected: autoTranslate,
         closeOnTap: false,
         onTap: () => ref
             .read(autoTranslateWorkDetailsProvider.notifier)
@@ -667,43 +676,11 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   List<Widget> _downloadBrowseOptions(S s) {
     final options = <Widget>[];
     final downloads = _downloadsKey.currentState;
-    if (downloads != null) {
-      final allSelected = downloads.allSelected;
-      options.addAll([
-        LibraryDrawerTile(
-          icon: downloads.isSelectionMode ? Icons.close : Icons.checklist,
-          title: downloads.isSelectionMode ? s.exitSelection : s.select,
-          subtitle: downloads.isSelectionMode
-              ? Text(s.selectedCount(downloads.selectedCount))
-              : null,
-          onTap: downloads.toggleSelectionModeFromDrawer,
-        ),
-        if (downloads.isSelectionMode)
-          LibraryDrawerTile(
-            icon: Icons.select_all,
-            title: allSelected ? s.deselectAll : s.selectAll,
-            onTap: allSelected
-                ? downloads.deselectAllFromDrawer
-                : downloads.selectAllFromDrawer,
-          ),
-        if (downloads.isSelectionMode && downloads.selectedCount > 0)
-          LibraryDrawerTile(
-            icon: Icons.delete_outline,
-            title: s.delete,
-            onTap: downloads.deleteSelectedFromDrawer,
-          ),
-      ]);
-    }
     options.addAll([
       LibraryDrawerTile(
         icon: Icons.sort,
         title: S.of(context).sortOptions,
         onTap: downloads?.showSortDialogFromDrawer,
-      ),
-      LibraryDrawerTile(
-        icon: Icons.refresh,
-        title: S.of(context).reload,
-        onTap: downloads?.refreshMetadataFromDrawer,
       ),
       if (Theme.of(context).platform == TargetPlatform.windows ||
           Theme.of(context).platform == TargetPlatform.macOS ||
@@ -720,7 +697,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   List<Widget> _subtitleBrowseOptions(S s) {
     final subtitles = _subtitleKey.currentState;
     if (subtitles == null) return const [];
-    final allSelected = subtitles.allSelected;
     return [
       LibraryDrawerTile(
         icon: Icons.add,
@@ -733,33 +709,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
           title: s.back,
           onTap: subtitles.navigateUpFromDrawer,
         ),
-      LibraryDrawerTile(
-        icon: subtitles.isSelectionMode ? Icons.close : Icons.checklist,
-        title: subtitles.isSelectionMode ? s.exitSelection : s.select,
-        subtitle: subtitles.isSelectionMode
-            ? Text(s.selectedCount(subtitles.selectedCount))
-            : null,
-        onTap: subtitles.toggleSelectionFromDrawer,
-      ),
-      if (subtitles.isSelectionMode)
-        LibraryDrawerTile(
-          icon: Icons.select_all,
-          title: allSelected ? s.deselectAll : s.selectAll,
-          onTap: allSelected
-              ? subtitles.deselectAllFromDrawer
-              : subtitles.selectAllFromDrawer,
-        ),
-      if (subtitles.isSelectionMode && subtitles.selectedCount > 0)
-        LibraryDrawerTile(
-          icon: Icons.delete_outline,
-          title: s.delete,
-          onTap: subtitles.deleteSelectedFromDrawer,
-        ),
-      LibraryDrawerTile(
-        icon: Icons.refresh,
-        title: s.reload,
-        onTap: subtitles.refreshFromDrawer,
-      ),
       LibraryDrawerTile(
         icon: Icons.info_outline,
         title: s.subtitleLibraryGuide,
@@ -888,35 +837,37 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
 
   Widget _buildBody(MyReviewsState state) {
     if (state.error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              S.of(context).loadFailed,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              state.error!,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+      return ScrollableStateView(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.error,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () => ref.read(myReviewsProvider.notifier).refresh(),
-              icon: const Icon(Icons.refresh),
-              label: Text(S.of(context).retry),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Text(
+                S.of(context).loadFailed,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                state.error!,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () => ref.read(myReviewsProvider.notifier).refresh(),
+                icon: const Icon(Icons.refresh),
+                label: Text(S.of(context).retry),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -999,8 +950,22 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     final source = ref.watch(audioSourceProvider);
     final authState = ref.watch(authProvider);
     final isOfficialServer = ServerUtils.isOfficialServer(authState.host);
+    final offline =
+        source == AudioSource.asmrOne &&
+        authState.currentUser != null &&
+        (_retryingConnection ||
+            (!authState.isLoggedIn && authState.error != null));
     final displayMode = ref.watch(
       worksProvider.select((state) => state.displayMode),
+    );
+    final worksFailure = ref.watch(
+      worksProvider.select(
+        (state) => (
+          error: state.error,
+          isLoading: state.isLoading,
+          hasWorks: state.works.isNotEmpty,
+        ),
+      ),
     );
     final marksState = ref.watch(myReviewsProvider);
     final activeDownloadCount =
@@ -1009,6 +974,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       settings,
       source: source,
       isOfficialServer: isOfficialServer,
+      offline: offline,
     );
 
     final selectedPhysical = _selectedPhysicalPage(_selectedPageId);
@@ -1030,7 +996,12 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       _ => S.of(context).librarySearchHint(title),
     };
     return LibraryPageScaffold(
-      bottomNavigationBar: _buildOfflineNotice(authState),
+      topNotice: _buildSourceNotice(
+        worksError: offline || !worksFailure.hasWorks
+            ? null
+            : worksFailure.error,
+        worksLoading: worksFailure.isLoading,
+      ),
       title: title,
       searchHint: searchHint,
       onSearch: _openAdvancedSearch,
@@ -1081,12 +1052,11 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     );
   }
 
-  Widget? _buildOfflineNotice(AuthState auth) {
-    final offline =
-        auth.currentUser != null && !auth.isLoggedIn && auth.error != null;
-    if (!offline && !(_retryingConnection && auth.currentUser != null)) {
-      return null;
-    }
+  Widget? _buildSourceNotice({
+    required String? worksError,
+    required bool worksLoading,
+  }) {
+    if (worksLoading || worksError == null) return null;
     final navigation = AppNavigationScope.maybeOf(context);
     final visible =
         navigation == null ||
@@ -1102,47 +1072,82 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       maintainSize: true,
       child: SafeArea(
         top: false,
-        minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        bottom: false,
+        minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         child: Center(
           heightFactor: 1,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
-            child: Card(
-              margin: EdgeInsets.zero,
-              elevation: 6,
-              color: colors.tertiaryContainer,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        s.offlineModeMessage,
-                        style: TextStyle(color: colors.onTertiaryContainer),
-                      ),
+            child: TopNoticeCard(
+              backgroundColor: colors.error,
+              content: Row(
+                children: [
+                  Icon(Icons.error_outline, color: colors.onError, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      s.loadFailed,
+                      style: TextStyle(color: colors.onError),
                     ),
-                    TextButton(
-                      onPressed: _retryingConnection
-                          ? null
-                          : () async {
-                              setState(() => _retryingConnection = true);
-                              try {
-                                await ref
-                                    .read(authProvider.notifier)
-                                    .retryConnection();
-                              } finally {
-                                if (mounted) {
-                                  setState(() => _retryingConnection = false);
-                                }
-                              }
-                            },
-                      child: Text(s.retry),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
+              ),
+              action: SnackBarAction(
+                label: s.retry,
+                textColor: colors.onError,
+                onPressed: () =>
+                    unawaited(ref.read(worksProvider.notifier).refresh()),
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _retryConnection() async {
+    setState(() => _retryingConnection = true);
+    try {
+      await ref.read(authProvider.notifier).retryConnection();
+    } finally {
+      if (mounted) setState(() => _retryingConnection = false);
+    }
+  }
+
+  Widget _buildConnectionError(BuildContext context) {
+    final s = S.of(context);
+    final colors = Theme.of(context).colorScheme;
+    return ScrollableStateView(
+      child: AsyncStateView(
+        padding: const EdgeInsets.all(24),
+        icon: Icon(Icons.cloud_off_outlined, size: 64, color: colors.error),
+        title: Text(
+          s.connectionFailed,
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        message: Text(
+          s.offlineModeMessage,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+          textAlign: TextAlign.center,
+        ),
+        action: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FilledButton(
+              onPressed: _retryingConnection ? null : _retryConnection,
+              child: Text(s.retry),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SettingsScreen(audioOnly: true),
+                ),
+              ),
+              child: Text(s.audioSettings),
+            ),
+          ],
         ),
       ),
     );

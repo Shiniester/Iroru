@@ -31,11 +31,33 @@ class AudioEffectsSettings {
   ];
   static const curves = <EqualizerPreset, List<double>>{
     EqualizerPreset.flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    EqualizerPreset.bright: [-4, -3, -2, -1, 0, 2, 4, 7, 9, 8],
-    EqualizerPreset.bassBoost: [3, 2.5, 2, 1.5, 1, 0, -1, -2.5, -4, -5],
-    EqualizerPreset.tappingCrisp: [-3, -2, -1, 0, 1.5, 3, 6.5, 9, 10, 8],
-    EqualizerPreset.tappingDull: [4, 5, 6, 4, 1.5, -2, -5, -8, -11, -12],
-    EqualizerPreset.vocal: [-3, -2, -1, 1, 3, 7, 9, 6.5, 2, -1.5],
+    EqualizerPreset.bright: [-3.5, -2.5, -2, -1, -1, 0, 1, 2.5, 4.5, 3.5],
+    EqualizerPreset.bassBoost: [4.5, 4.5, 3, 2.5, 1.5, 0, 0, -2.5, -3.5, -5.5],
+    EqualizerPreset.tappingCrisp: [
+      -4.5,
+      -2.5,
+      -2.5,
+      -2,
+      -1,
+      1,
+      2.5,
+      5.5,
+      4.5,
+      1,
+    ],
+    EqualizerPreset.tappingDull: [
+      2.5,
+      3.5,
+      4.5,
+      3.5,
+      2,
+      -2,
+      -2.5,
+      -4.5,
+      -6.5,
+      -10,
+    ],
+    EqualizerPreset.vocal: [-3.5, -2, -2, 0, 1, 4.5, 6.5, 2.5, 0, -4.5],
   };
 
   AudioEffectsSettings({
@@ -48,7 +70,7 @@ class AudioEffectsSettings {
     double monoAmount = 50,
     this.sceneEnabled = false,
     this.scene = AudioScene.bathroom,
-    double sceneAmount = 50,
+    double sceneAmount = 35,
   }) : gains = List.unmodifiable(
          List.generate(
            10,
@@ -82,16 +104,14 @@ class AudioEffectsSettings {
       binauralMode == BinauralMode.stereo ? stereoAmount / 100 : 0;
   double get effectiveMonoAmount =>
       binauralMode == BinauralMode.mono ? monoAmount / 100 : 0;
-  bool get needsGuard =>
-      (equalizerEnabled && gains.any((g) => g != 0)) ||
-      effectiveStereoAmount > 0 ||
-      effectiveMonoAmount > 0;
+  bool get equalizerActive => equalizerEnabled && gains.any((g) => g != 0);
+  bool get channelActive => channelMode != AudioChannelMode.normal;
+  bool get binauralActive =>
+      effectiveStereoAmount > 0 || effectiveMonoAmount > 0;
+  bool get sceneActive => sceneEnabled && sceneAmount > 0;
+  bool get needsGuard => equalizerActive || binauralActive;
   bool get isActive =>
-      (equalizerEnabled && gains.any((g) => g != 0)) ||
-      channelMode != AudioChannelMode.normal ||
-      effectiveStereoAmount > 0 ||
-      effectiveMonoAmount > 0 ||
-      (sceneEnabled && sceneAmount > 0);
+      equalizerActive || channelActive || binauralActive || sceneActive;
   EqualizerPreset? get preset {
     if (equalizerCustom) return null;
     for (final entry in curves.entries) {
@@ -153,7 +173,7 @@ class AudioEffectsSettings {
           AudioScene.bathroom,
       sceneAmount: json['sceneAmount'] is num
           ? (json['sceneAmount'] as num).toDouble()
-          : 50,
+          : 35,
     );
   }
 }
