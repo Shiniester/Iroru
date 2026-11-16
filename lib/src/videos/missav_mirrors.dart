@@ -8,8 +8,14 @@ import '../services/proxy_config.dart';
 
 const missavMirrorBaseUrlKey = 'missav_mirror_base_url';
 const missavAccountBaseUrlKey = 'missav_account_base_url';
+const missavLastGoodHostKey = 'missav_last_good_host';
 
 const missavOfficialHosts = {'missav.ai', 'missav.ws', 'missav.live'};
+const missavOfficialBaseUrls = [
+  'https://missav.live',
+  'https://missav.ws',
+  'https://missav.ai',
+];
 
 class MissavMirror {
   const MissavMirror(this.host) : baseUrl = 'https://$host';
@@ -18,58 +24,44 @@ class MissavMirror {
   final String baseUrl;
 }
 
+// Measured 2026-11-16; no Cloudflare challenge, fastest first.
+// The cached last-good host is tried before this order.
 const missavMirrors = <MissavMirror>[
-  MissavMirror('missav.ws'),
-  MissavMirror('missav.live'),
-  MissavMirror('www.missav.watch'),
-  MissavMirror('www.missav01.net'),
-  MissavMirror('www.missav02.net'),
   MissavMirror('www.missav05.com'),
-  MissavMirror('www.missav05.net'),
-  MissavMirror('www.missav06.com'),
-  MissavMirror('www.missav08.com'),
-  MissavMirror('www.missav08.net'),
-  MissavMirror('www.missav09.com'),
-  MissavMirror('www.missav1.one'),
-  MissavMirror('www.missav1.vip'),
-  MissavMirror('www.missav123.life'),
-  MissavMirror('www.missav123.nl'),
-  MissavMirror('www.missav2.one'),
-  MissavMirror('www.missav3.one'),
-  MissavMirror('www.missav365.icu'),
-  MissavMirror('www.missav365.one'),
-  MissavMirror('www.missav666.cc'),
-  MissavMirror('www.missav666.net'),
+  MissavMirror('www.missav02.net'),
+  MissavMirror('www.thisav02.com'),
   MissavMirror('www.missav888.net'),
-  MissavMirror('www.missav9.net'),
-  MissavMirror('www.njav.one'),
-  MissavMirror('www.njav01.com'),
-  MissavMirror('www.njavtv.art'),
-  MissavMirror('www.njavtv.nl'),
-  MissavMirror('www.njavtv01.com'),
-  MissavMirror('www.thisav.pw'),
-  MissavMirror('www.thisav.sbs'),
+  MissavMirror('www.missav.watch'),
+  MissavMirror('www.missav123.nl'),
+  MissavMirror('www.missav01.net'),
+  MissavMirror('www.missav123.life'),
   MissavMirror('www.thisav01.cc'),
   MissavMirror('www.thisav01.net'),
-  MissavMirror('www.thisav02.com'),
-  MissavMirror('www.thisav02.net'),
-  MissavMirror('www.thisav33.com'),
+  MissavMirror('www.missav1.vip'),
+  MissavMirror('www.njavtv.art'),
+  MissavMirror('www.missav08.net'),
+  MissavMirror('www.thisav.pw'),
+  MissavMirror('www.missav666.net'),
+  MissavMirror('www.missav365.one'),
+  MissavMirror('www.missav666.cc'),
+  MissavMirror('www.njav01.com'),
+  MissavMirror('www.missav05.net'),
+  MissavMirror('www.thisav.sbs'),
+  MissavMirror('www.missav3.one'),
   MissavMirror('www.thisav33.net'),
+  MissavMirror('www.njavtv01.com'),
+  MissavMirror('www.thisav33.com'),
+  MissavMirror('www.missav08.com'),
+  MissavMirror('www.missav365.icu'),
+  MissavMirror('www.missav1.one'),
+  MissavMirror('www.thisav02.net'),
+  MissavMirror('www.missav2.one'),
+  MissavMirror('www.missav09.com'),
+  MissavMirror('www.missav06.com'),
+  MissavMirror('www.njav.one'),
+  MissavMirror('www.missav9.net'),
+  MissavMirror('www.njavtv.nl'),
 ];
-
-const _automaticHosts = {
-  'missav.ws',
-  'missav.live',
-  'www.missav01.net',
-  'www.missav666.cc',
-  'www.thisav.pw',
-  'www.missav9.net',
-  'www.njavtv.nl',
-};
-
-final missavAutomaticMirrors = missavMirrors
-    .where((mirror) => _automaticHosts.contains(mirror.host))
-    .toList(growable: false);
 
 String missavMirrorDomain(String host) =>
     host.toLowerCase().replaceFirst(RegExp(r'^www\.'), '');

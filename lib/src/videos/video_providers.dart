@@ -4,6 +4,7 @@ import '../services/storage_service.dart';
 import 'jable_client.dart';
 import 'jable_verification.dart';
 import 'missav_client.dart';
+import 'missav_mirrors.dart';
 import 'missav_verification.dart';
 import 'video_downloads.dart';
 import 'video_library.dart';
@@ -29,7 +30,13 @@ final videoSelectedSourceProvider = StateProvider<String>((ref) {
 });
 
 final videoClientProvider = ChangeNotifierProvider<MissavClient>(
-  (ref) => MissavClient(restoreSavedSession: restoreMissavBrowserSession),
+  (ref) => MissavClient(
+    contentHosts: [
+      for (final mirror in missavMirrors) mirror.baseUrl,
+      ...missavOfficialBaseUrls,
+    ],
+    restoreSavedSession: restoreMissavBrowserSession,
+  ),
 );
 
 final jableVideoClientProvider = Provider<JableClient>((ref) {

@@ -111,9 +111,14 @@ void main() {
 
     expect(hosts, hasLength(missavMirrors.length));
     expect(
+      missavMirrors.every(
+        (mirror) => !missavOfficialHosts.contains(mirror.host),
+      ),
+      isTrue,
+    );
+    expect(
       missavMirrors.every((mirror) => mirror.baseUrl.startsWith('https://')),
       isTrue,
     );
-    expect(missavAutomaticMirrors.every(missavMirrors.contains), isTrue);
   });
 }
