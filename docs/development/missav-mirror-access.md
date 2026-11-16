@@ -39,8 +39,7 @@ MissAV 在 Cloudflare 验证下无法直接读取。应用改用官方备用域�
 
 ## 搜索
 
-镜像站的搜索结果由浏览器脚本生成，原生 HTML 只含少量无关卡片。
-搜索页始终优先调用 Recombee 搜索接口，接口无结果时才保留 HTML 卡片：
+搜索直接请求 Recombee，不先读取镜像页面。只有请求失败或响应无效时，搜索才回退到镜像页面。Recombee 成功返回空结果时，搜索显示无结果，不使用镜像卡片。
 
 ```text
 POST https://client-rapi-missav.recombee.com/missav-default/search/users/anonymous/items/
@@ -48,6 +47,9 @@ POST https://client-rapi-missav.recombee.com/missav-default/search/users/anonymo
 
 请求体使用 `searchQuery`、`scenario: "search"` 和 `returnProperties: true`。
 后续页使用返回的 `recommId` 调用 `recomms/next/items/{recommId}`。
+已访问的搜索页只保存在内存中，返回上一页不会继续推进游标。同一页的并发请求共用一次续页请求。新搜索、账号会话或语言变化后，应用重新建立分页状态。回退后的上一页和下一页均沿用镜像链接，重新搜索时再尝试 Recombee。
+
+取消请求本身不会触发镜像回退。取消续页后，再次打开该页时使用镜像分页，避免复用可能已推进的游标。过期响应不会覆盖新搜索的分页状态。
 
 ## 播放与下载
 

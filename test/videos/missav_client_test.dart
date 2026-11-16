@@ -1430,129 +1430,187 @@ void main() {
     },
   );
 
-  test('Recombee search loads pages without contacting a content host', () async {
-    final source = _Adapter(
-      (_) => _response('', statusCode: HttpStatus.serviceUnavailable),
-    );
-    final metadata = _Adapter((request) {
-      if (request.uri.path.contains('/next/')) {
-        return _metadataResponse({
-          'recommId': 'next-cursor',
-          'recomms': [
-            {
-              'id': 'next-video',
-              'values': {'dm': 45, 'title_en': 'Next sample'},
-            },
-          ],
-        });
-      }
-      if (request.uri.path.contains('/search/')) {
-        return _metadataResponse({
-          'recommId': 'search-cursor',
-          'recomms': [
-            {
-              'id': 'ssis-001',
-              'values': {'dm': 44, 'title_en': 'Mirror sample'},
-            },
-          ],
-        });
-      }
-      return _metadataResponse({'recomms': []});
-    });
-    final client = MissavClient(
-      dio: Dio()..httpClientAdapter = source,
-      metadataDio: Dio()..httpClientAdapter = metadata,
-      secureStorage: _MemorySecureStorage(),
-    );
-    addTearDown(client.dispose);
-
-    final page = await client.search('ssis-001');
-
-    expect(page.videos.single.id, 'ssis-001');
-    expect(page.videos.single.pageUrl, 'https://missav.ai/dm44/cn/ssis-001');
-    expect(page.nextUrl, 'https://missav.ai/cn/search/ssis-001?page=2');
-    final searchRequest = metadata.requests.firstWhere(
-      (request) => request.uri.path.contains('/search/'),
-    );
-    expect(
-      searchRequest.uri.path,
-      '/missav-default/search/users/anonymous/items/',
-    );
-    expect((searchRequest.data as Map)['searchQuery'], 'ssis-001');
-
-    final next = await client.browse(page.nextUrl!);
-
-    expect(next.videos.single.id, 'next-video');
-    expect(next.currentPage, 2);
-    expect(next.previousUrl, 'https://missav.ai/cn/search/ssis-001?page=1');
-    final nextRequest = metadata.requests.firstWhere(
-      (request) => request.uri.path.contains('/next/'),
-    );
-    expect(
-      nextRequest.uri.path,
-      '/missav-default/recomms/next/items/search-cursor',
-    );
-    expect(source.requests, isEmpty);
-  });
-
-  test('Recombee search keeps empty results without reading mirror cards', () async {
-    final source = _Adapter(
-      (_) => _response(_searchCatalogHtml(['unrelated'])),
-    );
-    final metadata = _Adapter(
-      (_) => _metadataResponse({'recommId': 'empty-cursor', 'recomms': []}),
-    );
-    final client = MissavClient(
-      dio: Dio()..httpClientAdapter = source,
-      metadataDio: Dio()..httpClientAdapter = metadata,
-      secureStorage: _MemorySecureStorage(),
-    );
-    addTearDown(client.dispose);
-
-    final page = await client.search('no matches');
-
-    expect(page.videos, isEmpty);
-    expect(page.nextUrl, isNull);
-    expect(source.requests, isEmpty);
-  });
-
-  test('Recombee search uses mirror pagination after a failed search', () async {
-    final requests = <String>[];
-    final first = missavMirrors.first.baseUrl;
-    final source = _Adapter((request) {
-      final page = request.uri.queryParameters['page'] ?? '1';
-      requests.add('mirror page $page');
-      return _response(
-        _searchCatalogHtml(
-          ['mirror-$page'],
-          nextUrl: page == '1' ? '/cn/search/needle?page=2' : null,
-        ),
+  test(
+    'Recombee search loads pages without contacting a content host',
+    () async {
+      final source = _Adapter(
+        (_) => _response('', statusCode: HttpStatus.serviceUnavailable),
       );
-    });
-    final metadata = _Adapter((request) {
-      if (request.uri.path.contains('/search/')) {
-        requests.add('search failed');
-        return _metadataResponse({}, statusCode: HttpStatus.serviceUnavailable);
-      }
-      return _metadataResponse({'recomms': []});
-    });
-    final client = MissavClient(
-      dio: Dio()..httpClientAdapter = source,
-      metadataDio: Dio()..httpClientAdapter = metadata,
-      secureStorage: _MemorySecureStorage(),
-      contentHosts: [first],
+      final metadata = _Adapter((request) {
+        if (request.uri.path.contains('/next/')) {
+          return _metadataResponse({
+            'recommId': 'next-cursor',
+            'recomms': [
+              {
+                'id': 'next-video',
+                'values': {'dm': 45, 'title_en': 'Next sample'},
+              },
+            ],
+          });
+        }
+        if (request.uri.path.contains('/search/')) {
+          return _metadataResponse({
+            'recommId': 'search-cursor',
+            'recomms': [
+              {
+                'id': 'ssis-001',
+                'values': {'dm': 44, 'title_en': 'Mirror sample'},
+              },
+            ],
+          });
+        }
+        return _metadataResponse({'recomms': []});
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      final page = await client.search('ssis-001');
+
+      expect(page.videos.single.id, 'ssis-001');
+      expect(page.videos.single.pageUrl, 'https://missav.ai/dm44/cn/ssis-001');
+      expect(page.nextUrl, 'https://missav.ai/cn/search/ssis-001?page=2');
+      final searchRequest = metadata.requests.firstWhere(
+        (request) => request.uri.path.contains('/search/'),
+      );
+      expect(
+        searchRequest.uri.path,
+        '/missav-default/search/users/anonymous/items/',
+      );
+      expect((searchRequest.data as Map)['searchQuery'], 'ssis-001');
+
+      final next = await client.browse(page.nextUrl!);
+
+      expect(next.videos.single.id, 'next-video');
+      expect(next.currentPage, 2);
+      expect(next.previousUrl, 'https://missav.ai/cn/search/ssis-001?page=1');
+      final nextRequest = metadata.requests.firstWhere(
+        (request) => request.uri.path.contains('/next/'),
+      );
+      expect(
+        nextRequest.uri.path,
+        '/missav-default/recomms/next/items/search-cursor',
+      );
+      expect(source.requests, isEmpty);
+    },
+  );
+
+  test(
+    'Recombee search keeps empty results without reading mirror cards',
+    () async {
+      final source = _Adapter(
+        (_) => _response(_searchCatalogHtml(['unrelated'])),
+      );
+      final metadata = _Adapter(
+        (_) => _metadataResponse({'recommId': 'empty-cursor', 'recomms': []}),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      final page = await client.search('no matches');
+
+      expect(page.videos, isEmpty);
+      expect(page.nextUrl, isNull);
+      expect(source.requests, isEmpty);
+    },
+  );
+
+  for (final invalidResponse in [
+    <String, Object?>{'error': 'unavailable'},
+    <String, Object?>{
+      'recommId': 'invalid-cursor',
+      'recomms': [
+        {'id': 'missing-values'},
+      ],
+    },
+  ]) {
+    test(
+      'Recombee search falls back after an invalid response $invalidResponse',
+      () async {
+        final source = _Adapter(
+          (_) => _response(_searchCatalogHtml(['mirror-result'])),
+        );
+        final metadata = _Adapter(
+          (request) => _metadataResponse(
+            request.uri.path.contains('/search/')
+                ? invalidResponse
+                : {'recomms': []},
+          ),
+        );
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = source,
+          metadataDio: Dio()..httpClientAdapter = metadata,
+          secureStorage: _MemorySecureStorage(),
+        );
+        addTearDown(client.dispose);
+
+        final page = await client.search('needle');
+
+        expect(page.videos.single.id, 'mirror-result');
+        expect(source.requests, hasLength(1));
+      },
     );
-    addTearDown(client.dispose);
+  }
 
-    final page = await client.search('needle');
-    final next = await client.browse(page.nextUrl!);
+  test(
+    'Recombee search uses mirror pagination after a failed search',
+    () async {
+      final requests = <String>[];
+      final first = missavMirrors.first.baseUrl;
+      final source = _Adapter((request) {
+        final page = request.uri.queryParameters['page'] ?? '1';
+        requests.add('mirror page $page');
+        return _response(
+          _searchCatalogHtml([
+                'mirror-$page',
+              ], nextUrl: page == '1' ? '/cn/search/needle?page=2' : null) +
+              (page == '2'
+                  ? '<a href="/cn/search/needle" rel="prev">Previous</a>'
+                  : ''),
+        );
+      });
+      final metadata = _Adapter((request) {
+        if (request.uri.path.contains('/search/')) {
+          requests.add('search failed');
+          return _metadataResponse(
+            {},
+            statusCode: HttpStatus.serviceUnavailable,
+          );
+        }
+        return _metadataResponse({'recomms': []});
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage(),
+        contentHosts: [first],
+      );
+      addTearDown(client.dispose);
 
-    expect(page.videos.single.id, 'mirror-1');
-    expect(page.nextUrl, '$first/cn/search/needle?page=2');
-    expect(next.videos.single.id, 'mirror-2');
-    expect(next.currentPage, 2);
-    expect(requests, ['search failed', 'mirror page 1', 'mirror page 2']);
-  });
+      final page = await client.search('needle');
+      final next = await client.browse(page.nextUrl!);
+      final previous = await client.browse(next.previousUrl!);
+
+      expect(page.videos.single.id, 'mirror-1');
+      expect(page.nextUrl, '$first/cn/search/needle?page=2');
+      expect(next.videos.single.id, 'mirror-2');
+      expect(next.currentPage, 2);
+      expect(previous.videos.single.id, 'mirror-1');
+      expect(requests, [
+        'search failed',
+        'mirror page 1',
+        'mirror page 2',
+        'mirror page 1',
+      ]);
+    },
+  );
 
   test('Recombee search cancellation stops before a mirror request', () async {
     final started = Completer<void>();
@@ -1595,6 +1653,314 @@ void main() {
     expect(metadata.requests.single.cancelToken, same(cancelToken));
     expect(source.requests, isEmpty);
   });
+
+  test(
+    'Recombee search shares concurrent requests for the same next page',
+    () async {
+      var nextCalls = 0;
+      final metadata = _Adapter((request) {
+        if (request.uri.path.contains('/search/')) {
+          return _metadataResponse({
+            'recommId': 'first-cursor',
+            'recomms': [
+              {'id': 'first', 'values': <String, Object?>{}},
+            ],
+          });
+        }
+        if (request.uri.path.contains('/next/')) {
+          nextCalls++;
+          return _metadataResponse({
+            'recommId': 'cursor-$nextCalls',
+            'recomms': [
+              {'id': 'next-$nextCalls', 'values': <String, Object?>{}},
+            ],
+          });
+        }
+        return _metadataResponse({'recomms': []});
+      });
+      final client = MissavClient(
+        dio: Dio()
+          ..httpClientAdapter = _Adapter((_) => _response('<main></main>')),
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      final first = await client.search('needle');
+      final pages = await Future.wait([
+        client.browse(first.nextUrl!),
+        client.browse(first.nextUrl!),
+      ]);
+
+      expect(nextCalls, 1);
+      expect(pages.map((page) => page.videos.single.id), ['next-1', 'next-1']);
+    },
+  );
+
+  test('Recombee search does not reuse a cancelled continuation', () async {
+    final started = Completer<void>();
+    final response = Completer<ResponseBody>();
+    var nextCalls = 0;
+    final source = _Adapter((_) => _response(_searchCatalogHtml(['mirror-2'])));
+    final metadata = _Adapter((request) {
+      if (request.uri.path.contains('/search/')) {
+        return _metadataResponse({
+          'recommId': 'first-cursor',
+          'recomms': [
+            {'id': 'first', 'values': <String, Object?>{}},
+          ],
+        });
+      }
+      if (request.uri.path.contains('/next/')) {
+        nextCalls++;
+        started.complete();
+        return response.future;
+      }
+      return _metadataResponse({'recomms': []});
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = source,
+      metadataDio: Dio()..httpClientAdapter = metadata,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+    final first = await client.search('needle');
+    final cancelToken = CancelToken();
+    final pending = client.browse(first.nextUrl!, cancelToken: cancelToken);
+    final cancelled = expectLater(
+      pending,
+      throwsA(
+        isA<DioException>().having(
+          (error) => error.type,
+          'type',
+          DioExceptionType.cancel,
+        ),
+      ),
+    );
+    await started.future;
+
+    cancelToken.cancel();
+    response.complete(_metadataResponse({'recommId': 'unused', 'recomms': []}));
+    await cancelled;
+    expect(source.requests, isEmpty);
+
+    final retry = await client.browse(first.nextUrl!);
+    expect(retry.videos.single.id, 'mirror-2');
+    expect(nextCalls, 1);
+  });
+
+  test('Recombee search revisits pages without advancing the cursor', () async {
+    final source = _Adapter(
+      (_) => _response('', statusCode: HttpStatus.serviceUnavailable),
+    );
+    var nextCalls = 0;
+    final metadata = _Adapter((request) {
+      if (!request.uri.path.contains('/search/') &&
+          !request.uri.path.contains('/next/')) {
+        return _metadataResponse({'recomms': []});
+      }
+      final pageNumber = request.uri.path.contains('/search/')
+          ? 1
+          : ++nextCalls + 1;
+      return _metadataResponse({
+        'recommId': 'cursor-$pageNumber',
+        'recomms': [
+          {'id': 'page-$pageNumber', 'values': <String, Object?>{}},
+        ],
+      });
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = source,
+      metadataDio: Dio()..httpClientAdapter = metadata,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    final first = await client.search('needle');
+    final second = await client.browse(first.nextUrl!);
+    final third = await client.browse(second.nextUrl!);
+    final previous = await client.browse(third.previousUrl!);
+    final backToFirst = await client.browse(previous.previousUrl!);
+    final revisited = await client.browse(backToFirst.nextUrl!);
+
+    expect(previous.videos.single.id, 'page-2');
+    expect(backToFirst.videos.single.id, 'page-1');
+    expect(revisited.videos.single.id, 'page-2');
+    expect(nextCalls, 2);
+    expect(source.requests, isEmpty);
+  });
+
+  test(
+    'Recombee search keeps mirror continuation after a failed next page',
+    () async {
+      final requests = <String>[];
+      final source = _Adapter((request) {
+        final page = request.uri.queryParameters['page'];
+        requests.add('mirror page $page');
+        return _response(
+          _searchCatalogHtml([
+            'mirror-$page',
+          ], nextUrl: page == '2' ? '/cn/search/needle?page=3' : null),
+        );
+      });
+      final metadata = _Adapter((request) {
+        if (request.uri.path.contains('/search/')) {
+          return _metadataResponse({
+            'recommId': 'first-cursor',
+            'recomms': [
+              {'id': 'first', 'values': <String, Object?>{}},
+            ],
+          });
+        }
+        if (request.uri.path.contains('/next/')) {
+          requests.add('next failed');
+          return _metadataResponse(
+            {},
+            statusCode: HttpStatus.serviceUnavailable,
+          );
+        }
+        return _metadataResponse({'recomms': []});
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      final first = await client.search('needle');
+      final second = await client.browse(first.nextUrl!);
+      final third = await client.browse(second.nextUrl!);
+
+      expect(third.videos.single.id, 'mirror-3');
+      expect(requests, ['next failed', 'mirror page 2', 'mirror page 3']);
+    },
+  );
+
+  for (final changeSession in [false, true]) {
+    test(
+      'Recombee search rejects a stale ${changeSession ? 'session' : 'language'}',
+      () async {
+        final started = Completer<void>();
+        final response = Completer<ResponseBody>();
+        final source = _Adapter((_) => _response('<main></main>'));
+        final metadata = _Adapter((_) {
+          started.complete();
+          return response.future;
+        });
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = source,
+          metadataDio: Dio()..httpClientAdapter = metadata,
+          secureStorage: _MemorySecureStorage(),
+        );
+        addTearDown(client.dispose);
+        final pending = client.search('needle');
+        final stale = expectLater(pending, throwsA(isA<MissavException>()));
+        await started.future;
+
+        if (changeSession) {
+          await client.logout();
+        } else {
+          client.setLocale('en');
+        }
+        response.complete(
+          _metadataResponse({}, statusCode: HttpStatus.serviceUnavailable),
+        );
+        await stale;
+
+        expect(source.requests, isEmpty);
+      },
+    );
+  }
+
+  test(
+    'Recombee search accepts an empty last page without mirror fallback',
+    () async {
+      final source = _Adapter(
+        (_) => _response(_searchCatalogHtml(['unrelated'])),
+      );
+      final metadata = _Adapter((request) {
+        if (request.uri.path.contains('/search/')) {
+          return _metadataResponse({
+            'recommId': 'first-cursor',
+            'recomms': [
+              {'id': 'first', 'values': <String, Object?>{}},
+            ],
+          });
+        }
+        return _metadataResponse({'recommId': 'empty-cursor', 'recomms': []});
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      final first = await client.search('needle');
+      final last = await client.browse(first.nextUrl!);
+
+      expect(last.videos, isEmpty);
+      expect(last.currentPage, 2);
+      expect(last.nextUrl, isNull);
+      expect(last.previousUrl, 'https://missav.ai/cn/search/needle?page=1');
+      expect(source.requests, isEmpty);
+    },
+  );
+
+  test(
+    'Recombee search ignores a late cursor from a replaced search',
+    () async {
+      final started = Completer<void>();
+      final response = Completer<ResponseBody>();
+      final source = _Adapter((_) => _response('<main></main>'));
+      var firstCalls = 0;
+      String? usedCursor;
+      final metadata = _Adapter((request) {
+        if (request.uri.path.contains('/search/')) {
+          if (++firstCalls == 1) {
+            started.complete();
+            return response.future;
+          }
+          return _metadataResponse({
+            'recommId': 'current-cursor',
+            'recomms': [
+              {'id': 'current', 'values': <String, Object?>{}},
+            ],
+          });
+        }
+        if (request.uri.path.contains('/next/')) {
+          usedCursor = request.uri.pathSegments.last;
+          return _metadataResponse({'recommId': 'last-cursor', 'recomms': []});
+        }
+        return _metadataResponse({'recomms': []});
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+      final oldSearch = client.search('needle');
+      final stale = expectLater(oldSearch, throwsA(isA<MissavException>()));
+      await started.future;
+      final current = await client.search('needle');
+
+      response.complete(
+        _metadataResponse({
+          'recommId': 'stale-cursor',
+          'recomms': [
+            {'id': 'stale', 'values': <String, Object?>{}},
+          ],
+        }),
+      );
+      await stale;
+      await client.browse(current.nextUrl!);
+
+      expect(usedCursor, 'current-cursor');
+      expect(source.requests, isEmpty);
+    },
+  );
 
   test(
     'account changes cancel pending metadata before publishing a catalog',

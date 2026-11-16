@@ -146,7 +146,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   bool _disposed = false;
   String? _recommendationUserId;
   String? _recommendationScenario;
-  final Map<String, String> _searchCursors = {};
+  final Map<String, _MissavSearchState> _searches = {};
 
   bool get isLoggedIn => _isLoggedIn;
   @override
@@ -184,6 +184,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     };
     if (_locale == locale) return false;
     _locale = locale;
+    _searches.clear();
     _homeUrl = '$_baseUrl${_localePrefix.isEmpty ? '/' : _localePrefix}';
     return true;
   }
@@ -585,66 +586,73 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   }) async {
     final generation = _sessionGeneration;
     final locale = _locale;
-    final (:document, :uri, title: _, streams: _) = await _loadContentPage(
-      sourceUri,
-      generation,
-      locale,
-      cancelToken,
-    );
-    if (_officialHosts.contains(uri.host)) _updateAccountFromPage(document);
-    final parsedVideos = _parseVideos(document, uri);
-    var videos = parsedVideos;
-    var nextUrl = _paginationUrl(document, uri, 'next');
-    var previousUrl = _paginationUrl(document, uri, 'prev');
-    var currentPage = _pageNumber(uri) ?? 1;
-    var jumpMaxPage = _jumpMaxPage(document, uri);
-    final searchQuery = _searchQuery(uri);
-    if (searchQuery != null) {
-      final apiPage = await _searchRecommendations(
-        searchQuery,
-        currentPage,
-        uri,
-        cancelToken: cancelToken,
+    var uri = _remapSource(sourceUri);
+    final searchQuery = _searchQuery(sourceUri);
+    final currentPage = _pageNumber(sourceUri) ?? 1;
+    final searchPage = searchQuery == null
+        ? null
+        : await _searchRecommendations(
+            searchQuery,
+            currentPage,
+            uri,
+            generation: generation,
+            locale: locale,
+            cancelToken: cancelToken,
+          );
+    final VideoCatalogPage parsedPage;
+    if (searchPage != null) {
+      String pageUrl(int page) => uri
+          .replace(queryParameters: {...uri.queryParameters, 'page': '$page'})
+          .toString();
+      parsedPage = VideoCatalogPage(
+        title: searchQuery!,
+        url: uri.toString(),
+        videos: searchPage.videos,
+        nextUrl: searchPage.cursor == null ? null : pageUrl(currentPage + 1),
+        previousUrl: currentPage > 1 ? pageUrl(currentPage - 1) : null,
+        currentPage: currentPage,
       );
-      if (apiPage.videos.isNotEmpty) {
-        videos = apiPage.videos;
-        nextUrl = apiPage.cursor == null
-            ? null
-            : uri
-                  .replace(
-                    queryParameters: {
-                      ...uri.queryParameters,
-                      'page': '${currentPage + 1}',
-                    },
-                  )
-                  .toString();
-        previousUrl = currentPage > 1
-            ? uri
-                  .replace(
-                    queryParameters: {
-                      ...uri.queryParameters,
-                      'page': '${currentPage - 1}',
-                    },
-                  )
-                  .toString()
-            : null;
-        jumpMaxPage = null;
+    } else {
+      final page = await _loadContentPage(
+        sourceUri,
+        generation,
+        locale,
+        cancelToken,
+      );
+      uri = page.uri;
+      if (_officialHosts.contains(uri.host)) {
+        _updateAccountFromPage(page.document);
       }
+      var previousUrl = _paginationUrl(page.document, uri, 'prev');
+      if (searchQuery != null && previousUrl != null) {
+        final previous = Uri.parse(previousUrl);
+        if (_pageNumber(previous) == null) {
+          previousUrl = previous
+              .replace(
+                queryParameters: {...previous.queryParameters, 'page': '1'},
+              )
+              .toString();
+        }
+      }
+      parsedPage = VideoCatalogPage(
+        title: _pageTitle(page.document),
+        url: uri.toString(),
+        videos: _parseVideos(page.document, uri),
+        links: _parseLinks(page.document, uri),
+        navigation: _parseNavigation(page.document, uri),
+        nextUrl: _paginationUrl(page.document, uri, 'next'),
+        previousUrl: previousUrl,
+        currentPage: _pageNumber(uri) ?? 1,
+        jumpMaxPage: _jumpMaxPage(page.document, uri),
+      );
     }
-    final parsedPage = VideoCatalogPage(
-      title: _pageTitle(document),
-      url: uri.toString(),
-      videos: videos,
-      links: _parseLinks(document, uri),
-      navigation: _parseNavigation(document, uri),
-      nextUrl: nextUrl,
-      previousUrl: previousUrl,
-      currentPage: currentPage,
-      jumpMaxPage: jumpMaxPage,
-    );
     _checkContentRequest(uri, generation, locale, cancelToken);
     onParsed?.call(parsedPage);
-    final enriched = await _enrichVideos(videos, uri, cancelToken: cancelToken);
+    final enriched = await _enrichVideos(
+      parsedPage.videos,
+      uri,
+      cancelToken: cancelToken,
+    );
     _checkContentRequest(uri, generation, locale, cancelToken);
 
     return VideoCatalogPage(
@@ -758,21 +766,88 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
-  Future<VideoRecommendationPage> _searchRecommendations(
+  Future<VideoRecommendationPage?> _searchRecommendations(
     String query,
     int page,
     Uri uri, {
-    CancelToken? cancelToken,
+    required int generation,
+    required String locale,
+    required CancelToken cancelToken,
   }) async {
-    final key = '$_locale:$query';
-    final cursor = _searchCursors[key];
+    _checkContentRequest(uri, generation, locale, cancelToken);
+    final key = '$locale:$query';
+    var search = _searches[key];
+    if (page <= 1 && (_pageNumber(uri) == null || search == null)) {
+      search = _MissavSearchState();
+      _searches[key] = search;
+    }
+    if (search == null || search.usesHtml) return null;
+    final state = search;
+    try {
+      final request = state.pages.putIfAbsent(
+        page,
+        () => _requestSearchPage(
+          query,
+          page,
+          uri,
+          state,
+          generation: generation,
+          locale: locale,
+          cancelToken: cancelToken,
+        ),
+      );
+      VideoRecommendationPage? result;
+      DioException? requestError;
+      try {
+        result = await Future.any<VideoRecommendationPage?>([
+          request,
+          cancelToken.whenCancel.then<VideoRecommendationPage?>(
+            (error) => throw error,
+          ),
+        ]);
+      } on DioException catch (error) {
+        requestError = error;
+      }
+      _checkContentRequest(uri, generation, locale, cancelToken);
+      if (!identical(_searches[key], state)) {
+        throw MissavException(
+          'MissAV search changed during the request.',
+          sourceUrl: uri.toString(),
+        );
+      }
+      if (requestError != null) {
+        if (requestError.type != DioExceptionType.cancel) throw requestError;
+        state.usesHtml = true;
+      }
+      return result;
+    } finally {
+      if (page > 1 &&
+          cancelToken.isCancelled &&
+          identical(_searches[key], state)) {
+        state.usesHtml = true;
+      }
+    }
+  }
+
+  Future<VideoRecommendationPage?> _requestSearchPage(
+    String query,
+    int page,
+    Uri uri,
+    _MissavSearchState search, {
+    required int generation,
+    required String locale,
+    required CancelToken cancelToken,
+  }) async {
+    final previous = await search.pages[page - 1];
+    _checkContentRequest(uri, generation, locale, cancelToken);
+    final cursor = previous?.cursor;
     if (page > 1 && cursor == null) {
-      return const VideoRecommendationPage(videos: [], cursor: null);
+      search.usesHtml = true;
+      return null;
     }
     final Map<String, Object?> data;
     final String path;
     if (page <= 1 || cursor == null) {
-      _searchCursors.remove(key);
       path = '/missav-default/search/users/anonymous/items/';
       data = {
         'searchQuery': query,
@@ -790,42 +865,47 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       path = '/missav-default/recomms/next/items/$cursor';
       data = {'count': 24, 'cascadeCreate': true};
     }
-    final Object? response;
+    Object? response;
     try {
       response = await _requestRecommendations(
         path,
         data,
-        cancelToken: cancelToken ?? _sessionCancelToken,
+        cancelToken: cancelToken,
       );
     } on DioException catch (error) {
       if (error.type == DioExceptionType.cancel) rethrow;
-      return const VideoRecommendationPage(videos: [], cursor: null);
     }
+    _checkContentRequest(uri, generation, locale, cancelToken);
     if (response is! Map ||
         response['recomms'] is! List ||
-        response['recommId'] is! String) {
-      return const VideoRecommendationPage(videos: [], cursor: null);
+        response['recommId'] is! String ||
+        (response['recommId'] as String).isEmpty) {
+      search.usesHtml = true;
+      return null;
     }
     final recommId = response['recommId'] as String;
     final videos = <VideoItem>[];
     for (final entry in response['recomms'] as List) {
-      if (entry is! Map || entry['id'] is! String || entry['values'] is! Map) {
-        continue;
+      if (entry is! Map ||
+          entry['id'] is! String ||
+          (entry['id'] as String).isEmpty ||
+          entry['values'] is! Map) {
+        search.usesHtml = true;
+        return null;
       }
       videos.add(
         _recommendationVideo(
           entry['id'] as String,
           entry['values'] as Map,
-          _locale,
+          locale,
           uri,
         ),
       );
     }
-    if (videos.isEmpty) {
-      return const VideoRecommendationPage(videos: [], cursor: null);
-    }
-    _searchCursors[key] = recommId;
-    return VideoRecommendationPage(videos: videos, cursor: recommId);
+    return VideoRecommendationPage(
+      videos: videos,
+      cursor: videos.isEmpty ? null : recommId,
+    );
   }
 
   VideoItem _recommendationVideo(
@@ -2128,7 +2208,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   int _advanceSessionGeneration() {
     _recommendationUserId = null;
     _recommendationScenario = null;
-    _searchCursors.clear();
+    _searches.clear();
     _sessionCancelToken.cancel('MissAV account changed.');
     for (final cancelToken in _browseCancelTokens.toList()) {
       if (!cancelToken.isCancelled) {
@@ -3108,4 +3188,9 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
 class _ContentHostFailure extends MissavException {
   const _ContentHostFailure(super.message, {required super.sourceUrl});
+}
+
+class _MissavSearchState {
+  final Map<int, Future<VideoRecommendationPage?>> pages = {};
+  bool usesHtml = false;
 }
