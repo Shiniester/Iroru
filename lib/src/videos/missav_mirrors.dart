@@ -7,6 +7,7 @@ import 'package:dio/io.dart';
 import '../services/proxy_config.dart';
 
 const missavMirrorBaseUrlKey = 'missav_mirror_base_url';
+const missavAccountBaseUrlKey = 'missav_account_base_url';
 
 class MissavMirror {
   const MissavMirror(this.host) : baseUrl = 'https://$host';

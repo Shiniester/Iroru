@@ -192,6 +192,27 @@ void main() {
     expect(find.text(s.loginFailed), findsOneWidget);
     expect(find.byType(TextField), findsNWidgets(2));
   });
+
+  testWidgets('account page selects the login host', (tester) async {
+    final client = _TestMissavClient();
+
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+          return true;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('missav.ws').last);
+    await tester.pumpAndSettle();
+
+    expect(client.accountHostUrl, 'https://missav.ws');
+  });
 }
 
 Widget _app(

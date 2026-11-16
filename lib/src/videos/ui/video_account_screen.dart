@@ -198,6 +198,28 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                           ),
                         ],
                         const SizedBox(height: 16),
+                        DropdownButtonFormField<String>(
+                          key: ValueKey(_client.accountHostUrl),
+                          initialValue: _client.accountHostUrl,
+                          decoration: InputDecoration(
+                            labelText: s.videoMirrorSettings,
+                          ),
+                          items: [
+                            for (final host in MissavClient.accountHosts)
+                              DropdownMenuItem(
+                                value: host,
+                                child: Text(host.replaceFirst('https://', '')),
+                              ),
+                          ],
+                          onChanged: _loading
+                              ? null
+                              : (host) {
+                                  if (host != null) {
+                                    unawaited(_client.selectAccountHost(host));
+                                  }
+                                },
+                        ),
+                        const SizedBox(height: 12),
                         TextField(
                           controller: _emailController,
                           enabled: !_loading,

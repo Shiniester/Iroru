@@ -3319,6 +3319,109 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     expect(client.isLoggedIn, isTrue);
   });
 
+  test('login tries missav.live before the other official hosts', () async {
+    final loginHosts = <String>[];
+    final adapter = _Adapter((request) {
+      if (request.method == 'POST' && request.uri.path.endsWith('/api/login')) {
+        loginHosts.add(request.uri.host);
+      }
+      if (request.uri.host == 'missav.live') {
+        return request.uri.path.endsWith('/api/login')
+            ? _response('{"user":{"name":"live-viewer"}}')
+            : _response('<html></html>');
+      }
+      return _response(
+        '<title>Just a moment...</title>',
+        statusCode: HttpStatus.forbidden,
+      );
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+      restoreSavedSession: (_, _) async {},
+    );
+    addTearDown(client.dispose);
+
+    await client.login(
+      email: 'viewer@example.invalid',
+      password: 'sample-password',
+    );
+
+    expect(loginHosts, ['missav.live']);
+    expect(client.accountHostUrl, 'https://missav.live');
+    expect(client.isLoggedIn, isTrue);
+  });
+
+  test('login falls back to missav.ws when missav.live is blocked', () async {
+    final loginHosts = <String>[];
+    final adapter = _Adapter((request) {
+      if (request.method == 'POST' && request.uri.path.endsWith('/api/login')) {
+        loginHosts.add(request.uri.host);
+      }
+      if (request.uri.host == 'missav.ws') {
+        return request.uri.path.endsWith('/api/login')
+            ? _response('{"user":{"name":"ws-viewer"}}')
+            : _response('<html></html>');
+      }
+      return _response(
+        '<title>Just a moment...</title>',
+        statusCode: HttpStatus.forbidden,
+      );
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+      restoreSavedSession: (_, _) async {},
+    );
+    addTearDown(client.dispose);
+
+    await client.login(
+      email: 'viewer@example.invalid',
+      password: 'sample-password',
+    );
+
+    expect(loginHosts, ['missav.ws']);
+    expect(client.accountHostUrl, 'https://missav.ws');
+    expect(client.isLoggedIn, isTrue);
+  });
+
+  test('login starts from the selected account host', () async {
+    final loginHosts = <String>[];
+    final adapter = _Adapter((request) {
+      if (request.method == 'POST' && request.uri.path.endsWith('/api/login')) {
+        loginHosts.add(request.uri.host);
+      }
+      if (request.uri.host == 'missav.ai') {
+        return request.uri.path.endsWith('/api/login')
+            ? _response('{"user":{"name":"ai-viewer"}}')
+            : _response('<html></html>');
+      }
+      return _response(
+        '<title>Just a moment...</title>',
+        statusCode: HttpStatus.forbidden,
+      );
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+      restoreSavedSession: (_, _) async {},
+    );
+    addTearDown(client.dispose);
+    await client.selectAccountHost('https://missav.ai');
+
+    await client.login(
+      email: 'viewer@example.invalid',
+      password: 'sample-password',
+    );
+
+    expect(loginHosts, ['missav.ai']);
+    expect(client.accountHostUrl, 'https://missav.ai');
+    expect(client.isLoggedIn, isTrue);
+  });
+
   test('keeps a saved mirror preference', () async {
     const savedHost = 'www.thisav02.com';
     SharedPreferences.setMockInitialValues({
@@ -3855,6 +3958,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
         secureStorage: _MemorySecureStorage(),
       );
       addTearDown(client.dispose);
+      await client.selectAccountHost('https://missav.ai');
       client.setLocale('ja');
 
       await client.login(email: 'viewer@example.invalid', password: 'sample');
@@ -4159,6 +4263,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
         secureStorage: _MemorySecureStorage(),
       );
       addTearDown(client.dispose);
+      await client.selectAccountHost('https://missav.ai');
 
       await client.importVerifiedSession(
         cookieHeader: cookie,
@@ -4261,6 +4366,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
         secureStorage: _MemorySecureStorage(),
       );
       addTearDown(client.dispose);
+      await client.selectAccountHost('https://missav.ai');
 
       await client.setVideoFavorite(
         const VideoDetails(
@@ -4353,6 +4459,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
         secureStorage: _MemorySecureStorage(),
       );
       addTearDown(client.dispose);
+      await client.selectAccountHost('https://missav.ai');
       client.setLocale('ja');
       const item = VideoItem(
         id: 'open-sample-001',
@@ -4403,7 +4510,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
   });
 
   test(
-    'posts the observed login contract and stores only source cookies',
+    'posts the observed login contract and stores only account-host cookies',
     () async {
       final storage = _MemorySecureStorage()..cookie = 'XSRF-TOKEN=token%3D';
       late RequestOptions request;
@@ -4430,7 +4537,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       );
 
       expect(request.method, 'POST');
-      expect(request.uri.toString(), 'https://missav.ai/en/api/login');
+      expect(request.uri.toString(), 'https://missav.live/en/api/login');
       expect(request.data, {
         'email': 'account@example.invalid',
         'password': 'test-password',
@@ -4440,8 +4547,8 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       expect(request.headers['X-XSRF-TOKEN'], 'token=');
       expect(request.headers['Accept'], 'application/json, text/plain, */*');
       expect(request.headers['X-Requested-With'], 'XMLHttpRequest');
-      expect(request.headers['Origin'], MissavClient.origin);
-      expect(request.headers['Referer'], '${MissavClient.origin}/');
+      expect(request.headers['Origin'], 'https://missav.live');
+      expect(request.headers['Referer'], 'https://missav.live/');
       expect(request.headers['Accept-Language'], 'en-US,en;q=0.9');
       expect(request.headers['Cache-Control'], 'no-cache');
       expect(_headerValue(request, 'User-Agent'), contains('Chrome/149.0.0.0'));

@@ -157,8 +157,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   String? get accountName => _accountName;
   String get activeMirrorHost => Uri.parse(_baseUrl).host;
   bool get usesAutomaticMirror => _preferredMirror == null;
-  String get _accountBaseUrl =>
-      _officialHosts.contains(Uri.parse(_baseUrl).host) ? _baseUrl : origin;
+  static const accountHosts = [
+    'https://missav.live',
+    'https://missav.ws',
+    'https://missav.ai',
+  ];
+  String _accountBaseUrl = accountHosts.first;
+  String get accountHostUrl => _accountBaseUrl;
+  String get _activeAccountBaseUrl =>
+      _browserAdapter != null ? origin : _accountBaseUrl;
   @override
   String get homeUrl => _homeUrl;
 
@@ -254,6 +261,20 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
     _nativeAccessProbed = false;
     notifyListeners();
+  }
+
+  Future<void> selectAccountHost(String baseUrl) async {
+    if (_disposed || !accountHosts.contains(baseUrl)) return;
+    if (_accountBaseUrl != baseUrl) {
+      _accountBaseUrl = baseUrl;
+      notifyListeners();
+    }
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(missavAccountBaseUrlKey, baseUrl);
+    } catch (_) {
+      // Keep the in-memory choice when preferences are unavailable.
+    }
   }
 
   @override
@@ -438,6 +459,10 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         );
         if (generation == _sessionGeneration && !_disposed) {
           _preferredMirror = mirror?.baseUrl;
+          final accountHost = preferences.getString(missavAccountBaseUrlKey);
+          if (accountHosts.contains(accountHost)) {
+            _accountBaseUrl = accountHost!;
+          }
           if (mirror != null) {
             _baseUrl = mirror.baseUrl;
             _homeUrl = '${mirror.baseUrl}$_localePrefix';
@@ -1333,10 +1358,11 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final sourceId = initialDetails.sourceId;
     Object? accountError;
     StackTrace? accountTrace;
-    final accountBase = _accountBaseUrl;
+    final accountBase = _activeAccountBaseUrl;
     if (sourceId != null &&
         includeAccountState &&
-        _officialHosts.contains(Uri.parse(_baseUrl).host)) {
+        (_browserAdapter != null ||
+            _officialHosts.contains(Uri.parse(_baseUrl).host))) {
       final viewUri = Uri.parse(
         '$accountBase/api/items/${Uri.encodeComponent(sourceId)}/view',
       );
@@ -1387,8 +1413,45 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   Future<void> login({required String email, required String password}) async {
     await _prepareOnlineAccess();
+    if (_browserAdapter != null) {
+      _accountBaseUrl = origin;
+      await _loginAt(origin, email: email, password: password);
+      await selectAccountHost(origin);
+      return;
+    }
+    final previous = _accountBaseUrl;
+    final hosts = [previous, ...accountHosts.where((host) => host != previous)];
+    MissavException? lastError;
+    for (final host in hosts) {
+      _accountBaseUrl = host;
+      try {
+        await _loginAt(host, email: email, password: password);
+        await selectAccountHost(host);
+        return;
+      } on MissavAuthenticationException {
+        rethrow;
+      } on MissavException catch (error) {
+        if (!_canRetryLogin(error)) rethrow;
+        lastError = error;
+      }
+    }
+    _accountBaseUrl = previous;
+    throw lastError ?? const MissavException('MissAV login failed.');
+  }
+
+  static bool _canRetryLogin(MissavException error) {
+    if (error is MissavAuthenticationException) return false;
+    if (error.message.contains('account changed')) return false;
+    final cause = error.cause;
+    return cause is! DioException || cause.type != DioExceptionType.cancel;
+  }
+
+  Future<void> _loginAt(
+    String base, {
+    required String email,
+    required String password,
+  }) async {
     final generation = _advanceSessionGeneration();
-    final base = _accountBaseUrl;
     final uri = Uri.parse('$base/en/api/login');
     final pageUri = Uri.parse('$base/en');
 
@@ -1401,14 +1464,14 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
     try {
       if (_cookieValue('XSRF-TOKEN') == null) {
-        await _request(pageUri, generation: generation);
+        await _request(pageUri, generation: generation, direct: true);
       }
       late Response<dynamic> response;
       try {
         response = await sendLogin();
       } on MissavException catch (error) {
         if (!error.message.contains('HTTP 419')) rethrow;
-        await _request(pageUri, generation: generation);
+        await _request(pageUri, generation: generation, direct: true);
         response = await sendLogin();
       }
       if (generation != _sessionGeneration) {
@@ -1448,8 +1511,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         }
       }
       if (user == null) {
-        final homeUri = Uri.parse(_homeUrl);
-        final homeResponse = await _request(homeUri, generation: generation);
+        final homeUri = Uri.parse('$base/en');
+        final homeResponse = await _request(
+          homeUri,
+          generation: generation,
+          direct: true,
+        );
         final homeText = homeResponse.data is String
             ? homeResponse.data as String
             : '';
@@ -1501,6 +1568,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       throw MissavException(
         'MissAV login failed (${error.response?.statusCode ?? error.type.name}).',
         sourceUrl: uri.toString(),
+        cause: error,
       );
     } on FormatException {
       throw MissavException(
@@ -1551,7 +1619,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   Future<void> setVideoFavorite(VideoDetails details, bool favorite) async {
     await _prepareOnlineAccess();
-    final base = _accountBaseUrl;
+    final base = _activeAccountBaseUrl;
     final sourceId = details.sourceId;
     if (sourceId == null || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(sourceId)) {
       throw MissavUnsupportedException(
@@ -1567,7 +1635,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   Future<List<VideoLink>> playlistsFor(VideoItem item) async {
     await _prepareOnlineAccess();
-    final base = _accountBaseUrl;
+    final base = _activeAccountBaseUrl;
     _sourceUri(item.pageUrl);
     final uri = Uri.parse(
       '$base/api/playlists/${Uri.encodeComponent(item.id)}',
@@ -1603,7 +1671,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   Future<void> setActorFavorite(VideoLink actor, bool favorite) async {
     await _prepareOnlineAccess();
-    final base = _accountBaseUrl;
+    final base = _activeAccountBaseUrl;
     final generation = _sessionGeneration;
     final actorUri = _localizedSourceUri(actor.url);
     final document = await _loadDocument(actorUri, generation);
@@ -1658,7 +1726,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     required bool added,
   }) async {
     await _prepareOnlineAccess();
-    final base = _accountBaseUrl;
+    final base = _activeAccountBaseUrl;
     final key = playlist.sourceKey;
     if (key == null || key.isEmpty) {
       throw MissavUnsupportedException(
@@ -1676,7 +1744,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   Future<void> clearWatchHistory() async {
     await _prepareOnlineAccess();
     await _request(
-      Uri.parse('$_accountBaseUrl/api/history'),
+      Uri.parse('$_activeAccountBaseUrl/api/history'),
       method: 'DELETE',
     );
   }
@@ -1758,12 +1826,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     Object? data,
     int? generation,
     CancelToken? cancelToken,
+    bool direct = false,
   }) async {
     if (generation == null) await _prepareOnlineAccess();
     final requestGeneration = generation ?? _sessionGeneration;
     final requestCancelToken = cancelToken ?? _sessionCancelToken;
     final isApi = uri.pathSegments.contains('api');
-    var requestUri = isApi
+    var requestUri = isApi || direct
         ? _sourceUri(uri.toString())
         : _remapSource(_sourceUri(uri.toString()));
     var requestMethod = method;
@@ -1820,6 +1889,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         throw MissavException(
           'MissAV request failed (${error.response?.statusCode ?? error.type.name}).',
           sourceUrl: requestUri.toString(),
+          cause: error,
         );
       }
       _checkGeneration(requestGeneration, requestUri);
@@ -1883,8 +1953,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     Uri uri,
     int generation,
   ) async {
-    final accountHost = Uri.parse(_accountBaseUrl).host;
-    if (uri.host != accountHost || generation != _sessionGeneration) {
+    if (!_officialHosts.contains(uri.host) ||
+        generation != _sessionGeneration) {
       return;
     }
     final values = response.headers['set-cookie'];
