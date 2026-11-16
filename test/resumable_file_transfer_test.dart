@@ -195,6 +195,54 @@ void main() {
     expect(await partial.readAsBytes(), body);
   });
 
+  test('resumes HTML without validators', () async {
+    final uri = Uri.parse('https://example.com/lyrics.html');
+    final partial = File('${tempDirectory.path}/lyrics.html.downloading');
+    final prefix = '<html>lyrics'.codeUnits;
+    final suffix = '</html>'.codeUnits;
+    final total = prefix.length + suffix.length;
+    await _seedPrefix(partial, prefix, uri, noValidator: true);
+    final transport = _SequenceTransport([
+      (
+        RemoteAssetResponse(
+          statusCode: HttpStatus.partialContent,
+          contentLength: prefix.length,
+          headers: {
+            'content-type': 'text/html',
+            'content-range': 'bytes 0-${prefix.length - 1}/$total',
+          },
+          stream: const Stream.empty(),
+        ),
+        prefix,
+      ),
+      (
+        RemoteAssetResponse(
+          statusCode: HttpStatus.partialContent,
+          contentLength: suffix.length,
+          headers: {
+            'content-type': 'text/html',
+            'content-range': 'bytes ${prefix.length}-${total - 1}/$total',
+          },
+          stream: const Stream.empty(),
+        ),
+        suffix,
+      ),
+    ]);
+
+    final result = await ResumableFileTransfer(transport: transport).download(
+      uri: uri,
+      partialFile: partial,
+      cancellation: RemoteAssetCancellation(),
+    );
+
+    expect(transport.requests.map((request) => request.headers['Range']), [
+      'bytes=0-${prefix.length - 1}',
+      'bytes=${prefix.length}-',
+    ]);
+    expect(result.totalBytes, total);
+    expect(await partial.readAsString(), '<html>lyrics</html>');
+  });
+
   test('a complete prefix accepts the 416 HTML range response', () async {
     final partial = File('${tempDirectory.path}/track.m4a.downloading');
     await _seedPrefix(partial, const [

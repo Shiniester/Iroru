@@ -2863,8 +2863,10 @@ class AudioPlayerService {
         emitCurrentTrack: published?.id != track.id,
         autoplay: true,
         direction: PlayerTrackChangeDirection.none,
-        sourceToReload: idle ? null : _failedSeekSource,
-        initialPosition: idle ? _player.position : _failedSeekPosition,
+        sourceToReload: _failedSeekSource,
+        initialPosition:
+            _failedSeekPosition ??
+            (idle && published?.id == track.id ? _player.position : null),
       ).future;
       return;
     }
@@ -3149,6 +3151,7 @@ class AudioPlayerService {
     required bool userInitiated,
     bool sliceJump = false,
   }) async {
+    final wasPlaying = _desiredPlaying && _player.playing;
     final coverSeekToken =
         currentTrack != null && (_player.playing || _coverSeekToken != null)
         ? Object()
@@ -3195,7 +3198,7 @@ class AudioPlayerService {
         jump: jump,
       );
       if (succeeded) _nativeEffects.resetHistory();
-      if (succeeded && _desiredPlaying && !_player.playing) {
+      if (succeeded && wasPlaying && _desiredPlaying && !_player.playing) {
         _startPlaybackWithSideEffects();
       }
       return succeeded;
@@ -3464,12 +3467,7 @@ class AudioPlayerService {
         sourceToReload: source,
         initialPosition: targetPosition,
       );
-      try {
-        await recovery.future;
-      } catch (error) {
-        _log.captureOutput('[Audio] Seek recovery failed: $error');
-        return false;
-      }
+      await recovery.future;
       final succeeded =
           isCurrentSeekLoad(recovery) &&
           await _confirmPositionJump(jump, () => isCurrentSeekLoad(recovery));
@@ -3573,7 +3571,8 @@ class AudioPlayerService {
       jump,
       () => isCurrentSeekResult(cachedTrackLoad),
     )) {
-      if (_player.processingState != ProcessingState.idle) {
+      if (!isCurrentSeekResult(cachedTrackLoad) ||
+          _player.processingState != ProcessingState.idle) {
         return false;
       }
       // The seek was accepted locally but the player lost its source.

@@ -207,4 +207,31 @@ void main() {
     expect(after.pixels - _resourceTop(tester), closeTo(420, 4));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('session restores and clamps the image page after a rebuild', (
+    tester,
+  ) async {
+    final session = WorkResourceSession()
+      ..selectedTab = WorkResourceTab.images
+      ..imagePage = 3;
+
+    Widget build(Key key, int images) => _app(
+      layoutKey: key,
+      session: session,
+      files: _files(images: images),
+      resourceSliver: const SliverToBoxAdapter(child: SizedBox()),
+    );
+
+    await tester.pumpWidget(build(const ValueKey('first'), 45));
+    await tester.pumpAndSettle();
+    expect(session.imagePage, 3);
+
+    await tester.pumpWidget(build(const ValueKey('recreated'), 45));
+    await tester.pumpAndSettle();
+    expect(session.imagePage, 3);
+
+    await tester.pumpWidget(build(const ValueKey('recreated'), 25));
+    await tester.pumpAndSettle();
+    expect(session.imagePage, 2);
+  });
 }

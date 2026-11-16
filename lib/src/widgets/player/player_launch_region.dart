@@ -361,7 +361,7 @@ class _InteractivePlayerOpenSession {
     }
     _entry = OverlayEntry(
       builder: (context) => Positioned.fill(
-        child: IgnorePointer(
+        child: AbsorbPointer(
           child: HeroControllerScope.none(
             child: Navigator(
               key: _navigatorKey,

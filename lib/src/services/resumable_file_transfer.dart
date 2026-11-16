@@ -60,6 +60,7 @@ class ResumableFileTransfer {
         length: prefixLength,
         headers: headers,
         cancellation: cancellation,
+        expectedAudio: expectedAudio,
       );
       if (!matches) {
         await partialFile.delete();
@@ -237,6 +238,7 @@ class ResumableFileTransfer {
     required int length,
     required Map<String, String> headers,
     required RemoteAssetCancellation cancellation,
+    required bool expectedAudio,
   }) async {
     final probeLength = length < 64 ? length : 64;
     final response = await _transport.open(
@@ -268,7 +270,7 @@ class ResumableFileTransfer {
     } finally {
       await iterator.cancel();
     }
-    if (_looksLikeHtml([probe])) {
+    if (expectedAudio && _looksLikeHtml([probe])) {
       throw const HttpException('Unexpected HTML download response');
     }
     if (probe.length < probeLength) return false;
