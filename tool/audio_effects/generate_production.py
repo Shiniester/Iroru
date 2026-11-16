@@ -23,7 +23,7 @@ def templates(native_rc):
     scenes = ('bathroom', 'through_wall', 'telephone')
     for index, name in enumerate(scenes):
         graphs[name] = scene_auto_graph(name, 0, dynamic=True, native_rc=native_rc,
-                                        selector=(index, False))
+                                        selector=(index, index < len(scenes) - 1))
     return graphs
 
 
