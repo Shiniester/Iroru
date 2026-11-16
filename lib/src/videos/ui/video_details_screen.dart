@@ -11,6 +11,7 @@ import '../../providers/works_provider.dart';
 import '../../utils/collection_grid_layout.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/app_navigation_scope.dart';
+import '../../widgets/async_state_view.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/responsive_dialog.dart';
 import '../../widgets/work_detail_route_readiness.dart';
@@ -1018,7 +1019,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         body: _loading && details == null
             ? const Center(child: CircularProgressIndicator())
             : _error != null && details == null
-            ? _buildLoadFailure(s)
+            ? ScrollableStateView(child: _buildLoadFailure(s))
             : details == null
             ? const SizedBox.shrink()
             : _buildDetails(s, details, currentTask),

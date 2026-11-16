@@ -17,6 +17,7 @@ import '../widgets/enhanced_work_card.dart';
 import '../widgets/work_detail/work_cover_frame.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/app_bottom_dock_transition.dart';
+import '../widgets/async_state_view.dart';
 import '../widgets/work_cover_image.dart';
 import '../utils/work_cover_prefetch.dart';
 import '../utils/scroll_optimization.dart';
@@ -362,37 +363,39 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
   Widget _buildBody(PlaylistDetailState state) {
     if (state.error != null && state.metadata == null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              S.of(context).loadFailed,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              state.error!,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+      return ScrollableStateView(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.error,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () => ref
-                  .read(playlistDetailProvider(widget.playlistId).notifier)
-                  .refresh(),
-              icon: const Icon(Icons.refresh),
-              label: Text(S.of(context).retry),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Text(
+                S.of(context).loadFailed,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                state.error!,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () => ref
+                    .read(playlistDetailProvider(widget.playlistId).notifier)
+                    .refresh(),
+                icon: const Icon(Icons.refresh),
+                label: Text(S.of(context).retry),
+              ),
+            ],
+          ),
         ),
       );
     }

@@ -66,3 +66,23 @@ class AsyncStateView extends StatelessWidget {
     );
   }
 }
+
+/// Keeps full-page state content centered when it fits and scrollable when it
+/// does not, such as on short windows or with large text.
+class ScrollableStateView extends StatelessWidget {
+  const ScrollableStateView({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: child,
+        ),
+      ),
+    );
+  }
+}

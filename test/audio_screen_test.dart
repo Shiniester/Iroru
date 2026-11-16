@@ -563,7 +563,7 @@ void main() {
 
   for (final size in [const Size(390, 844), const Size(1280, 720)]) {
     testWidgets(
-      'offline audio keeps retry and its download FAB usable ($size)',
+      'offline audio shows retry and settings in the content ($size)',
       (tester) async {
         tester.view.physicalSize = size;
         tester.view.devicePixelRatio = 1;
@@ -584,30 +584,36 @@ void main() {
         final s = S.of(context);
         final header = find.byKey(const ValueKey('library-page-header'));
         final initialTop = tester.getTopLeft(header).dy;
-        _requestAudioPage(tester, 'downloads');
-        await tester.pumpAndSettle();
         auth.setOffline(true);
         await tester.pumpAndSettle();
-        final notice = find.ancestor(
-          of: find.text(s.offlineModeMessage),
-          matching: find.byType(TopNoticeCard),
-        );
-        expect(notice, findsOneWidget);
-        expect(tester.getTopLeft(header).dy, initialTop);
-        final noticeRect = tester.getRect(notice);
-        final headerRect = tester.getRect(header);
-        expect(noticeRect.top, greaterThanOrEqualTo(headerRect.bottom));
+        final message = find.text(s.offlineModeMessage);
+        expect(message, findsOneWidget);
         expect(
-          tester.getRect(find.byType(FloatingActionButton)).top,
-          greaterThan(noticeRect.bottom),
+          find.ancestor(of: message, matching: find.byType(TopNoticeCard)),
+          findsNothing,
         );
+        expect(tester.getTopLeft(header).dy, initialTop);
+
+        final settings = find.widgetWithText(TextButton, s.audioSettings);
+        expect(settings.hitTestable(), findsOneWidget);
+        await tester.tap(settings);
+        await tester.pumpAndSettle();
+        expect(find.byType(SettingsScreen), findsOneWidget);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+
+        _requestAudioPage(tester, 'downloads');
+        await tester.pumpAndSettle();
+        expect(find.text(s.offlineModeMessage), findsNothing);
+        expect(find.byType(FloatingActionButton), findsOneWidget);
         await tester.tap(find.byType(FloatingActionButton));
         expect(navigation.tabNavigator(appAudioTabIndex)!.canPop(), isTrue);
         navigation.tabNavigator(appAudioTabIndex)!.pop();
         await tester.pumpAndSettle();
 
-        await tester.pump(const Duration(seconds: 4));
-        final retry = find.widgetWithText(TextButton, s.retry);
+        _requestAudioPage(tester, 'home');
+        await tester.pumpAndSettle();
+        final retry = find.widgetWithText(FilledButton, s.retry);
         expect(retry.hitTestable(), findsOneWidget);
         await tester.tap(retry);
         await tester.pumpAndSettle();
@@ -621,12 +627,12 @@ void main() {
         await tester.tap(retry);
         await tester.pump();
         expect(find.text(s.offlineModeMessage), findsOneWidget);
-        expect(tester.widget<TextButton>(retry).onPressed, isNull);
+        expect(tester.widget<FilledButton>(retry).onPressed, isNull);
         await tester.tap(retry);
         expect(auth.retryCalls, 3);
         failure.complete(false);
         await tester.pumpAndSettle();
-        expect(tester.widget<TextButton>(retry).onPressed, isNotNull);
+        expect(tester.widget<FilledButton>(retry).onPressed, isNotNull);
 
         final success = Completer<bool>();
         auth.retryResult = success;
@@ -642,7 +648,7 @@ void main() {
     );
   }
 
-  testWidgets('offline notice follows the ASMR.ONE source only', (
+  testWidgets('offline connection view follows the ASMR.ONE source only', (
     tester,
   ) async {
     final prefs = await SharedPreferences.getInstance();

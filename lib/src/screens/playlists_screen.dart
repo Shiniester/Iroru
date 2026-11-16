@@ -7,6 +7,7 @@ import '../providers/collection_layout_provider.dart';
 import '../providers/works_provider.dart' show LayoutType;
 import '../utils/collection_grid_layout.dart';
 import '../utils/l10n_extensions.dart';
+import '../widgets/async_state_view.dart';
 import '../widgets/playlist_card.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../utils/scroll_optimization.dart';
@@ -487,35 +488,37 @@ class PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
     final state = ref.watch(playlistsProvider);
 
     if (state.error != null && state.playlists.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              S.of(context).loadFailed,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              state.error!,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+      return ScrollableStateView(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.error,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () => ref.read(playlistsProvider.notifier).refresh(),
-              icon: const Icon(Icons.refresh),
-              label: Text(S.of(context).retry),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Text(
+                S.of(context).loadFailed,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                state.error!,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () => ref.read(playlistsProvider.notifier).refresh(),
+                icon: const Icon(Icons.refresh),
+                label: Text(S.of(context).retry),
+              ),
+            ],
+          ),
         ),
       );
     }

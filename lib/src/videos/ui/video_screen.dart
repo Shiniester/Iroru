@@ -11,6 +11,7 @@ import '../../utils/collection_grid_layout.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/unified_search_history_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
+import '../../widgets/async_state_view.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/library_page_scaffold.dart';
 import '../../widgets/privacy_blur_cover.dart';
@@ -2461,50 +2462,52 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
     if (_error != null && _page == null) {
       return _withStaging(
-        Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(_errorMessage(s), textAlign: TextAlign.center),
-                const SizedBox(height: 12),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 8,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: _retryCurrentPage,
-                      icon: const Icon(Icons.refresh),
-                      label: Text(s.retry),
-                    ),
-                    if (_verificationError != null)
-                      OutlinedButton.icon(
-                        onPressed: _verifyAndRetry,
-                        icon: const Icon(Icons.verified_user_outlined),
-                        label: Text(s.videoVerifyAccess),
+        ScrollableStateView(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_errorMessage(s), textAlign: TextAlign.center),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _retryCurrentPage,
+                        icon: const Icon(Icons.refresh),
+                        label: Text(s.retry),
                       ),
-                    if (_error is JableLoginRequiredException)
-                      OutlinedButton.icon(
-                        key: const ValueKey('video-open-jable-account'),
-                        onPressed: () => unawaited(_openJableAccount()),
-                        icon: const Icon(Icons.account_circle_outlined),
-                        label: Text(s.videoJableAccount),
-                      ),
-                    OutlinedButton.icon(
-                      onPressed: () => unawaited(
-                        _openSource(
-                          _errorSourceUrl ??
-                              widget.initialUrl ??
-                              _sourceClient.homeUrl,
+                      if (_verificationError != null)
+                        OutlinedButton.icon(
+                          onPressed: _verifyAndRetry,
+                          icon: const Icon(Icons.verified_user_outlined),
+                          label: Text(s.videoVerifyAccess),
                         ),
+                      if (_error is JableLoginRequiredException)
+                        OutlinedButton.icon(
+                          key: const ValueKey('video-open-jable-account'),
+                          onPressed: () => unawaited(_openJableAccount()),
+                          icon: const Icon(Icons.account_circle_outlined),
+                          label: Text(s.videoJableAccount),
+                        ),
+                      OutlinedButton.icon(
+                        onPressed: () => unawaited(
+                          _openSource(
+                            _errorSourceUrl ??
+                                widget.initialUrl ??
+                                _sourceClient.homeUrl,
+                          ),
+                        ),
+                        icon: const Icon(Icons.open_in_new),
+                        label: Text(s.videoOpenSource),
                       ),
-                      icon: const Icon(Icons.open_in_new),
-                      label: Text(s.videoOpenSource),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),

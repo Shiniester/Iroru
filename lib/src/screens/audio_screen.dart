@@ -29,6 +29,7 @@ import '../utils/subtitle_filter.dart';
 import '../utils/ui_tokens.dart';
 import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/app_navigation_scope.dart';
+import '../widgets/async_state_view.dart';
 import '../widgets/audio_account_prompt.dart';
 import 'account_management_screen.dart';
 import '../widgets/download_fab.dart';
@@ -81,13 +82,16 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     MyTabsDisplaySettings settings, {
     required AudioSource source,
     required bool isOfficialServer,
+    required bool offline,
   }) {
     final tabs = <_TabInfo>[
       _TabInfo(
         id: 'works',
         title: S.of(context).navHome,
         icon: Icons.home_outlined,
-        widget: const WorksScreen(embedded: true),
+        widget: offline
+            ? _buildConnectionError(context)
+            : const WorksScreen(embedded: true),
       ),
     ];
 
@@ -100,7 +104,9 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
                 id: page,
                 title: S.of(context).libraryMarks,
                 icon: Icons.bookmark,
-                widget: _buildOnlineBookmarksPage(),
+                widget: offline
+                    ? _buildConnectionError(context)
+                    : _buildOnlineBookmarksPage(),
               ),
             );
           }
@@ -124,7 +130,9 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
                 id: page,
                 title: S.of(context).libraryFavorites,
                 icon: Icons.favorite_border,
-                widget: PlaylistsScreen(key: _playlistsKey),
+                widget: offline
+                    ? _buildConnectionError(context)
+                    : PlaylistsScreen(key: _playlistsKey),
               ),
             );
           }
@@ -829,35 +837,37 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
 
   Widget _buildBody(MyReviewsState state) {
     if (state.error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              S.of(context).loadFailed,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              state.error!,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+      return ScrollableStateView(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.error,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () => ref.read(myReviewsProvider.notifier).refresh(),
-              icon: const Icon(Icons.refresh),
-              label: Text(S.of(context).retry),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Text(
+                S.of(context).loadFailed,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                state.error!,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () => ref.read(myReviewsProvider.notifier).refresh(),
+                icon: const Icon(Icons.refresh),
+                label: Text(S.of(context).retry),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -940,12 +950,21 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     final source = ref.watch(audioSourceProvider);
     final authState = ref.watch(authProvider);
     final isOfficialServer = ServerUtils.isOfficialServer(authState.host);
+    final offline =
+        source == AudioSource.asmrOne &&
+        authState.currentUser != null &&
+        (_retryingConnection ||
+            (!authState.isLoggedIn && authState.error != null));
     final displayMode = ref.watch(
       worksProvider.select((state) => state.displayMode),
     );
     final worksFailure = ref.watch(
       worksProvider.select(
-        (state) => (error: state.error, isLoading: state.isLoading),
+        (state) => (
+          error: state.error,
+          isLoading: state.isLoading,
+          hasWorks: state.works.isNotEmpty,
+        ),
       ),
     );
     final marksState = ref.watch(myReviewsProvider);
@@ -955,6 +974,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       settings,
       source: source,
       isOfficialServer: isOfficialServer,
+      offline: offline,
     );
 
     final selectedPhysical = _selectedPhysicalPage(_selectedPageId);
@@ -977,9 +997,9 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     };
     return LibraryPageScaffold(
       topNotice: _buildSourceNotice(
-        authState,
-        source: source,
-        worksError: worksFailure.error,
+        worksError: offline || !worksFailure.hasWorks
+            ? null
+            : worksFailure.error,
         worksLoading: worksFailure.isLoading,
       ),
       title: title,
@@ -1032,26 +1052,11 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     );
   }
 
-  Widget? _buildSourceNotice(
-    AuthState auth, {
-    required AudioSource source,
+  Widget? _buildSourceNotice({
     required String? worksError,
     required bool worksLoading,
   }) {
-    final offline =
-        source == AudioSource.asmrOne &&
-        auth.currentUser != null &&
-        !auth.isLoggedIn &&
-        auth.error != null;
-    final retryingOffline =
-        _retryingConnection &&
-        source == AudioSource.asmrOne &&
-        auth.currentUser != null;
-    final sourceFailed =
-        !offline && !retryingOffline && !worksLoading && worksError != null;
-    if (!offline && !retryingOffline && !sourceFailed) {
-      return null;
-    }
+    if (worksLoading || worksError == null) return null;
     final navigation = AppNavigationScope.maybeOf(context);
     final visible =
         navigation == null ||
@@ -1060,9 +1065,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             navigation.popupRoute == null);
     final s = S.of(context);
     final colors = Theme.of(context).colorScheme;
-    final isOffline = offline || retryingOffline;
-    final background = isOffline ? colors.secondaryContainer : colors.error;
-    final foreground = isOffline ? colors.onSecondaryContainer : colors.onError;
     return Visibility(
       visible: visible,
       maintainState: true,
@@ -1077,45 +1079,75 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
             child: TopNoticeCard(
-              backgroundColor: background,
+              backgroundColor: colors.error,
               content: Row(
                 children: [
-                  Icon(
-                    isOffline ? Icons.info_outline : Icons.error_outline,
-                    color: foreground,
-                    size: 20,
-                  ),
+                  Icon(Icons.error_outline, color: colors.onError, size: 20),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      isOffline ? s.offlineModeMessage : s.loadFailed,
-                      style: TextStyle(color: foreground),
+                      s.loadFailed,
+                      style: TextStyle(color: colors.onError),
                     ),
                   ),
                 ],
               ),
               action: SnackBarAction(
                 label: s.retry,
-                textColor: foreground,
-                onPressed: isOffline
-                    ? () async {
-                        setState(() => _retryingConnection = true);
-                        try {
-                          await ref
-                              .read(authProvider.notifier)
-                              .retryConnection();
-                        } finally {
-                          if (mounted) {
-                            setState(() => _retryingConnection = false);
-                          }
-                        }
-                      }
-                    : () =>
-                          unawaited(ref.read(worksProvider.notifier).refresh()),
+                textColor: colors.onError,
+                onPressed: () =>
+                    unawaited(ref.read(worksProvider.notifier).refresh()),
               ),
-              actionEnabled: !isOffline || !_retryingConnection,
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _retryConnection() async {
+    setState(() => _retryingConnection = true);
+    try {
+      await ref.read(authProvider.notifier).retryConnection();
+    } finally {
+      if (mounted) setState(() => _retryingConnection = false);
+    }
+  }
+
+  Widget _buildConnectionError(BuildContext context) {
+    final s = S.of(context);
+    final colors = Theme.of(context).colorScheme;
+    return ScrollableStateView(
+      child: AsyncStateView(
+        padding: const EdgeInsets.all(24),
+        icon: Icon(Icons.cloud_off_outlined, size: 64, color: colors.error),
+        title: Text(
+          s.connectionFailed,
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        message: Text(
+          s.offlineModeMessage,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+          textAlign: TextAlign.center,
+        ),
+        action: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FilledButton(
+              onPressed: _retryingConnection ? null : _retryConnection,
+              child: Text(s.retry),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SettingsScreen(audioOnly: true),
+                ),
+              ),
+              child: Text(s.audioSettings),
+            ),
+          ],
         ),
       ),
     );
