@@ -313,6 +313,17 @@ class MediaKitVideoPlaybackSession implements VideoPlaybackAdvancedSession {
             ? ''
             : ProxyConfig.httpsProxyUrl ?? '',
       );
+      if (stream.isHls) {
+        // MissAV serves MPEG-TS HLS segments named .jpeg; FFmpeg 9 rejects
+        // them unless its default segment-extension check is disabled.
+        final options = await platform.getProperty('demuxer-lavf-o');
+        if (options.isNotEmpty && !options.contains('extension_picky=')) {
+          await platform.setProperty(
+            'demuxer-lavf-o',
+            '$options,extension_picky=0',
+          );
+        }
+      }
     }
     if (defaultTargetPlatform == TargetPlatform.windows &&
         platform is NativePlayer) {
