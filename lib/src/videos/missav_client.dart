@@ -332,7 +332,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
               mirror,
               '$_localePrefix/release',
               cancelToken: _sessionCancelToken,
-              contentTimeout: const Duration(seconds: 3),
+              contentTimeout: const Duration(seconds: 8),
             ),
           ),
         );

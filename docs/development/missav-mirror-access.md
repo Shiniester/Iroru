@@ -15,15 +15,12 @@ MissAV 在 Cloudflare 验证下无法直接读取。应用改用官方备用域�
 
 ## 域名测速
 
-线路列表共 36 个域名，全部通过以下筛选：
+线路列表共 36 个域名。线路测试请求 `https://<域名>/cn?ts=<时间戳>`，超时 12 秒，并发 3。
+只有状态码 200、正文包含 HTML 且没有验证标记的域名计入延迟。
+测试路径与浏览器实际打开首页的路径一致，不使用 `/status.html`。
 
-- `https://<域名>/status.html` 返回 HTTP 200 和 `ok`。
-- `https://<域名>/cn` 返回 HTTP 200，响应头不含 `cf-mitigated: challenge`。
-
-测速请求 `https://<域名>/status.html?ts=<时间戳>`。
-只有状态码 200、正文为 `ok` 且没有验证标记的域名计入延迟。
 自动选择直接请求 7 个候选域名的 `/<locale>/release`。
-目录页请求超时为 3 秒。
+目录页请求超时为 8 秒。
 只有目录页返回 HTTP 200、包含 HTML 且没有验证标记的域名参与最终选优。
 完整列表在 [missav_mirrors.dart](../../lib/src/videos/missav_mirrors.dart)。
 

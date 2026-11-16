@@ -102,22 +102,22 @@ class MissavMirrorLatency {
 typedef MissavMirrorProbeCallback = void Function(MissavMirrorLatency result);
 
 class MissavMirrorProber {
-  MissavMirrorProber({Dio? dio, this.timeout = const Duration(seconds: 3)})
+  MissavMirrorProber({Dio? dio, this.timeout = const Duration(seconds: 12)})
     : _dio = dio ?? _createDio();
 
   static const _userAgent =
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+      'Mozilla/5.0 (Linux; Android 10; K) '
       'AppleWebKit/537.36 (KHTML, like Gecko) '
-      'Chrome/149.0.0.0 Safari/537.36';
+      'Chrome/149.0.0.0 Mobile Safari/537.36';
   final Dio _dio;
   final Duration timeout;
 
   static Dio _createDio() {
     final dio = Dio(
       BaseOptions(
-        connectTimeout: const Duration(seconds: 3),
-        receiveTimeout: const Duration(seconds: 3),
-        sendTimeout: const Duration(seconds: 3),
+        connectTimeout: const Duration(seconds: 12),
+        receiveTimeout: const Duration(seconds: 12),
+        sendTimeout: const Duration(seconds: 12),
         followRedirects: true,
       ),
     );
@@ -131,45 +131,23 @@ class MissavMirrorProber {
   Future<MissavMirrorLatency> probe(
     MissavMirror mirror, {
     CancelToken? cancelToken,
-  }) async {
-    var result = await _probeOnce(
-      mirror,
-      '/status.html',
-      timeout,
-      requireOkBody: true,
-      cancelToken: cancelToken,
-    );
-    if (!result.isAvailable &&
-        result.error == DioExceptionType.connectionError.name) {
-      result = await _probeOnce(
-        mirror,
-        '/status.html',
-        timeout,
-        requireOkBody: true,
-        cancelToken: cancelToken,
-      );
-    }
-    if (!result.isAvailable) return result;
-    final content = await probeContent(
-      mirror,
-      '/cn',
-      cancelToken: cancelToken,
-      contentTimeout: timeout,
-    );
-    return content.isAvailable ? result : content;
-  }
+  }) => probeContent(
+    mirror,
+    '/cn',
+    cancelToken: cancelToken,
+    contentTimeout: timeout,
+  );
 
   Future<MissavMirrorLatency> probeContent(
     MissavMirror mirror,
     String path, {
     CancelToken? cancelToken,
-    Duration contentTimeout = const Duration(seconds: 5),
+    Duration contentTimeout = const Duration(seconds: 8),
   }) async {
     var result = await _probeOnce(
       mirror,
       path,
       contentTimeout,
-      requireOkBody: false,
       cancelToken: cancelToken,
     );
     if (!result.isAvailable &&
@@ -178,7 +156,6 @@ class MissavMirrorProber {
         mirror,
         path,
         contentTimeout,
-        requireOkBody: false,
         cancelToken: cancelToken,
       );
     }
@@ -189,7 +166,6 @@ class MissavMirrorProber {
     MissavMirror mirror,
     String path,
     Duration requestTimeout, {
-    required bool requireOkBody,
     CancelToken? cancelToken,
   }) async {
     final separator = path.contains('?') ? '&' : '?';
@@ -224,7 +200,7 @@ class MissavMirrorProber {
           body.contains('just a moment') ||
           body.contains('_cf_chl_opt') ||
           body.contains('id="challenge-form"');
-      final validBody = requireOkBody ? body == 'ok' : body.contains('<html');
+      final validBody = body.contains('<html');
       if (response.statusCode == HttpStatus.ok && validBody && !challenge) {
         return MissavMirrorLatency(
           mirror: mirror,
@@ -248,7 +224,7 @@ class MissavMirrorProber {
     Iterable<MissavMirror> mirrors, {
     MissavMirrorProbeCallback? onResult,
     CancelToken? cancelToken,
-    int concurrency = 6,
+    int concurrency = 3,
   }) async {
     final list = mirrors.toList(growable: false);
     final results = <MissavMirrorLatency>[];
