@@ -198,9 +198,381 @@ ${nextUrl == null ? '' : '<a href="$nextUrl" rel="next">Next</a>'}
 </main>
 ''';
 
+const _homeHtml = '''
+<main>
+  <h1>Home</h1>
+  <div class="relative aspect-w-16 aspect-h-9">
+    <a href="/cn/home-video"><img alt="Home video" src="https://media.example/home.jpg"></a>
+  </div>
+</main>
+''';
+
+Future<String> _detailHtml() =>
+    File('test/fixtures/missav/detail.html').readAsString();
+
+bool _isPageRequest(RequestOptions request) =>
+    !request.uri.path.contains('/api/') &&
+    !request.uri.host.contains('recombee.com') &&
+    request.uri.path != '/status.html' &&
+    !request.uri.queryParameters.containsKey('ts');
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+  });
+
+  group('MissAV content recovery', () {
+    test(
+      'detail skips an invalid page and a timeout before saving a working line',
+      () async {
+        final invalid = missavMirrors[0].baseUrl;
+        final timeout = missavMirrors[1].baseUrl;
+        final good = missavMirrors[2].baseUrl;
+        final detail = await _detailHtml();
+        final adapter = _Adapter((request) {
+          if (request.uri.origin == invalid) return _response('<main></main>');
+          if (request.uri.origin == timeout) {
+            throw DioException.receiveTimeout(
+              timeout: const Duration(seconds: 1),
+              requestOptions: request,
+            );
+          }
+          if (!request.uri.path.startsWith('/dm42/')) {
+            return _response(
+              '',
+              statusCode: HttpStatus.found,
+              headers: {
+                HttpHeaders.locationHeader: ['/dm42${request.uri.path}'],
+              },
+            );
+          }
+          return _response(detail);
+        });
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = adapter,
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: _MemorySecureStorage(),
+          contentHosts: [invalid, timeout, good],
+        );
+        addTearDown(client.dispose);
+        client.setLocale('ja');
+
+        final details = await client.details(
+          const VideoItem(
+            id: 'open-sample-001',
+            title: 'Sample',
+            pageUrl: 'https://missav.ai/ja/open-sample-001',
+          ),
+        );
+
+        final pages = adapter.requests.where(_isPageRequest).toList();
+        expect(pages.map((request) => request.uri.toString()), [
+          '$invalid/ja/open-sample-001',
+          '$timeout/ja/open-sample-001',
+          '$good/ja/open-sample-001',
+          '$good/dm42/ja/open-sample-001',
+        ]);
+        expect(_headerValue(pages.last, 'Referer'), '$good/');
+        expect(details.video.title, 'Sample detail');
+        expect(details.streams.map((stream) => stream.url), [
+          '$good/jmpres/media.example/hls/master.m3u8',
+          '$good/jmpres/media.example/file/clip.mp4',
+        ]);
+        for (final stream in details.streams) {
+          expect(
+            stream.headers[HttpHeaders.refererHeader],
+            '$good/dm42/ja/open-sample-001',
+          );
+          expect(stream.headers['Origin'], good);
+        }
+        final preferences = await SharedPreferences.getInstance();
+        expect(preferences.getString(missavLastGoodHostKey), good);
+      },
+    );
+
+    test(
+      'browse falls back from an invalid 200 page and accepts an empty main',
+      () async {
+        final invalid = missavMirrors[0].baseUrl;
+        final good = missavMirrors[1].baseUrl;
+        final adapter = _Adapter((request) {
+          if (request.uri.host == Uri.parse(invalid).host) {
+            return _response('<div>Placeholder page</div>');
+          }
+          if (request.uri.path.endsWith('/empty')) {
+            return _response('<main></main>');
+          }
+          return _response(_searchCatalogHtml(['valid-page']));
+        });
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = adapter,
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: _MemorySecureStorage(),
+          contentHosts: [invalid, good],
+        );
+        addTearDown(client.dispose);
+
+        final page = await client.browse('https://missav.ai/cn/release');
+        final empty = await client.browse('https://missav.ai/cn/empty');
+
+        expect(page.videos.single.id, 'valid-page');
+        expect(empty.videos, isEmpty);
+        expect(empty.title, '');
+        expect(adapter.requests.map((request) => request.uri.host), [
+          Uri.parse(invalid).host,
+          Uri.parse(good).host,
+          Uri.parse(good).host,
+        ]);
+        final preferences = await SharedPreferences.getInstance();
+        expect(preferences.getString(missavLastGoodHostKey), good);
+      },
+    );
+
+    for (final status in [401, 404, 410, 419]) {
+      test('stops on HTTP $status without changing the cached line', () async {
+        final selected = missavMirrors[0].baseUrl;
+        final next = missavMirrors[1].baseUrl;
+        SharedPreferences.setMockInitialValues({
+          missavMirrorBaseUrlKey: selected,
+          missavLastGoodHostKey: selected,
+        });
+        final adapter = _Adapter((request) {
+          return request.uri.host == Uri.parse(selected).host
+              ? _response('', statusCode: status)
+              : _response(_searchCatalogHtml(['unexpected-line']));
+        });
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = adapter,
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: _MemorySecureStorage(),
+          contentHosts: [selected, next],
+        );
+        addTearDown(client.dispose);
+        await client.initialize();
+        client.selectMirror(selected);
+
+        await expectLater(
+          client.browse('https://missav.ai/cn/release'),
+          throwsA(isA<MissavException>()),
+        );
+
+        expect(adapter.requests.map((request) => request.uri.host), [
+          Uri.parse(selected).host,
+        ]);
+        final preferences = await SharedPreferences.getInstance();
+        expect(preferences.getString(missavLastGoodHostKey), selected);
+        expect(preferences.getString(missavMirrorBaseUrlKey), selected);
+      });
+    }
+
+    test(
+      'redirect failure keeps official requests behind every mirror',
+      () async {
+        final looping = missavMirrors[0].baseUrl;
+        final redirecting = missavMirrors[1].baseUrl;
+        final working = missavMirrors[2].baseUrl;
+        final adapter = _Adapter((request) {
+          if (request.uri.origin == looping ||
+              request.uri.origin == redirecting) {
+            return _response(
+              '',
+              statusCode: HttpStatus.found,
+              headers: {
+                HttpHeaders.locationHeader: [
+                  if (request.uri.origin == looping)
+                    request.uri.path
+                  else
+                    '${MissavClient.origin}${request.uri.path}',
+                ],
+              },
+            );
+          }
+          return _response(_searchCatalogHtml(['valid-page']));
+        });
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = adapter,
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: _MemorySecureStorage(),
+          contentHosts: [MissavClient.origin, looping, redirecting, working],
+        );
+        addTearDown(client.dispose);
+
+        final page = await client.browse('https://missav.ai/cn/release');
+
+        expect(page.url, '$working/cn/release');
+        expect(
+          adapter.requests.map((request) => request.uri.origin).toSet(),
+          orderedEquals([looping, redirecting, working]),
+        );
+      },
+    );
+
+    test(
+      'detail reads account state from its own line while browse switches hosts',
+      () async {
+        final mirror = missavMirrors[0].baseUrl;
+        const official = MissavClient.origin;
+        final detail = await _detailHtml();
+        final adapter = _Adapter((request) {
+          if (request.uri.path.contains('/api/')) {
+            throw StateError('Unexpected account API request.');
+          }
+          if (request.uri.path.endsWith('/release')) {
+            return request.uri.host == Uri.parse(mirror).host
+                ? _response('', statusCode: HttpStatus.badGateway)
+                : _response(_searchCatalogHtml(['browse-official']));
+          }
+          return _response(detail);
+        });
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = adapter,
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: _MemorySecureStorage(),
+          contentHosts: [mirror, official],
+        );
+        addTearDown(client.dispose);
+        var browsed = false;
+
+        final details = await client.details(
+          const VideoItem(
+            id: 'open-sample-001',
+            title: 'Sample',
+            pageUrl: 'https://missav.ai/cn/open-sample-001',
+          ),
+          onReady: (value) async {
+            if (browsed) return;
+            browsed = true;
+            await client.browse('https://missav.ai/cn/release');
+          },
+        );
+
+        expect(browsed, isTrue);
+        expect(
+          adapter.requests
+              .where(_isPageRequest)
+              .map((request) => '${request.uri.host}${request.uri.path}'),
+          [
+            '${Uri.parse(mirror).host}/cn/open-sample-001',
+            '${Uri.parse(mirror).host}/cn/release',
+            '${Uri.parse(official).host}/cn/release',
+          ],
+        );
+        expect(
+          details.streams.map((stream) => Uri.parse(stream.url).host).toSet(),
+          {Uri.parse(mirror).host},
+        );
+      },
+    );
+
+    test('does not reload content after an onReady supplement error', () async {
+      final detail = await _detailHtml();
+      final adapter = _Adapter((request) {
+        if (request.uri.path.contains('/api/')) {
+          return _response('', statusCode: HttpStatus.serviceUnavailable);
+        }
+        if (request.uri.host == Uri.parse(MissavClient.origin).host) {
+          return _response(detail);
+        }
+        return _response(_searchCatalogHtml(['unexpected-line']));
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: _MemorySecureStorage(),
+        contentHosts: [MissavClient.origin],
+      );
+      addTearDown(client.dispose);
+      final updates = <VideoDetails>[];
+
+      await expectLater(
+        client.details(
+          const VideoItem(
+            id: 'open-sample-001',
+            title: 'Sample',
+            pageUrl: 'https://missav.ai/cn/open-sample-001',
+          ),
+          onReady: updates.add,
+        ),
+        throwsA(isA<MissavException>()),
+      );
+
+      expect(updates, hasLength(2));
+      expect(
+        adapter.requests
+            .where(_isPageRequest)
+            .map((request) => request.uri.host),
+        [Uri.parse(MissavClient.origin).host],
+      );
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getString(missavLastGoodHostKey), isNull);
+    });
+
+    test('playlist cover recovers through the next content line', () async {
+      final invalid = missavMirrors[0].baseUrl;
+      final good = missavMirrors[1].baseUrl;
+      final adapter = _Adapter((request) {
+        return request.uri.host == Uri.parse(invalid).host
+            ? _response('<div>Placeholder page</div>')
+            : _response(_searchCatalogHtml(['first-cover']));
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: _MemorySecureStorage(),
+        contentHosts: [invalid, good],
+      );
+      addTearDown(client.dispose);
+
+      final cover = await client.loadPlaylistCover(
+        'https://missav.ai/cn/playlists/sample',
+      );
+
+      expect(cover, 'https://media.example/first-cover.jpg');
+      expect(adapter.requests.map((request) => request.uri.host), [
+        Uri.parse(invalid).host,
+        Uri.parse(good).host,
+      ]);
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getString(missavLastGoodHostKey), good);
+    });
+
+    test(
+      'first recommendations page recovers through the next content line',
+      () async {
+        final invalid = missavMirrors[0].baseUrl;
+        final good = missavMirrors[1].baseUrl;
+        final source = _Adapter((request) {
+          return request.uri.host == Uri.parse(invalid).host
+              ? _response('<div>Placeholder page</div>')
+              : _response(_homeHtml);
+        });
+        final metadata = _Adapter(
+          (_) => _metadataResponse({
+            'recommId': 'home-cursor',
+            'recomms': [
+              {'id': 'home-video', 'values': <String, Object?>{}},
+            ],
+          }),
+        );
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = source,
+          metadataDio: Dio()..httpClientAdapter = metadata,
+          secureStorage: _MemorySecureStorage(),
+          contentHosts: [invalid, good],
+        );
+        addTearDown(client.dispose);
+
+        final page = await client.loadRecommendations(count: 40);
+
+        expect(page.videos.single.id, 'home-video');
+        expect(source.requests.map((request) => request.uri.host), [
+          Uri.parse(invalid).host,
+          Uri.parse(good).host,
+        ]);
+        final preferences = await SharedPreferences.getInstance();
+        expect(preferences.getString(missavLastGoodHostKey), good);
+      },
+    );
   });
 
   group('VideoItem', () {
@@ -472,9 +844,11 @@ void main() {
           request.uri.path.endsWith('/empty')
               ? '<main></main>'
               : '''
+<main>
 <div class="relative aspect-w-16 aspect-h-9">
   <a href="/cn/no-cover"><img alt="No cover"></a>
 </div>
+</main>
 ''',
         ),
       );
@@ -732,7 +1106,8 @@ void main() {
       ).readAsString();
       for (final withContext in [false, true]) {
         final source = _Adapter(
-          (_) => _response(withContext ? fixture : '<h1>Home</h1>'),
+          (_) =>
+              _response(withContext ? fixture : '<main><h1>Home</h1></main>'),
         );
         final metadata = _Adapter(
           (_) => _metadataResponse(
@@ -1055,9 +1430,9 @@ void main() {
     },
   );
 
-  test('search falls back to Recombee and keeps cursor pagination', () async {
+  test('Recombee search loads pages without contacting a content host', () async {
     final source = _Adapter(
-      (_) => _response('<main><h1>Search result of ssis-001</h1></main>'),
+      (_) => _response('', statusCode: HttpStatus.serviceUnavailable),
     );
     final metadata = _Adapter((request) {
       if (request.uri.path.contains('/next/')) {
@@ -1108,6 +1483,8 @@ void main() {
     final next = await client.browse(page.nextUrl!);
 
     expect(next.videos.single.id, 'next-video');
+    expect(next.currentPage, 2);
+    expect(next.previousUrl, 'https://missav.ai/cn/search/ssis-001?page=1');
     final nextRequest = metadata.requests.firstWhere(
       (request) => request.uri.path.contains('/next/'),
     );
@@ -1115,6 +1492,108 @@ void main() {
       nextRequest.uri.path,
       '/missav-default/recomms/next/items/search-cursor',
     );
+    expect(source.requests, isEmpty);
+  });
+
+  test('Recombee search keeps empty results without reading mirror cards', () async {
+    final source = _Adapter(
+      (_) => _response(_searchCatalogHtml(['unrelated'])),
+    );
+    final metadata = _Adapter(
+      (_) => _metadataResponse({'recommId': 'empty-cursor', 'recomms': []}),
+    );
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = source,
+      metadataDio: Dio()..httpClientAdapter = metadata,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    final page = await client.search('no matches');
+
+    expect(page.videos, isEmpty);
+    expect(page.nextUrl, isNull);
+    expect(source.requests, isEmpty);
+  });
+
+  test('Recombee search uses mirror pagination after a failed search', () async {
+    final requests = <String>[];
+    final first = missavMirrors.first.baseUrl;
+    final source = _Adapter((request) {
+      final page = request.uri.queryParameters['page'] ?? '1';
+      requests.add('mirror page $page');
+      return _response(
+        _searchCatalogHtml(
+          ['mirror-$page'],
+          nextUrl: page == '1' ? '/cn/search/needle?page=2' : null,
+        ),
+      );
+    });
+    final metadata = _Adapter((request) {
+      if (request.uri.path.contains('/search/')) {
+        requests.add('search failed');
+        return _metadataResponse({}, statusCode: HttpStatus.serviceUnavailable);
+      }
+      return _metadataResponse({'recomms': []});
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = source,
+      metadataDio: Dio()..httpClientAdapter = metadata,
+      secureStorage: _MemorySecureStorage(),
+      contentHosts: [first],
+    );
+    addTearDown(client.dispose);
+
+    final page = await client.search('needle');
+    final next = await client.browse(page.nextUrl!);
+
+    expect(page.videos.single.id, 'mirror-1');
+    expect(page.nextUrl, '$first/cn/search/needle?page=2');
+    expect(next.videos.single.id, 'mirror-2');
+    expect(next.currentPage, 2);
+    expect(requests, ['search failed', 'mirror page 1', 'mirror page 2']);
+  });
+
+  test('Recombee search cancellation stops before a mirror request', () async {
+    final started = Completer<void>();
+    final response = Completer<ResponseBody>();
+    final source = _Adapter((_) => _response('<main></main>'));
+    final metadata = _Adapter((_) {
+      started.complete();
+      return response.future;
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = source,
+      metadataDio: Dio()..httpClientAdapter = metadata,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+    final cancelToken = CancelToken();
+    final request = client.browse(
+      'https://missav.ai/cn/search/needle',
+      cancelToken: cancelToken,
+      onParsed: (_) => fail('A cancelled search must not publish results.'),
+    );
+    final cancelled = expectLater(
+      request,
+      throwsA(
+        isA<DioException>().having(
+          (error) => error.type,
+          'type',
+          DioExceptionType.cancel,
+        ),
+      ),
+    );
+    await started.future;
+
+    cancelToken.cancel();
+    response.complete(
+      _metadataResponse({}, statusCode: HttpStatus.serviceUnavailable),
+    );
+    await cancelled;
+
+    expect(metadata.requests.single.cancelToken, same(cancelToken));
+    expect(source.requests, isEmpty);
   });
 
   test(
@@ -1192,7 +1671,11 @@ void main() {
         final client = MissavClient(
           dio: Dio()
             ..httpClientAdapter = _Adapter(
-              (_) => _response(_searchCatalogHtml(['alpha'])),
+              (_) => _response(
+                details
+                    ? '<main><h1>Alpha</h1></main>'
+                    : _searchCatalogHtml(['alpha']),
+              ),
             ),
           metadataDio: Dio()
             ..httpClientAdapter = _Adapter((_) {
@@ -1900,11 +2383,13 @@ void main() {
   <a href="/cn/new?page=2" rel="next">Next</a>
   <a href="/cn/new?page=80">80</a>
 </nav>
+<main>
 <a href="/cn/new?page=2">2</a>
 <a href="/cn/vip">Upgrade VIP</a>
 <a href="/cn/actresses/ranking">Ranking</a>
 <a href="/cn/new" hreflang="zh-CN">简体中文</a>
 <a href="/cn/genres/sample">Sample category</a>
+</main>
 '''),
       );
       final client = MissavClient(
@@ -1949,7 +2434,7 @@ void main() {
 ''';
     final adapter = _Adapter(
       (_) => _response(
-        '<nav>$serviceLinks$contentLinks</nav>$serviceLinks$contentLinks',
+        '<nav>$serviceLinks$contentLinks</nav><main>$serviceLinks$contentLinks</main>',
       ),
     );
     final client = MissavClient(
@@ -2255,6 +2740,7 @@ void main() {
   <a href="/cn/new?sort=date&amp;page=99">Other sort</a>
   <a href="/cn/actresses?page=200">Other catalog</a>
 </nav>
+<main></main>
 '''),
       );
       final client = MissavClient(
@@ -2324,7 +2810,9 @@ ${page < 3 ? '<a href="/cn/saved?page=${page + 1}" rel="next">Next</a>' : ''}
     var current = true;
     final adapter = _Adapter((_) {
       current = false;
-      return _response('<a href="/cn/history?page=2" rel="next">Next</a>');
+      return _response(
+        '<main><a href="/cn/history?page=2" rel="next">Next</a></main>',
+      );
     });
     final client = MissavClient(
       metadataDio: _emptyMetadataDio(),
@@ -2360,9 +2848,9 @@ ${page < 3 ? '<a href="/cn/saved?page=${page + 1}" rel="next">Next</a>' : ''}
       ]);
       final adapter = _Adapter(
         (_) => _response('''
-<h1>Sample video</h1><script>
+<main><h1>Sample video</h1><script>
 eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|')}'.split('|'),0,{}))
-</script>
+</script></main>
 '''),
       );
       final client = MissavClient(
@@ -2608,7 +3096,9 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
   });
 
   test('uses native access after a closed browser session', () async {
-    final native = _Adapter((_) => _response('<h1>Native catalog</h1>'));
+    final native = _Adapter(
+      (_) => _response('<main><h1>Native catalog</h1></main>'),
+    );
     final replacement = _Adapter((_) => _response('<h1>Restored catalog</h1>'));
     final navigationStarted = Completer<void>();
     final navigationFinished = Completer<void>();
@@ -2841,7 +3331,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
   test(
     'logout restores native transport and closes the browser adapter',
     () async {
-      final nativeAdapter = _Adapter((_) => _response('{}'));
+      final nativeAdapter = _Adapter((_) => _response('<main></main>'));
       final browserAdapter = _Adapter((_) => _response('{}'));
       final client = MissavClient(
         metadataDio: _emptyMetadataDio(),
@@ -3669,7 +4159,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
 
   test('loads the first page without a separate probe', () async {
     var restoreCalls = 0;
-    final adapter = _Adapter((_) => _response(''));
+    final adapter = _Adapter((_) => _response('<main></main>'));
     final client = MissavClient(
       metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,

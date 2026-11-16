@@ -58,17 +58,13 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<bool> _openBrowser({String? sourceUrl}) async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _verifyAccess() async {
+    setState(() => _loading = true);
     try {
       final verified = await ref.read(missavAccessVerifierProvider)(
         context,
         _client,
-        sourceUrl:
-            sourceUrl ?? _verificationError?.sourceUrl ?? _client.homeUrl,
+        sourceUrl: _verificationError?.sourceUrl ?? _client.homeUrl,
       );
       if (mounted && verified) {
         setState(() {
@@ -76,7 +72,6 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
           _verificationError = null;
         });
       }
-      return verified;
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -117,18 +112,15 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _verificationError = null;
     });
     try {
-      try {
-        await _client.login(email: email, password: password);
-      } on MissavVerificationRequiredException catch (error) {
-        if (!await _openBrowser(sourceUrl: error.sourceUrl)) rethrow;
-        await _client.login(email: email, password: password);
-      }
+      await _client.login(email: email, password: password);
+    } on MissavVerificationRequiredException catch (error) {
       if (mounted) {
         setState(() {
-          _error = null;
-          _verificationError = null;
+          _verificationError = error;
+          _error = S.of(context).videoVerificationRequired;
         });
       }
     } catch (_) {
@@ -136,10 +128,6 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  Future<void> _verifyAccess() async {
-    await _openBrowser();
   }
 
   @override

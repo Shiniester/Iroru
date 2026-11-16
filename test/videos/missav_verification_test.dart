@@ -144,7 +144,8 @@ void main() {
             read: (_) async => {
               'url': uri.toString(),
               'html':
-                  '<html><head><title>Catalog</title></head><body></body></html>',
+                  '<html><head><title>Catalog</title></head>'
+                  '<body><main></main></body></html>',
             },
             stop: () => controller.runJavaScript('window.stop();'),
             releaseDocument: (_) => parkMissavMobileBrowser(

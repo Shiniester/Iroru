@@ -105,43 +105,57 @@ void main() {
     expect(find.text('native-viewer'), findsOneWidget);
   });
 
-  testWidgets(
-    'native login opens verification and retries after access check',
-    (tester) async {
-      final client = _TestMissavClient()..nativeLoginChallenge = true;
-      var verifierCalls = 0;
-      final s = await S.delegate.load(const Locale('en'));
+  testWidgets('native login waits for manual verification and resubmission', (
+    tester,
+  ) async {
+    const challengeUrl = 'https://missav.ai/en/api/login';
+    final client = _TestMissavClient()..nativeLoginChallengeUrl = challengeUrl;
+    final requests = <({String sourceUrl, bool requireLogin})>[];
+    final s = await S.delegate.load(const Locale('en'));
 
-      await tester.pumpWidget(
-        _app(
-          client,
-          verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
-            verifierCalls++;
-            return true;
-          },
-        ),
-      );
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+          requests.add((sourceUrl: sourceUrl, requireLogin: requireLogin));
+          client.nativeLoginChallengeUrl = null;
+          return true;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      await tester.enterText(
-        find.byType(TextField).first,
-        'viewer@example.test',
-      );
-      await tester.enterText(find.byType(TextField).last, 'password');
-      await tester.tap(find.text(s.login));
-      await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'viewer@example.test');
+    await tester.enterText(find.byType(TextField).last, 'password');
+    await tester.tap(find.text(s.login));
+    await tester.pumpAndSettle();
 
-      expect(client.nativeLoginCalls, 2);
-      expect(verifierCalls, 1);
-      expect(find.text('native-viewer'), findsOneWidget);
-      expect(find.byType(TextField), findsNothing);
-    },
-  );
+    expect(requests, isEmpty);
+    expect(client.nativeLoginCalls, 1);
+    expect(find.text(s.videoVerificationRequired), findsOneWidget);
+
+    await tester.tap(find.text(s.videoVerifyAccess));
+    await tester.pumpAndSettle();
+
+    expect(requests, [(sourceUrl: challengeUrl, requireLogin: false)]);
+    expect(client.nativeLoginCalls, 1);
+    expect(find.text(s.videoVerificationRequired), findsNothing);
+    expect(find.text('viewer@example.test'), findsOneWidget);
+    expect(find.text('password'), findsOneWidget);
+
+    await tester.tap(find.text(s.login));
+    await tester.pumpAndSettle();
+
+    expect(client.nativeLoginCalls, 2);
+    expect(find.text('native-viewer'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+  });
 
   testWidgets('cancelled verification keeps the login form retryable', (
     tester,
   ) async {
-    final client = _TestMissavClient()..nativeLoginChallenge = true;
+    final client = _TestMissavClient()
+      ..nativeLoginChallengeUrl = 'https://missav.ai/en';
     final s = await S.delegate.load(const Locale('en'));
 
     await tester.pumpWidget(
@@ -159,9 +173,12 @@ void main() {
     await tester.tap(find.text(s.login));
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text(s.videoVerifyAccess));
+    await tester.pumpAndSettle();
+
     expect(client.nativeLoginCalls, 1);
     expect(client.isLoggedIn, isFalse);
-    expect(find.text(s.loginFailed), findsOneWidget);
+    expect(find.text(s.videoVerificationRequired), findsOneWidget);
     expect(find.byType(TextField), findsNWidgets(2));
   });
 
@@ -278,7 +295,7 @@ class _TestMissavClient extends MissavClient {
   int browserAccessChecks = 0;
   int logoutCalls = 0;
   int nativeLoginCalls = 0;
-  bool nativeLoginChallenge = false;
+  String? nativeLoginChallengeUrl;
   bool rejectLogin = false;
   bool failLogin = false;
 
@@ -311,9 +328,8 @@ class _TestMissavClient extends MissavClient {
   @override
   Future<void> login({required String email, required String password}) async {
     nativeLoginCalls++;
-    if (nativeLoginChallenge) {
-      nativeLoginChallenge = false;
-      throw MissavVerificationRequiredException(sourceUrl: homeUrl);
+    if (nativeLoginChallengeUrl case final challengeUrl?) {
+      throw MissavVerificationRequiredException(sourceUrl: challengeUrl);
     }
     if (rejectLogin) {
       throw MissavAuthenticationException(sourceUrl: homeUrl);

@@ -5,8 +5,8 @@
     <meta name="description" content="A sanitized sample description">
   </head>
   <body x-data="{user: null}">
-    <div x-data="{saved: false, dvdId: 'open-sample-001'}"
-         x-init="axios.get('/api/items/source-123/view')">
+    <main x-data="{saved: false, dvdId: 'open-sample-001'}"
+          x-init="axios.get('/api/items/source-123/view')">
       <h1>Sample detail</h1>
       <video data-poster="https://fourhoi.com/sample-001/cover-n.jpg"></video>
       <div class="text-secondary"><span>配信開始日:</span><time>2024-03-02</time></div>
@@ -29,6 +29,6 @@
       <script>
         eval(function(p,a,c,k,e,d){return p}('0="1://2.3/4/5";6="1://2.3/7/8";',15,9,'source|https|media|example|hls|master.m3u8|source720|file|clip.mp4'.split('|'),0,{}))
       </script>
-    </div>
+    </main>
   </body>
 </html>

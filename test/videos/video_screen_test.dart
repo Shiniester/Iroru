@@ -4747,7 +4747,8 @@ void main() {
         read: (_) async => {
           'url': uri.toString(),
           'html': requests == 1
-              ? '<html><body x-data="{user: {name: \'viewer\'}}"></body></html>'
+              ? '<html><body x-data="{user: {name: \'viewer\'}}">'
+                    '<main></main></body></html>'
               : '<html><body><main></main></body></html>',
           'responseStatus': requests == 1 ? 200 : 401,
         },

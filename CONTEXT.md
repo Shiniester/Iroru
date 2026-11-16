@@ -94,8 +94,8 @@ A MissAV host that may require Video Source Verification: `missav.live`,
 _Avoid_: Primary mirror, canonical host
 
 **Last Good Content Host (上次可用内容线路)**:
-The Content Host that most recently loaded a catalog successfully. It is tried
-before the measured Content Host order on the next app start.
+The Content Host that most recently returned a valid content page. It is tried
+before the measured Content Host order.
 _Avoid_: Preferred mirror, saved mirror
 
 **Video Source Mirror (视频源镜像)**:
