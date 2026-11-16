@@ -313,16 +313,11 @@ class MediaKitVideoPlaybackSession implements VideoPlaybackAdvancedSession {
             ? ''
             : ProxyConfig.httpsProxyUrl ?? '',
       );
-      if (stream.isHls) {
-        // MissAV serves MPEG-TS HLS segments named .jpeg; FFmpeg 9 rejects
-        // them unless its default segment-extension check is disabled.
-        final options = await platform.getProperty('demuxer-lavf-o');
-        if (options.isNotEmpty && !options.contains('extension_picky=')) {
-          await platform.setProperty(
-            'demuxer-lavf-o',
-            '$options,extension_picky=0',
-          );
-        }
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        const channel = MethodChannel('com.meteor.kikoeruflutter/native_audio');
+        final caFile = await channel.invokeMethod<String>('getCaFile');
+        if (caFile == null) throw StateError('Missing Android CA file path');
+        await platform.setProperty('tls-ca-file', caFile);
       }
     }
     if (defaultTargetPlatform == TargetPlatform.windows &&

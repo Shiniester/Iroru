@@ -53,8 +53,17 @@ POST https://client-rapi-missav.recombee.com/missav-default/search/users/anonymo
 镜像站详情页把媒体地址改写为 `https://<镜像站>/jmpres/<原始主机>/<路径>`。
 应用解析打包脚本后执行同样的改写。
 播放器和下载器收到的请求头使用镜像站页面作为 `Referer` 和 `Origin`。
-镜像 HLS 的分段文件名为 `.jpeg`，内容是 MPEG-TS。FFmpeg 9 默认按扩展名拒绝这些分段；
-应用在加载 HLS 时向 libmpv 追加 `extension_picky=0`，下载端把分段保存为 `.ts`。
+镜像 HLS 的分段文件名为 `.jpeg`，内容是 MPEG-TS。
+项目使用的 mpv 已为 FFmpeg HLS 设置 `extension_picky=0`，下载端把分段保存为 `.ts`。
+播放器保留 media_kit 的 `demuxer-lavf-o` 原值，其中 `protocol_whitelist` 是包含逗号的单个值。
+将该属性的字符串结果整串写回会拆坏协议白名单，使 HTTPS 媒体加载失败。
+
+Android 播放流使用现有 `native_audio` 通道获取系统证书文件。
+原生播放器在打开播放流前设置 `tls-ca-file`，保留证书和主机名校验。
+
+`test/videos/video_native_stream_host_test.dart` 使用真实 libmpv 加载本地多级 HLS 清单和 `.jpeg` 分段。
+该测试要求解码完成且播放器未报错，已接入 Windows 正式版和测试版构建检查。
+Windows 宿主测试还模拟 Android 证书通道，覆盖可信证书播放和错误主机名拒绝。
 
 ## 账号 Cookie
 
@@ -87,6 +96,8 @@ MissAV 账号 Cookie 只发送给官方域名 `missav.ai`、`missav.ws` 和 `mis
 
 | 检查范围 | 结果 |
 | --- | --- |
+| Windows libmpv 真实镜像详情页播放 | 视频尺寸有效，播放进度超过 200 毫秒，无播放错误 |
+| 原生 HLS 与 HTTPS、MissAV 解析与转发、视频播放器回归测试 | 290 项通过，1 项跳过 |
 | `flutter test --no-pub test/videos/missav_client_test.dart` | 117 项通过，1 项跳过 |
 | `flutter test --no-pub test/videos/missav_mirrors_test.dart test/videos/missav_mirror_settings_test.dart` | 5 项通过 |
 | `flutter analyze --no-pub` 指定本次修改文件 | 通过 |

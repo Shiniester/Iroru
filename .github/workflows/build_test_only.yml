@@ -666,6 +666,8 @@ jobs:
           $env:KIKOFLU_AUDIO_LIBMPV = Join-Path $env:GITHUB_WORKSPACE 'build\native-audio\windows-output\mpv-dev\libmpv-2.dll'
           flutter test --no-pub test/audio_effects_service_native_host_test.dart --plain-name 'service updates only its own native audio and survives stop recreation'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          flutter test --no-pub test/videos/video_native_stream_host_test.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify production audio effects
         shell: pwsh
