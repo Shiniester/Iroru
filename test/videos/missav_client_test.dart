@@ -81,11 +81,13 @@ class _FakeMirrorProber extends MissavMirrorProber {
     this.fastestHost,
     this.unavailableHost,
     this.availableHosts = const {},
+    this.challengeHost,
   });
 
   final String? fastestHost;
   final String? unavailableHost;
   final Set<String> availableHosts;
+  final String? challengeHost;
 
   bool _unavailable(String host) =>
       host == unavailableHost ||
@@ -111,6 +113,8 @@ class _FakeMirrorProber extends MissavMirrorProber {
                     ? 10
                     : 800,
                 error: _unavailable(mirror.host) ? 'HTTP 503' : null,
+                isChallenge:
+                    _unavailable(mirror.host) && mirror.host == challengeHost,
               ),
             )
             .toList()
@@ -138,6 +142,7 @@ class _FakeMirrorProber extends MissavMirrorProber {
         ? 10
         : 100,
     error: _unavailable(mirror.host) ? 'HTTP 503' : null,
+    isChallenge: _unavailable(mirror.host) && mirror.host == challengeHost,
   );
 }
 
@@ -474,6 +479,23 @@ void main() {
 
     expect(page.videos.single.id, 'legacy-mirror');
     expect(adapter.requests.single.uri.host, 'www.missav9.net');
+  });
+
+  test('maps legacy mirror page URLs to the origin fallback', () async {
+    final adapter = _Adapter(
+      (_) => _response(_searchCatalogHtml(['legacy-origin'])),
+    );
+    final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    final page = await client.browse('https://www.thisav66.com/en/release');
+
+    expect(page.videos.single.id, 'legacy-origin');
+    expect(adapter.requests.single.uri.host, 'missav.ai');
   });
 
   test('loads the first playlist cover from its first page', () async {
@@ -3422,6 +3444,44 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     expect(client.isLoggedIn, isTrue);
   });
 
+  test('browser login restores the selected account host', () async {
+    SharedPreferences.setMockInitialValues({});
+    final native = _Adapter((_) => _response('<html></html>'));
+    final browser = _Adapter((request) {
+      if (request.method == 'POST' && request.uri.path.endsWith('/api/login')) {
+        return _metadataResponse({
+          'user': {'name': 'browser-viewer'},
+        });
+      }
+      return _response('<html></html>');
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = native,
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+    await client.initialize();
+    await client.selectAccountHost('https://missav.ws');
+    client.useVerifiedBrowserTransport(browser);
+
+    await client.login(
+      email: 'viewer@example.invalid',
+      password: 'sample-password',
+    );
+
+    expect(client.accountHostUrl, 'https://missav.ws');
+    expect(client.isLoggedIn, isTrue);
+    expect(
+      browser.requests
+          .where((request) => request.uri.path.endsWith('/api/login'))
+          .single
+          .uri
+          .host,
+      'missav.ai',
+    );
+  });
+
   test('keeps a saved mirror preference', () async {
     const savedHost = 'www.thisav02.com';
     SharedPreferences.setMockInitialValues({
@@ -3468,6 +3528,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       mirrorProber: _FakeMirrorProber(
         fastestHost: 'www.missav9.net',
         unavailableHost: savedHost,
+        challengeHost: savedHost,
       ),
       restoreSavedSession: (client, expectedGeneration) async {},
     );
@@ -3480,6 +3541,35 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     expect(client.usesAutomaticMirror, isTrue);
     final preferences = await SharedPreferences.getInstance();
     expect(preferences.getString(missavMirrorBaseUrlKey), '');
+  });
+
+  test('keeps a saved mirror after a transient probe failure', () async {
+    const savedHost = 'www.thisav02.com';
+    SharedPreferences.setMockInitialValues({
+      missavMirrorBaseUrlKey: 'https://$savedHost',
+    });
+    final adapter = _Adapter(
+      (_) => _response(_searchCatalogHtml(['automatic-mirror'])),
+    );
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+      mirrorProber: _FakeMirrorProber(
+        fastestHost: 'www.missav9.net',
+        unavailableHost: savedHost,
+      ),
+      restoreSavedSession: (client, expectedGeneration) async {},
+    );
+    addTearDown(client.dispose);
+    await client.initialize();
+
+    final page = await client.browse('https://missav.ai/cn/release');
+
+    expect(page.videos.single.id, 'automatic-mirror');
+    expect(client.activeMirrorHost, 'www.missav9.net');
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getString(missavMirrorBaseUrlKey), 'https://$savedHost');
   });
 
   test('probes a mirror before opening the browser', () async {

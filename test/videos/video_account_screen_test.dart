@@ -193,6 +193,35 @@ void main() {
     expect(find.byType(TextField), findsNWidgets(2));
   });
 
+  testWidgets('network login failures do not open verification', (
+    tester,
+  ) async {
+    final client = _TestMissavClient()..failLogin = true;
+    var verifierCalls = 0;
+    final s = await S.delegate.load(const Locale('en'));
+
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+          verifierCalls++;
+          return true;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'viewer@example.test');
+    await tester.enterText(find.byType(TextField).last, 'password');
+    await tester.tap(find.text(s.login));
+    await tester.pumpAndSettle();
+
+    expect(client.nativeLoginCalls, 1);
+    expect(verifierCalls, 0);
+    expect(find.text(s.loginFailed), findsOneWidget);
+    expect(find.byType(TextField), findsNWidgets(2));
+  });
+
   testWidgets('account page selects the login host', (tester) async {
     final client = _TestMissavClient();
 
@@ -206,6 +235,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final s = S.of(tester.element(find.byType(VideoAccountScreen)));
+    expect(find.text(s.videoAccountHost), findsOneWidget);
     await tester.tap(find.byType(DropdownButtonFormField<String>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('missav.ws').last);
@@ -249,6 +280,7 @@ class _TestMissavClient extends MissavClient {
   int nativeLoginCalls = 0;
   bool nativeLoginChallenge = false;
   bool rejectLogin = false;
+  bool failLogin = false;
 
   @override
   String get homeUrl => 'https://missav.ai/cn';
@@ -285,6 +317,9 @@ class _TestMissavClient extends MissavClient {
     }
     if (rejectLogin) {
       throw MissavAuthenticationException(sourceUrl: homeUrl);
+    }
+    if (failLogin) {
+      throw const MissavException('MissAV request failed.');
     }
     confirmAccount('native-viewer');
   }

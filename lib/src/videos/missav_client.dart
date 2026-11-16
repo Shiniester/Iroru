@@ -67,7 +67,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   static final _mirrorHosts = {
     for (final mirror in missavMirrors) missavMirrorDomain(mirror.host),
   };
-  static const _officialHosts = {'missav.ai', 'missav.ws', 'missav.live'};
+  static const _officialHosts = missavOfficialHosts;
   static const _cookieKey = 'missav_session_cookie';
   static const _sessionRecordKey = 'missav_verified_session';
   static String get _defaultUserAgent {
@@ -383,6 +383,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       );
       if (_disposed || generation != _sessionGeneration) return false;
       if (!result.isAvailable) {
+        if (!result.isChallenge) return false;
         _preferredMirror = null;
         try {
           final preferences = await SharedPreferences.getInstance();
@@ -1414,9 +1415,10 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   Future<void> login({required String email, required String password}) async {
     await _prepareOnlineAccess();
     if (_browserAdapter != null) {
+      final selectedAccountHost = _accountBaseUrl;
       _accountBaseUrl = origin;
       await _loginAt(origin, email: email, password: password);
-      await selectAccountHost(origin);
+      await selectAccountHost(selectedAccountHost);
       return;
     }
     final previous = _accountBaseUrl;
@@ -2143,10 +2145,17 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   static bool _isMirrorHost(String host) =>
       _mirrorHosts.any((mirror) => host == mirror || host.endsWith('.$mirror'));
 
+  static const _legacyMirrorHost = 'thisav66.com';
+
   Uri _remapSource(Uri uri) {
-    if (_baseUrl == origin || !_isSource(uri)) return uri;
+    if (!_isSource(uri)) return uri;
     final base = Uri.parse(_baseUrl);
     if (uri.host == base.host) return uri;
+    if (_baseUrl == origin &&
+        uri.host != _legacyMirrorHost &&
+        !uri.host.endsWith('.$_legacyMirrorHost')) {
+      return uri;
+    }
     return base.replace(
       path: uri.path.isEmpty ? '/' : uri.path,
       query: uri.hasQuery ? uri.query : null,

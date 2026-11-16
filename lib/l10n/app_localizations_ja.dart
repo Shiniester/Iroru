@@ -4308,6 +4308,9 @@ class SJa extends S {
   String get videoAccountEmail => 'メールアドレス';
 
   @override
+  String get videoAccountHost => 'ログイン回線';
+
+  @override
   String get videoAccountBrowserLogin => 'ウェブでログイン';
 
   @override
@@ -4321,7 +4324,7 @@ class SJa extends S {
 
   @override
   String get videoMirrorDescription =>
-      'ウェブ認証が不要なホストのみ表示します。選択した回線を一覧、検索、再生に使用します。';
+      'すべての回線を表示します。利用できない回線は選択できません。選択した回線を一覧、検索、再生に使用します。';
 
   @override
   String get videoMirrorAutomatic => '最速の回線を自動選択';

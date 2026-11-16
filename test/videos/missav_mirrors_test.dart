@@ -34,10 +34,16 @@ void main() {
       switch (request.uri.host) {
         case 'www.missav9.net':
           await Future<void>.delayed(const Duration(milliseconds: 30));
-          return ResponseBody.fromString('ok', HttpStatus.ok);
+          return ResponseBody.fromString(
+            request.uri.path == '/status.html' ? 'ok' : '<html></html>',
+            HttpStatus.ok,
+          );
         case 'www.thisav02.com':
           await Future<void>.delayed(const Duration(milliseconds: 80));
-          return ResponseBody.fromString('ok', HttpStatus.ok);
+          return ResponseBody.fromString(
+            request.uri.path == '/status.html' ? 'ok' : '<html></html>',
+            HttpStatus.ok,
+          );
         case 'www.njav.one':
           return ResponseBody.fromString(
             '<title>Just a moment...</title>',
@@ -75,6 +81,31 @@ void main() {
           .every((result) => result.error != null),
       isTrue,
     );
+  });
+
+  test('rejects a mirror when either health check fails', () async {
+    const mirrors = [
+      MissavMirror('www.missav9.net'),
+      MissavMirror('www.thisav02.com'),
+    ];
+    final adapter = _Adapter((request) {
+      if (request.uri.host == 'www.missav9.net') {
+        return request.uri.path == '/status.html'
+            ? ResponseBody.fromString('error', HttpStatus.serviceUnavailable)
+            : ResponseBody.fromString('<html></html>', HttpStatus.ok);
+      }
+      return request.uri.path == '/status.html'
+          ? ResponseBody.fromString('ok', HttpStatus.ok)
+          : ResponseBody.fromString('error', HttpStatus.serviceUnavailable);
+    });
+    final prober = MissavMirrorProber(
+      dio: Dio()..httpClientAdapter = adapter,
+      timeout: const Duration(seconds: 1),
+    );
+
+    final results = await prober.probeAll(mirrors);
+
+    expect(results.every((result) => !result.isAvailable), isTrue);
   });
 
   test('resolves saved mirror base URLs', () {

@@ -58,7 +58,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<bool> _openBrowser() async {
+  Future<bool> _openBrowser({String? sourceUrl}) async {
     setState(() {
       _loading = true;
       _error = null;
@@ -67,7 +67,8 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
       final verified = await ref.read(missavAccessVerifierProvider)(
         context,
         _client,
-        sourceUrl: _verificationError?.sourceUrl ?? _client.homeUrl,
+        sourceUrl:
+            sourceUrl ?? _verificationError?.sourceUrl ?? _client.homeUrl,
       );
       if (mounted && verified) {
         setState(() {
@@ -120,10 +121,8 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     try {
       try {
         await _client.login(email: email, password: password);
-      } on MissavException catch (error) {
-        final needsVerification = error is! MissavAuthenticationException;
-        if (!needsVerification) rethrow;
-        if (!await _openBrowser()) rethrow;
+      } on MissavVerificationRequiredException catch (error) {
+        if (!await _openBrowser(sourceUrl: error.sourceUrl)) rethrow;
         await _client.login(email: email, password: password);
       }
       if (mounted) {
@@ -202,7 +201,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                           key: ValueKey(_client.accountHostUrl),
                           initialValue: _client.accountHostUrl,
                           decoration: InputDecoration(
-                            labelText: s.videoMirrorSettings,
+                            labelText: s.videoAccountHost,
                           ),
                           items: [
                             for (final host in MissavClient.accountHosts)

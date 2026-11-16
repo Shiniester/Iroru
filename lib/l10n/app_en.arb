@@ -1855,6 +1855,10 @@
   },
   "videoSourceAccount": "MissAV account",
   "videoAccountEmail": "Email",
+  "videoAccountHost": "Login host",
+  "@videoAccountHost": {
+    "description": "Selector label for the official MissAV host used for account sign-in."
+  },
   "videoAccountBrowserLogin": "Sign in on website",
   "videoJableAccount": "Jable account",
   "videoJableLoginRequired": "Sign in to Jable to view and manage your video favorites.",
@@ -1862,9 +1866,9 @@
   "@videoMirrorSettings": {
     "description": "Settings entry for the MissAV mirror host speed test."
   },
-  "videoMirrorDescription": "Only hosts that work without website verification are listed. The selected host is used for browsing, search, and playback.",
+  "videoMirrorDescription": "All hosts are listed. Unavailable hosts cannot be selected. The selected host is used for browsing, search, and playback.",
   "@videoMirrorDescription": {
-    "description": "Explains that the host list contains only non-verification mirrors."
+    "description": "Explains that the list shows all hosts and unavailable hosts cannot be selected."
   },
   "videoMirrorAutomatic": "Choose the fastest host automatically",
   "@videoMirrorAutomatic": {

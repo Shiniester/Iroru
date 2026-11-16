@@ -4431,6 +4431,9 @@ class SEn extends S {
   String get videoAccountEmail => 'Email';
 
   @override
+  String get videoAccountHost => 'Login host';
+
+  @override
   String get videoAccountBrowserLogin => 'Sign in on website';
 
   @override
@@ -4445,7 +4448,7 @@ class SEn extends S {
 
   @override
   String get videoMirrorDescription =>
-      'Only hosts that work without website verification are listed. The selected host is used for browsing, search, and playback.';
+      'All hosts are listed. Unavailable hosts cannot be selected. The selected host is used for browsing, search, and playback.';
 
   @override
   String get videoMirrorAutomatic => 'Choose the fastest host automatically';

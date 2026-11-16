@@ -7912,6 +7912,12 @@ abstract class S {
   /// **'Email'**
   String get videoAccountEmail;
 
+  /// Selector label for the official MissAV host used for account sign-in.
+  ///
+  /// In en, this message translates to:
+  /// **'Login host'**
+  String get videoAccountHost;
+
   /// No description provided for @videoAccountBrowserLogin.
   ///
   /// In en, this message translates to:
@@ -7936,10 +7942,10 @@ abstract class S {
   /// **'MissAV host'**
   String get videoMirrorSettings;
 
-  /// Explains that the host list contains only non-verification mirrors.
+  /// Explains that the list shows all hosts and unavailable hosts cannot be selected.
   ///
   /// In en, this message translates to:
-  /// **'Only hosts that work without website verification are listed. The selected host is used for browsing, search, and playback.'**
+  /// **'All hosts are listed. Unavailable hosts cannot be selected. The selected host is used for browsing, search, and playback.'**
   String get videoMirrorDescription;
 
   /// Option that selects the fastest reachable MissAV host during access.

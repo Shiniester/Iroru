@@ -101,7 +101,12 @@ class _MissavMirrorSettingsScreenState
         .where((result) => result.isAvailable)
         .toList();
     if (available.isEmpty) return;
-    available.sort((left, right) => left.millis!.compareTo(right.millis!));
+    available.sort((left, right) {
+      final leftOfficial = missavOfficialHosts.contains(left.mirror.host);
+      final rightOfficial = missavOfficialHosts.contains(right.mirror.host);
+      if (leftOfficial != rightOfficial) return leftOfficial ? -1 : 1;
+      return left.millis!.compareTo(right.millis!);
+    });
     unawaited(_select(available.first.mirror));
   }
 

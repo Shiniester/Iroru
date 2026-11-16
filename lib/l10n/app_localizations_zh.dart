@@ -4286,6 +4286,9 @@ class SZh extends S {
   String get videoAccountEmail => '邮箱';
 
   @override
+  String get videoAccountHost => '登录线路';
+
+  @override
   String get videoAccountBrowserLogin => '网页登录';
 
   @override
@@ -4298,7 +4301,7 @@ class SZh extends S {
   String get videoMirrorSettings => 'MissAV 线路';
 
   @override
-  String get videoMirrorDescription => '仅列出不需要网页验证的域名。浏览、搜索和播放使用所选线路。';
+  String get videoMirrorDescription => '列出全部线路。不可用线路不能选择。浏览、搜索和播放使用所选线路。';
 
   @override
   String get videoMirrorAutomatic => '自动选择最快线路';
@@ -9270,6 +9273,9 @@ class SZhHant extends SZh {
   String get videoAccountEmail => '電子郵件';
 
   @override
+  String get videoAccountHost => '登入線路';
+
+  @override
   String get videoAccountBrowserLogin => '網頁登入';
 
   @override
@@ -9282,7 +9288,7 @@ class SZhHant extends SZh {
   String get videoMirrorSettings => 'MissAV 線路';
 
   @override
-  String get videoMirrorDescription => '僅列出不需要網頁驗證的網域。瀏覽、搜尋和播放使用所選線路。';
+  String get videoMirrorDescription => '列出全部線路。不可用線路不能選擇。瀏覽、搜尋和播放使用所選線路。';
 
   @override
   String get videoMirrorAutomatic => '自動選擇最快線路';

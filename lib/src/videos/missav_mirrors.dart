@@ -9,6 +9,8 @@ import '../services/proxy_config.dart';
 const missavMirrorBaseUrlKey = 'missav_mirror_base_url';
 const missavAccountBaseUrlKey = 'missav_account_base_url';
 
+const missavOfficialHosts = {'missav.ai', 'missav.ws', 'missav.live'};
+
 class MissavMirror {
   const MissavMirror(this.host) : baseUrl = 'https://$host';
 
@@ -82,11 +84,17 @@ MissavMirror? missavMirrorForBaseUrl(String? baseUrl) {
 }
 
 class MissavMirrorLatency {
-  const MissavMirrorLatency({required this.mirror, this.millis, this.error});
+  const MissavMirrorLatency({
+    required this.mirror,
+    this.millis,
+    this.error,
+    this.isChallenge = false,
+  });
 
   final MissavMirror mirror;
   final int? millis;
   final String? error;
+  final bool isChallenge;
 
   bool get isAvailable => millis != null;
 }
@@ -141,14 +149,14 @@ class MissavMirrorProber {
         cancelToken: cancelToken,
       );
     }
-    if (!result.isAvailable) {
-      result = await probeContent(
-        mirror,
-        '/en/release',
-        cancelToken: cancelToken,
-      );
-    }
-    return result;
+    if (!result.isAvailable) return result;
+    final content = await probeContent(
+      mirror,
+      '/cn',
+      cancelToken: cancelToken,
+      contentTimeout: timeout,
+    );
+    return content.isAvailable ? result : content;
   }
 
   Future<MissavMirrorLatency> probeContent(
@@ -226,6 +234,7 @@ class MissavMirrorProber {
       return MissavMirrorLatency(
         mirror: mirror,
         error: 'HTTP ${response.statusCode}',
+        isChallenge: challenge,
       );
     } on TimeoutException {
       return MissavMirrorLatency(mirror: mirror, error: 'timeout');
