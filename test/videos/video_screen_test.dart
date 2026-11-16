@@ -2112,6 +2112,7 @@ void main() {
     final browsesBeforeSelection = client.browsedUrls.length;
     final l10n = await S.delegate.load(const Locale('en'));
     expect(find.text('Source recent feed'), findsNothing);
+    await _videoDrawerTile(tester, l10n.videoRecentlyUpdated);
     await tester.tap(find.text(l10n.videoRecentlyUpdated));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 60));
@@ -5375,13 +5376,14 @@ Future<void> _selectVideoDrawerLabel(
 Future<ListTile> _videoDrawerTile(WidgetTester tester, String label) async {
   final drawer = find.byKey(const ValueKey('library-drawer'));
   final labelFinder = find.descendant(of: drawer, matching: find.text(label));
-  await tester.scrollUntilVisible(
-    labelFinder,
-    240,
-    scrollable: find
-        .descendant(of: drawer, matching: find.byType(Scrollable))
-        .first,
-  );
+  final scrollable = find
+      .descendant(of: drawer, matching: find.byType(Scrollable))
+      .first;
+  tester.state<ScrollableState>(scrollable).position.jumpTo(0);
+  await tester.pump();
+  await tester.scrollUntilVisible(labelFinder, 240, scrollable: scrollable);
+  await tester.pumpAndSettle();
+  await tester.ensureVisible(labelFinder);
   await tester.pumpAndSettle();
   final tileFinder = find.ancestor(
     of: labelFinder,
