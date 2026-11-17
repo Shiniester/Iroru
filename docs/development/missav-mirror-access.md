@@ -55,6 +55,10 @@ POST https://client-rapi-missav.recombee.com/missav-default/search/users/anonymo
 
 镜像站详情页把媒体地址改写为 `https://<镜像站>/jmpres/<原始主机>/<路径>`。
 应用解析打包脚本后执行同样的改写。
+播放器初始化时，应用在后台解析首个 HLS 地址的镜像跳转。
+解析成功且返回有效清单时，播放器直接打开最终地址，跳过本次跳转。
+解析未在 1.5 秒内完成或失败时，播放器沿用原地址。
+解析结果只用于第一次打开播放流。
 播放器和下载器收到的请求头使用镜像站页面作为 `Referer` 和 `Origin`。
 镜像 HLS 的分段文件名为 `.jpeg`，内容是 MPEG-TS。
 项目使用的 mpv 已为 FFmpeg HLS 设置 `extension_picky=0`，下载端把分段保存为 `.ts`。
