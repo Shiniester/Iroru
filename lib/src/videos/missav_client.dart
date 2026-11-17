@@ -472,14 +472,14 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
             ? (main?.querySelector('h1') ?? document.querySelector('h1'))?.text
                   .trim()
             : null;
-        final streams = details && main != null
+        final streams = details
             ? _parseStreams(document, uri, userAgent: _userAgent)
             : const <VideoStream>[];
-        final hasPageContent =
-            main != null ||
-            (!details && _parseVideos(document, uri).isNotEmpty);
-        if (!hasPageContent ||
-            (details && (title?.isEmpty ?? true) && streams.isEmpty)) {
+        final hasPageContent = details
+            ? streams.isNotEmpty ||
+                  (main != null && (title?.isNotEmpty ?? false))
+            : main != null || _parseVideos(document, uri).isNotEmpty;
+        if (!hasPageContent) {
           throw _ContentHostFailure(
             'MissAV returned an invalid content page.',
             sourceUrl: uri.toString(),

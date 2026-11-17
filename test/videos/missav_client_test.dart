@@ -321,6 +321,112 @@ void main() {
       },
     );
 
+    for (final hasTitle in [true, false]) {
+      test(
+        'opens anonymous mirror details without main ${hasTitle ? 'with' : 'without'} a title',
+        () async {
+          final mirror = missavMirrors[0].baseUrl;
+          final fallback = missavMirrors[1].baseUrl;
+          var detail = (await _detailHtml())
+              .replaceAll('<main', '<div')
+              .replaceAll('</main>', '</div>');
+          if (!hasTitle) {
+            detail = detail.replaceAll('<h1>Sample detail</h1>', '<h1> </h1>');
+          }
+          final catalog = _searchCatalogHtml([
+            'open-sample-001',
+          ]).replaceAll('<main>', '<div>').replaceAll('</main>', '</div>');
+          final adapter = _Adapter((request) {
+            if (request.uri.origin != mirror) {
+              throw StateError('Unexpected fallback request.');
+            }
+            return _response(
+              request.uri.path.endsWith('/release') ? catalog : detail,
+            );
+          });
+          final client = MissavClient(
+            dio: Dio()..httpClientAdapter = adapter,
+            metadataDio: _emptyMetadataDio(),
+            secureStorage: _MemorySecureStorage(),
+            contentHosts: [mirror, fallback],
+          );
+          addTearDown(client.dispose);
+
+          final page = await client.browse('https://missav.ai/cn/release');
+          final updates = <VideoDetails>[];
+          final details = await client.details(
+            page.videos.single,
+            onReady: updates.add,
+          );
+
+          expect(client.isLoggedIn, isFalse);
+          expect(
+            details.video.title,
+            hasTitle ? 'Sample detail' : page.videos.single.title,
+          );
+          expect(updates.first.streams, hasLength(2));
+          expect(details.streams.map((stream) => stream.url), [
+            '$mirror/jmpres/media.example/hls/master.m3u8',
+            '$mirror/jmpres/media.example/file/clip.mp4',
+          ]);
+          expect(adapter.requests.map((request) => request.uri.toString()), [
+            '$mirror/cn/release',
+            '$mirror/cn/open-sample-001',
+          ]);
+          expect(
+            adapter.requests.every((request) => _cookieHeader(request).isEmpty),
+            isTrue,
+          );
+          final preferences = await SharedPreferences.getInstance();
+          expect(preferences.getString(missavLastGoodHostKey), mirror);
+        },
+      );
+    }
+
+    for (final hasErrorTitle in [false, true]) {
+      test(
+        'rejects a detail placeholder without main ${hasErrorTitle ? 'with an error title' : 'with only cards'}',
+        () async {
+          final invalid = missavMirrors[0].baseUrl;
+          final good = missavMirrors[1].baseUrl;
+          final detail = await _detailHtml();
+          final placeholder = hasErrorTitle
+              ? '<h1>Service temporarily unavailable</h1>'
+              : _searchCatalogHtml(
+                  ['placeholder-video'],
+                ).replaceAll('<main>', '<div>').replaceAll('</main>', '</div>');
+          final adapter = _Adapter(
+            (request) =>
+                _response(request.uri.origin == invalid ? placeholder : detail),
+          );
+          final client = MissavClient(
+            dio: Dio()..httpClientAdapter = adapter,
+            metadataDio: _emptyMetadataDio(),
+            secureStorage: _MemorySecureStorage(),
+            contentHosts: [invalid, good],
+          );
+          addTearDown(client.dispose);
+
+          final details = await client.details(
+            const VideoItem(
+              id: 'open-sample-001',
+              title: 'Sample',
+              pageUrl: 'https://missav.ai/cn/open-sample-001',
+            ),
+          );
+
+          expect(adapter.requests.map((request) => request.uri.origin), [
+            invalid,
+            good,
+          ]);
+          expect(details.video.pageUrl, '$good/cn/open-sample-001');
+          expect(details.streams, hasLength(2));
+          final preferences = await SharedPreferences.getInstance();
+          expect(preferences.getString(missavLastGoodHostKey), good);
+        },
+      );
+    }
+
     test(
       'does not accept a self-link placeholder as a video catalog',
       () async {
