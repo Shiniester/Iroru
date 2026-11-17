@@ -3758,6 +3758,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
           }, origin: MissavClient.origin);
         },
       );
+      client.useVerifiedBrowserTransport(browser);
       client.useVerifiedBrowserTransport(
         browser,
         mediaRoute: (uri) => Uri.parse('http://127.0.0.1:1234${uri.path}'),

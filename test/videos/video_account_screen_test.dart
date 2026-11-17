@@ -5,16 +5,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
+import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_account_screen.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
 
-typedef _MissavAccessVerifier =
-    Future<bool> Function(
+typedef _MissavAccountVerifier =
+    Future<MissavVerificationResult> Function(
       BuildContext context,
       MissavClient client, {
       required String sourceUrl,
-      bool requireLogin,
     });
 
 void main() {
@@ -28,8 +28,8 @@ void main() {
     await tester.pumpWidget(
       _app(
         client,
-        verifier: (_, _, {required sourceUrl, requireLogin = false}) async =>
-            false,
+        verifier: (_, _, {required sourceUrl}) async =>
+            (verified: false, signedIn: false),
         clearBrowserSession: () async => cleanupCalls++,
       ),
     );
@@ -54,16 +54,16 @@ void main() {
     tester,
   ) async {
     final client = _TestMissavClient();
-    final requests = <({String sourceUrl, bool requireLogin})>[];
+    final requests = <({String sourceUrl})>[];
     final s = await S.delegate.load(const Locale('en'));
 
     await tester.pumpWidget(
       _app(
         client,
-        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
-          requests.add((sourceUrl: sourceUrl, requireLogin: requireLogin));
+        verifier: (_, _, {required sourceUrl}) async {
+          requests.add((sourceUrl: sourceUrl));
           client.confirmAccount('web-viewer');
-          return true;
+          return (verified: true, signedIn: true);
         },
       ),
     );
@@ -72,10 +72,7 @@ void main() {
 
     await tester.tap(find.text(s.videoVerifyAccess));
     await tester.pumpAndSettle();
-    expect(requests.last, (
-      sourceUrl: 'https://missav.ai/cn',
-      requireLogin: false,
-    ));
+    expect(requests.last, (sourceUrl: 'https://missav.ai/cn'));
     expect(client.nativeLoginCalls, 0);
     expect(find.text('web-viewer'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
@@ -91,9 +88,9 @@ void main() {
     await tester.pumpWidget(
       _app(
         client,
-        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+        verifier: (_, _, {required sourceUrl}) async {
           verifierCalls++;
-          return true;
+          return (verified: true, signedIn: true);
         },
       ),
     );
@@ -114,16 +111,16 @@ void main() {
   ) async {
     const challengeUrl = 'https://missav.ai/en/api/login';
     final client = _TestMissavClient()..nativeLoginChallengeUrl = challengeUrl;
-    final requests = <({String sourceUrl, bool requireLogin})>[];
+    final requests = <({String sourceUrl})>[];
     final s = await S.delegate.load(const Locale('en'));
 
     await tester.pumpWidget(
       _app(
         client,
-        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
-          requests.add((sourceUrl: sourceUrl, requireLogin: requireLogin));
+        verifier: (_, _, {required sourceUrl}) async {
+          requests.add((sourceUrl: sourceUrl));
           client.nativeLoginChallengeUrl = null;
-          return true;
+          return (verified: true, signedIn: false);
         },
       ),
     );
@@ -134,7 +131,7 @@ void main() {
     await tester.tap(find.text(s.login));
     await tester.pumpAndSettle();
 
-    expect(requests, [(sourceUrl: challengeUrl, requireLogin: false)]);
+    expect(requests, [(sourceUrl: challengeUrl)]);
     expect(client.nativeLoginCalls, 2);
     expect(find.text(s.videoVerificationRequired), findsNothing);
     expect(find.text('native-viewer'), findsOneWidget);
@@ -153,11 +150,11 @@ void main() {
         await tester.pumpWidget(
           _app(
             client,
-            verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+            verifier: (_, _, {required sourceUrl}) async {
               client.nativeLoginChallengeUrl = null;
               client.rejectLogin = true;
               if (signedInOnWeb) client.confirmAccount('web-viewer');
-              return true;
+              return (verified: true, signedIn: signedInOnWeb);
             },
           ),
         );
@@ -195,8 +192,8 @@ void main() {
     await tester.pumpWidget(
       _app(
         client,
-        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
-          return false;
+        verifier: (_, _, {required sourceUrl}) async {
+          return (verified: false, signedIn: false);
         },
       ),
     );
@@ -229,9 +226,9 @@ void main() {
     await tester.pumpWidget(
       _app(
         client,
-        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+        verifier: (_, _, {required sourceUrl}) async {
           verifierCalls++;
-          return true;
+          return (verified: true, signedIn: true);
         },
       ),
     );
@@ -259,9 +256,9 @@ void main() {
     await tester.pumpWidget(
       _app(
         client,
-        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+        verifier: (_, _, {required sourceUrl}) async {
           verifierCalls++;
-          return true;
+          return (verified: true, signedIn: true);
         },
       ),
     );
@@ -284,8 +281,8 @@ void main() {
     await tester.pumpWidget(
       _app(
         client,
-        verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
-          return true;
+        verifier: (_, _, {required sourceUrl}) async {
+          return (verified: true, signedIn: true);
         },
       ),
     );
@@ -304,12 +301,12 @@ void main() {
 
 Widget _app(
   _TestMissavClient client, {
-  required _MissavAccessVerifier verifier,
+  required _MissavAccountVerifier verifier,
   Future<void> Function()? clearBrowserSession,
 }) => ProviderScope(
   overrides: [
     videoClientProvider.overrideWith((ref) => client),
-    missavAccessVerifierProvider.overrideWithValue(verifier),
+    missavAccountVerifierProvider.overrideWithValue(verifier),
     videoBrowserSessionCleanupProvider.overrideWithValue(
       clearBrowserSession ?? () async {},
     ),

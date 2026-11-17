@@ -13,6 +13,7 @@ import 'package:kikoeru_flutter/src/videos/jable_client.dart';
 import 'package:kikoeru_flutter/src/videos/jable_verification.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
+import 'package:kikoeru_flutter/src/videos/missav_browser_media.dart';
 import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -1114,11 +1115,197 @@ void main() {
     },
   );
 
-  for (final trustedPage in [true, false]) {
+  testWidgets('account verification does not wait for the media relay', (
+    tester,
+  ) async {
+    final oldPlatform = WebViewPlatform.instance;
+    var mediaChannelAttempts = 0;
+    final mediaChannelStarted = Completer<void>();
+    final mediaChannelRelease = Completer<void>();
+    WebViewPlatform.instance = _FakeWebViewPlatform(
+      Future.value([
+        const WebViewCookie(
+          name: 'session',
+          value: 'verified',
+          domain: 'missav.ai',
+        ),
+      ]),
+      failMediaChannel: true,
+      mediaChannelDelay: mediaChannelRelease.future,
+      onMediaChannel: () {
+        mediaChannelAttempts++;
+        if (!mediaChannelStarted.isCompleted) mediaChannelStarted.complete();
+      },
+    );
+    addTearDown(() {
+      if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      if (!mediaChannelRelease.isCompleted) mediaChannelRelease.complete();
+    });
+    await tester.pumpWidget(
+      MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+    );
+    final mobile = WebViewController();
+    final sourcePage = mobile.platform as _FakeWebViewController;
+    sourcePage.runtimeUser = {'username': 'browser-viewer'};
+    final client = MissavClient(secureStorage: _MemorySecureStorage());
+    addTearDown(client.dispose);
+
+    await tester.runAsync(() async {
+      final connection = connectMissavBrowserSession(
+        client,
+        mobile: mobile,
+        deferMediaRelay: true,
+      );
+      var finished = false;
+      final result = connection
+          .timeout(const Duration(seconds: 5))
+          .whenComplete(() => finished = true);
+      await Future.wait([
+        result.then((value) => expect(value.signedIn, isTrue)),
+        () async {
+          while (!finished) {
+            await tester.pump();
+            await Future<void>.delayed(Duration.zero);
+          }
+        }(),
+      ]);
+      while (!mediaChannelStarted.isCompleted) {
+        await tester.pump();
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(mediaChannelRelease.isCompleted, isFalse);
+      mediaChannelRelease.complete();
+    });
+    await tester.pumpAndSettle();
+
+    expect(mediaChannelAttempts, 1);
+    expect(client.isLoggedIn, isTrue);
+    expect(client.accountName, 'browser-viewer');
+  });
+
+  testWidgets('access verification still requires the media relay', (
+    tester,
+  ) async {
+    final oldPlatform = WebViewPlatform.instance;
+    var mediaChannelAttempts = 0;
+    WebViewPlatform.instance = _FakeWebViewPlatform(
+      Future.value([
+        const WebViewCookie(
+          name: 'session',
+          value: 'verified',
+          domain: 'missav.ai',
+        ),
+      ]),
+      failMediaChannel: true,
+      onMediaChannel: () => mediaChannelAttempts++,
+    );
+    addTearDown(() {
+      if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+    });
+    await tester.pumpWidget(
+      MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+    );
+    final mobile = WebViewController();
+    final client = MissavClient(secureStorage: _MemorySecureStorage());
+    addTearDown(client.dispose);
+
+    await tester.runAsync(() async {
+      final connection = connectMissavBrowserSession(client, mobile: mobile);
+      var finished = false;
+      final result = expectLater(
+        connection.timeout(const Duration(seconds: 5)),
+        throwsA(isA<StateError>()),
+      ).whenComplete(() => finished = true);
+      await Future.wait([
+        result,
+        () async {
+          while (!finished) {
+            await tester.pump();
+            await Future<void>.delayed(Duration.zero);
+          }
+        }(),
+      ]);
+    });
+    await tester.pumpAndSettle();
+
+    expect(mediaChannelAttempts, greaterThan(0));
+  });
+
+  testWidgets(
+    'account verification reports an anonymous visitor when media is slow',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      var mediaChannelAttempts = 0;
+      final mediaChannelStarted = Completer<void>();
+      WebViewPlatform.instance = _FakeWebViewPlatform(
+        Future.value([
+          const WebViewCookie(
+            name: 'session',
+            value: 'verified',
+            domain: 'missav.ai',
+          ),
+        ]),
+        failMediaChannel: true,
+        mediaChannelDelay: Future.value(),
+        onMediaChannel: () {
+          mediaChannelAttempts++;
+          if (!mediaChannelStarted.isCompleted) mediaChannelStarted.complete();
+        },
+      );
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+      );
+      final mobile = WebViewController();
+      final client = MissavClient(secureStorage: _MemorySecureStorage());
+      addTearDown(client.dispose);
+
+      var signedIn = true;
+      await tester.runAsync(() async {
+        final connection = connectMissavBrowserSession(
+          client,
+          mobile: mobile,
+          deferMediaRelay: true,
+        );
+        var finished = false;
+        final result = connection
+            .timeout(const Duration(seconds: 5))
+            .whenComplete(() => finished = true);
+        await Future.wait([
+          result.then((value) => signedIn = value.signedIn),
+          () async {
+            while (!finished) {
+              await tester.pump();
+              await Future<void>.delayed(Duration.zero);
+            }
+          }(),
+        ]);
+        while (!mediaChannelStarted.isCompleted) {
+          await tester.pump();
+          await Future<void>.delayed(Duration.zero);
+        }
+      });
+      await tester.pumpAndSettle();
+
+      expect(mediaChannelAttempts, greaterThan(0));
+      expect(signedIn, isFalse);
+      expect(client.isLoggedIn, isFalse);
+    },
+  );
+
+  for (final (trustedPage, accountInMarkup) in [
+    (true, false),
+    (true, true),
+    (false, false),
+    (false, true),
+  ]) {
+    final evidence = accountInMarkup ? 'page markup' : 'runtime state';
     testWidgets(
       trustedPage
-          ? 'access check preserves the web sign-in before reloading'
-          : 'access check ignores an account from a foreign page',
+          ? 'access check preserves the web sign-in from $evidence before reloading'
+          : 'access check ignores $evidence from a foreign page',
       (tester) async {
         final oldPlatform = WebViewPlatform.instance;
         late final _FakeWebViewController sourcePage;
@@ -1136,6 +1323,7 @@ void main() {
               : 'https://example.invalid/login',
           onLoadRequest: (_) async {
             homeNavigations++;
+            sourcePage.htmlDocument = '';
             sourcePage.runtimeUser = null;
           },
         );
@@ -1148,9 +1336,12 @@ void main() {
         );
         final mobile = WebViewController();
         sourcePage = mobile.platform as _FakeWebViewController;
-        sourcePage.htmlDocument =
-            '<html><body x-data="{user: null}"></body></html>';
-        sourcePage.runtimeUser = {'username': 'browser-viewer'};
+        if (accountInMarkup) {
+          sourcePage.htmlDocument =
+              '''<html><body x-data='{"user":{"username":"browser-viewer"}}'></body></html>''';
+        } else {
+          sourcePage.runtimeUser = {'username': 'browser-viewer'};
+        }
         final client = MissavClient(secureStorage: _MemorySecureStorage());
         addTearDown(client.dispose);
 
@@ -1402,6 +1593,9 @@ class _FakeWebViewPlatform extends WebViewPlatform {
     this.onLoadRequest,
     this.onLoadHtml,
     this.loadRequestCompletion,
+    this.failMediaChannel = false,
+    this.mediaChannelDelay,
+    this.onMediaChannel,
   });
 
   final Future<List<WebViewCookie>> cookies;
@@ -1409,6 +1603,9 @@ class _FakeWebViewPlatform extends WebViewPlatform {
   final Future<void> Function(LoadRequestParams params)? onLoadRequest;
   final Future<void> Function()? onLoadHtml;
   final Future<void>? loadRequestCompletion;
+  final bool failMediaChannel;
+  final Future<void>? mediaChannelDelay;
+  final void Function()? onMediaChannel;
   final cookiesRequested = Completer<void>();
 
   @override
@@ -1420,6 +1617,9 @@ class _FakeWebViewPlatform extends WebViewPlatform {
     onLoadRequest: onLoadRequest,
     onLoadHtml: onLoadHtml,
     loadRequestCompletion: loadRequestCompletion,
+    failMediaChannel: failMediaChannel,
+    mediaChannelDelay: mediaChannelDelay,
+    onMediaChannel: onMediaChannel,
   );
 
   @override
@@ -1452,6 +1652,9 @@ class _FakeWebViewController extends PlatformWebViewController {
     this.onLoadRequest,
     this.onLoadHtml,
     this.loadRequestCompletion,
+    this.failMediaChannel = false,
+    this.mediaChannelDelay,
+    this.onMediaChannel,
   }) : _url = initialUrl,
        documentUrl = initialUrl,
        super.implementation();
@@ -1474,6 +1677,9 @@ class _FakeWebViewController extends PlatformWebViewController {
   final Future<void> Function(LoadRequestParams params)? onLoadRequest;
   final Future<void> Function()? onLoadHtml;
   final Future<void>? loadRequestCompletion;
+  final bool failMediaChannel;
+  final Future<void>? mediaChannelDelay;
+  final void Function()? onMediaChannel;
 
   Future<void> nextDocumentReadinessCheck() {
     final check = Completer<void>();
@@ -1546,7 +1752,16 @@ class _FakeWebViewController extends PlatformWebViewController {
   @override
   Future<void> addJavaScriptChannel(
     JavaScriptChannelParams javaScriptChannelParams,
-  ) async {}
+  ) async {
+    if (javaScriptChannelParams.name ==
+        MissavBrowserMediaTransport.channelName) {
+      onMediaChannel?.call();
+      await mediaChannelDelay;
+      if (failMediaChannel) {
+        throw StateError('Media relay unavailable.');
+      }
+    }
+  }
 
   @override
   Future<void> removeJavaScriptChannel(String javaScriptChannelName) async {}

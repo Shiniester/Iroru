@@ -211,7 +211,10 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       restoreNativeTransport();
       return;
     }
-    if (identical(adapter, _browserAdapter)) return;
+    if (identical(adapter, _browserAdapter)) {
+      if (mediaRoute != null) _mediaRoute = mediaRoute;
+      return;
+    }
 
     final previousBrowserDio = _browserDio;
     _advanceSessionGeneration();
@@ -597,7 +600,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       );
     }
     final sourceUser = _readAccountFromPage(document) ?? browserUser;
-    if (sourceUser is Map) _updateAccountFromSource(sourceUser);
+    if (sourceUser != null) _updateAccountFromSource(sourceUser);
     if (pageUri.origin == _baseUrl) _updateHomeUrl(document, pageUri);
   }
 
@@ -1601,13 +1604,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
           sourceUrl: uri.toString(),
         );
       }
-      if (user == null) {
-        final document = _parsePage(text, uri);
-        final sourceUser = _readAccountFromPage(document);
-        if (sourceUser is Map) {
-          user = Map<String, dynamic>.from(sourceUser);
-        }
-      }
+      user ??= readAccountFromMarkup(text, uri);
       if (user == null) {
         final homeUri = Uri.parse('$base/en');
         final homeResponse = await _request(
@@ -1618,11 +1615,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         final homeText = homeResponse.data is String
             ? homeResponse.data as String
             : '';
-        final document = _parsePage(homeText, homeUri);
-        final sourceUser = _readAccountFromPage(document);
-        if (sourceUser is Map) {
-          user = Map<String, dynamic>.from(sourceUser);
-        }
+        user = readAccountFromMarkup(homeText, homeUri);
       }
       if (user == null) {
         throw MissavException(
@@ -2473,17 +2466,20 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   void _updateAccountFromPage(Document document) {
     final sourceUser = _readAccountFromPage(document);
     // Public user:null markup needs runtime state or /view to confirm sign-in.
-    if (sourceUser is Map) {
+    if (sourceUser != null) {
       _updateAccountFromSource(sourceUser);
     }
   }
 
-  static Object? _readAccountFromPage(Document document) {
+  static Map<String, dynamic>? readAccountFromMarkup(String source, Uri uri) =>
+      _readAccountFromPage(_parsePage(source, uri));
+
+  static Map<String, dynamic>? _readAccountFromPage(Document document) {
     final runtimeUser = document.querySelector('#kiko-missav-runtime-user');
     if (runtimeUser != null) {
       try {
         final user = jsonDecode(runtimeUser.text);
-        if (user is Map) return user;
+        if (user is Map<String, dynamic>) return user;
       } on FormatException {
         // Fall back to page markup if the runtime snapshot is invalid.
       }

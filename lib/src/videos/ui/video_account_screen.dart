@@ -7,6 +7,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../utils/snackbar_util.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../missav_client.dart';
+import '../missav_verification.dart';
 import '../video_models.dart';
 import '../video_providers.dart';
 
@@ -58,26 +59,26 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<bool> _openVerification(String sourceUrl) async {
-    final verified = await ref.read(missavAccessVerifierProvider)(
+  Future<MissavVerificationResult> _openVerification(String sourceUrl) async {
+    final result = await ref.read(missavAccountVerifierProvider)(
       context,
       _client,
       sourceUrl: sourceUrl,
     );
-    if (mounted && verified && _client.isLoggedIn) {
+    if (mounted && result.signedIn) {
       _client.resumeContentBrowsing();
       _passwordController.clear();
     }
-    return verified;
+    return result;
   }
 
   Future<void> _verifyAccess() async {
     setState(() => _loading = true);
     try {
-      final verified = await _openVerification(
+      final result = await _openVerification(
         _verificationError?.sourceUrl ?? _client.homeUrl,
       );
-      if (mounted && verified) {
+      if (mounted && result.verified) {
         setState(() {
           _error = null;
           _verificationError = null;
@@ -130,12 +131,12 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
         await _client.login(email: email, password: password);
       } on MissavVerificationRequiredException catch (error) {
         if (!mounted) return;
-        final verified = await _openVerification(
+        final result = await _openVerification(
           error.sourceUrl ?? _client.homeUrl,
         );
         if (!mounted) return;
-        if (!verified) rethrow;
-        if (!_client.isLoggedIn) {
+        if (!result.verified) rethrow;
+        if (!result.signedIn) {
           await _client.login(email: email, password: password);
         }
       }
