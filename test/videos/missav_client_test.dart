@@ -3191,6 +3191,137 @@ void main() {
     },
   );
 
+  group('signed-in MissAV access', () {
+    for (final collection in [
+      'favorites',
+      'actorFavorites',
+      'playlists',
+      'history',
+    ]) {
+      test(
+        '$collection uses the account host without probing mirrors',
+        () async {
+          final mirror = missavMirrors.first.baseUrl;
+          final adapter = _Adapter((request) {
+            if (request.uri.host != 'missav.ws') {
+              return _response('Unavailable', statusCode: HttpStatus.notFound);
+            }
+            if (request.uri.path.endsWith('/api/login')) {
+              return _metadataResponse({
+                'user': {'name': 'signed-in-viewer'},
+              });
+            }
+            return _response('<main><h1>Account collection</h1></main>');
+          });
+          final client = MissavClient(
+            dio: Dio()..httpClientAdapter = adapter,
+            metadataDio: _emptyMetadataDio(),
+            secureStorage: _MemorySecureStorage()..cookie = 'XSRF-TOKEN=token',
+            contentHosts: [mirror, ...missavOfficialBaseUrls],
+          );
+          addTearDown(client.dispose);
+          await client.initialize();
+          await client.selectAccountHost('https://missav.ws');
+          client.selectMirror(mirror);
+          await client.login(
+            email: 'viewer@example.test',
+            password: 'password',
+          );
+          adapter.requests.clear();
+
+          final page = await client.browse(client.collectionUrl(collection));
+
+          expect(Uri.parse(page.url).host, 'missav.ws');
+          expect(adapter.requests, hasLength(1));
+          expect(adapter.requests.single.uri.host, 'missav.ws');
+          expect(client.activeMirrorHost, Uri.parse(mirror).host);
+          expect(client.isLoggedIn, isTrue);
+        },
+      );
+    }
+
+    test(
+      'verified login keeps account access while details use the mirror',
+      () async {
+        final mirror = missavMirrors.first.baseUrl;
+        final detail = await _detailHtml();
+        final native = _Adapter((request) {
+          if (request.uri.origin == mirror) return _response(detail);
+          return _response(
+            '<title>Just a moment...</title>',
+            statusCode: HttpStatus.forbidden,
+          );
+        });
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = native,
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: _MemorySecureStorage(),
+          contentHosts: [mirror, ...missavOfficialBaseUrls],
+        );
+        addTearDown(client.dispose);
+        final documents = <Uri>[];
+        late final MissavBrowserAdapter browser;
+        browser = MissavBrowserAdapter(
+          currentUrl: () async => MissavClient.origin,
+          navigateDocument: (uri, _) async {
+            documents.add(uri);
+            return '<main><h1>Account collection</h1></main>';
+          },
+          disposeBrowser: () async {},
+          readCookieHeader: () async =>
+              'XSRF-TOKEN=token; session=authenticated',
+          runJavaScript: (script) async {
+            final match = RegExp(r'const request = (.*);').firstMatch(script);
+            if (match == null) return;
+            final request = jsonDecode(match.group(1)!) as Map;
+            browser.receiveMessage({
+              'id': request['id'],
+              'nonce': request['nonce'],
+              'origin': MissavClient.origin,
+              'status': 200,
+              'url': request['url'],
+              'headers': {'content-type': 'application/json'},
+              'body': '{"user":{"name":"signed-in-viewer"}}',
+            });
+          },
+        );
+        await client.importVerifiedSession(
+          cookieHeader: 'XSRF-TOKEN=token; session=verified',
+          userAgent: 'Browser UA',
+        );
+        client.selectMirror(mirror);
+        client.useVerifiedBrowserTransport(browser);
+        await client.login(email: 'viewer@example.test', password: 'password');
+
+        final details = await client.details(
+          const VideoItem(
+            id: 'open-sample-001',
+            title: 'Sample',
+            pageUrl: 'https://missav.ai/cn/open-sample-001',
+          ),
+        );
+        final playlists = await client.browse(
+          client.collectionUrl('playlists'),
+        );
+        final history = await client.browse(client.collectionUrl('history'));
+
+        expect(details.video.title, 'Sample detail');
+        expect(Uri.parse(details.video.pageUrl).origin, mirror);
+        expect(playlists.title, 'Account collection');
+        expect(history.title, 'Account collection');
+        expect(documents.map((uri) => uri.path), [
+          '/cn/playlists',
+          '/cn/history',
+        ]);
+        expect(
+          native.requests.every((request) => request.uri.origin == mirror),
+          isTrue,
+        );
+        expect(client.isLoggedIn, isTrue);
+      },
+    );
+  });
+
   test(
     'collection search starts at the first page and includes later matches',
     () async {
@@ -4579,7 +4710,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       password: 'sample-password',
     );
 
-    expect(browserAdapter.closeCalls, 1);
+    expect(browserAdapter.closeCalls, 0);
     expect(client.activeMirrorHost, mirrorHost);
     final page = await client.browse('https://missav.ai/cn/release');
     expect(page.videos.single.id, 'after-login');

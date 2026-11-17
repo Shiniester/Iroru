@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:desktop_webview_window/desktop_webview_window.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -97,7 +96,7 @@ void main() {
 
   for (final loginStatus in [200, 401]) {
     test(
-      'login closes the verified browser only after success (status=$loginStatus)',
+      'login keeps the verified browser available for account pages (status=$loginStatus)',
       () async {
         final oldPlatform = WebViewPlatform.instance;
         WebViewPlatform.instance = _FakeWebViewPlatform(Future.value(const []));
@@ -171,18 +170,18 @@ void main() {
         );
         if (loginStatus == 200) {
           await login;
-          expect(adapter.isClosed, isTrue);
           expect(storage.writeCalls, greaterThan(writesBeforeLogin));
         } else {
           await expectLater(
             login,
             throwsA(isA<MissavAuthenticationException>()),
           );
-          expect(adapter.isClosed, isFalse);
           expect(storage.writeCalls, writesBeforeLogin);
-          expect((await client.browse(client.homeUrl)).url, client.homeUrl);
-          expect(await controller.currentUrl(), 'about:blank');
         }
+        expect(adapter.isClosed, isFalse);
+        final history = await client.browse(client.collectionUrl('history'));
+        expect(history.title, 'Catalog');
+        expect(await controller.currentUrl(), 'about:blank');
         expect(client.sessionGeneration, greaterThan(verifiedGeneration));
 
         expect(
@@ -1185,7 +1184,7 @@ void main() {
   );
 
   testWidgets(
-    'a rejected login snapshot releases the previous browser session',
+    'a rejected login snapshot releases the browser retained across a session change',
     (tester) async {
       final oldPlatform = WebViewPlatform.instance;
       WebViewPlatform.instance = _FakeWebViewPlatform(
@@ -1203,19 +1202,15 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
       );
-      final dio = Dio();
-      final native = dio.httpClientAdapter;
-      final client = MissavClient(
-        dio: dio,
-        secureStorage: _MemorySecureStorage(),
-      );
+      final mobile = WebViewController();
+      final client = MissavClient(secureStorage: _MemorySecureStorage());
       addTearDown(client.dispose);
 
       await tester.runAsync(() async {
         var finished = false;
         final connection = connectMissavBrowserSession(
           client,
-          mobile: WebViewController(),
+          mobile: mobile,
           checkAccess: false,
         ).whenComplete(() => finished = true);
         await Future.wait([
@@ -1227,7 +1222,9 @@ void main() {
             }
           }(),
         ]);
-        final previous = dio.httpClientAdapter as MissavBrowserAdapter;
+        expect(await mobile.currentUrl(), 'https://missav.ai/cn');
+        client.selectMirror('https://www.missav9.net');
+        final generation = client.sessionGeneration;
 
         await expectLater(
           connectMissavBrowserSession(
@@ -1241,8 +1238,8 @@ void main() {
           ),
           throwsA(isA<StateError>()),
         );
-        expect(previous.isClosed, isTrue);
-        expect(identical(dio.httpClientAdapter, native), isTrue);
+        expect(await mobile.currentUrl(), 'about:blank');
+        expect(client.sessionGeneration, greaterThan(generation));
         expect(client.isLoggedIn, isFalse);
       });
       await tester.pumpAndSettle();

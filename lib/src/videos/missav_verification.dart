@@ -27,7 +27,6 @@ const _androidBrowser = MethodChannel(
 
 MissavBrowserAdapter? _activeBrowser;
 MissavClient? _activeBrowserClient;
-int? _activeBrowserClientGeneration;
 int? _activeBrowserConnectionGeneration;
 int? _activeBrowserAndroidProxyGeneration;
 OverlayEntry? _activeMobileBrowserEntry;
@@ -101,7 +100,6 @@ void _clearBrowserOwner(MissavBrowserAdapter adapter) {
   if (!identical(_activeBrowser, adapter)) return;
   _activeBrowser = null;
   _activeBrowserClient = null;
-  _activeBrowserClientGeneration = null;
   _activeBrowserConnectionGeneration = null;
   _activeBrowserAndroidProxyGeneration = null;
 }
@@ -113,9 +111,8 @@ void _restoreOwnedBrowserTransport(
 ) {
   if (connectionGeneration == _browserConnectionGeneration &&
       identical(_activeBrowser, adapter) &&
-      identical(_activeBrowserClient, client) &&
-      client.sessionGeneration == _activeBrowserClientGeneration) {
-    client.restoreNativeTransport();
+      identical(_activeBrowserClient, client)) {
+    client.restoreNativeTransport(expectedAdapter: adapter);
   }
 }
 
@@ -832,9 +829,8 @@ Future<void> connectMissavBrowserSession(
     );
     final previous = _activeBrowser;
     if (previous != null) {
-      if (identical(_activeBrowserClient, client) &&
-          clientGeneration == _activeBrowserClientGeneration) {
-        client.restoreNativeTransport();
+      if (identical(_activeBrowserClient, client)) {
+        client.restoreNativeTransport(expectedAdapter: previous);
         clientGeneration = client.sessionGeneration;
       }
       previous.close(force: true);
@@ -1176,7 +1172,6 @@ Future<void> connectMissavBrowserSession(
     _activeBrowser = connectedAdapter;
     _activeBrowserClient = client;
     clientGeneration = client.sessionGeneration;
-    _activeBrowserClientGeneration = clientGeneration;
     _activeBrowserConnectionGeneration = connectionGeneration;
     _activeBrowserAndroidProxyGeneration = proxyGeneration;
     if (checkAccess) {
@@ -1351,7 +1346,6 @@ Future<void> clearMissavBrowserSession() async {
   final active = _activeBrowser;
   _activeBrowser = null;
   _activeBrowserClient = null;
-  _activeBrowserClientGeneration = null;
   _activeBrowserConnectionGeneration = null;
   _activeBrowserAndroidProxyGeneration = null;
   active?.close(force: true);

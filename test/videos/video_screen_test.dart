@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -4373,6 +4374,143 @@ void main() {
       expect(find.text('Previous account item'), findsNothing);
     });
   }
+
+  testWidgets('verified login opens playlists, history and video details', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const mirror = 'https://www.missav05.com';
+    const catalog = '''
+<main>
+  <div class="relative aspect-w-16 aspect-h-9">
+    <a href="/en/signed-in-video"><img alt="Watched video"></a>
+  </div>
+</main>
+''';
+    final source = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (request, handler) {
+            if (request.uri.origin != mirror) {
+              handler.next(request);
+              return;
+            }
+            handler.resolve(
+              Response<String>(
+                requestOptions: request,
+                statusCode: HttpStatus.ok,
+                data: request.uri.path == '/en/signed-in-video'
+                    ? '<main><h1>Detail from content host</h1></main>'
+                    : '<main></main>',
+              ),
+            );
+          },
+        ),
+      );
+    final metadata = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (request, handler) => handler.resolve(
+            Response<Object?>(
+              requestOptions: request,
+              statusCode: HttpStatus.ok,
+              data: {'recomms': []},
+            ),
+          ),
+        ),
+      );
+    final loginUrls = <Object?>[];
+    late final MissavBrowserAdapter browser;
+    browser = MissavBrowserAdapter(
+      currentUrl: () async => '${MissavClient.origin}/en',
+      navigateDocument: (uri, _) async => switch (uri.path) {
+        '/en/playlists' =>
+          '<main><a href="/en/playlists/saved-list">Saved playlist</a></main>',
+        '/en/history' => catalog,
+        _ => fail('Unexpected account page ${uri.path}'),
+      },
+      runJavaScript: (script) async {
+        final match = RegExp(r'const request = (.*);').firstMatch(script)!;
+        final request = jsonDecode(match.group(1)!) as Map;
+        loginUrls.add(request['url']);
+        browser.receiveMessage({
+          'id': request['id'],
+          'nonce': request['nonce'],
+          'origin': MissavClient.origin,
+          'status': 200,
+          'url': request['url'],
+          'headers': {'content-type': 'application/json'},
+          'body': '{"user":{"name":"Signed-in viewer"}}',
+        });
+      },
+      readCookieHeader: () async => 'XSRF-TOKEN=token; session=signed-in',
+      disposeBrowser: () async {},
+    );
+    final client = MissavClient(
+      dio: source,
+      metadataDio: metadata,
+      secureStorage: _EmptyVideoSecureStorage(),
+      contentHosts: const [mirror, MissavClient.origin],
+    );
+    addTearDown(client.dispose);
+    final library = await _testLibrary();
+    final signIn = () async {
+      await client.importVerifiedSession(
+        cookieHeader: 'XSRF-TOKEN=token; session=verified',
+        userAgent: 'Test browser',
+      );
+      client.useVerifiedBrowserTransport(browser);
+      await client.login(email: 'viewer@example.test', password: 'password');
+    }();
+    Object? signInError;
+    unawaited(
+      signIn.onError((error, _) {
+        signInError = error;
+      }),
+    );
+    for (var frame = 0; frame < 20 && !client.isLoggedIn; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(client.isLoggedIn, isTrue, reason: signInError?.toString());
+    await signIn;
+    expect(loginUrls, ['${MissavClient.origin}/en/api/login']);
+
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    await _selectVideoDrawerLabel(tester, l10n, l10n.playlists);
+    expect(find.text('Saved playlist').hitTestable(), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+
+    await _selectVideoDrawerLabel(tester, l10n, l10n.videoWatchHistory);
+    expect(find.text('Watched video').hitTestable(), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    final navigator = Navigator.of(tester.element(find.byType(VideoScreen)));
+    unawaited(
+      navigator.push<void>(
+        MaterialPageRoute(
+          builder: (_) => const VideoDetailsScreen(
+            video: VideoItem(
+              id: 'signed-in-video',
+              title: 'Watched video',
+              pageUrl: 'https://missav.ai/en/signed-in-video',
+            ),
+            sessionFactory: _TestVideoPlaybackSession.new,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(VideoDetailsScreen), findsOneWidget);
+    expect(find.text('Detail from content host').hitTestable(), findsWidgets);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
 
   testWidgets('account confirmed by a collection page reloads once', (
     tester,
