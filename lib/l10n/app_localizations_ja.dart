@@ -4419,6 +4419,17 @@ class SJa extends S {
   String get videoSourceUnavailable => 'この機能はアプリ内で利用できません。配信元サイトで開いてください。';
 
   @override
+  String get videoAccessDenied => '配信元サイトがアクセスを拒否しました。配信元サイトを開いてアクセスを確認してください。';
+
+  @override
+  String get videoRateLimited => 'リクエストが多すぎます。時間をおいて再試行してください。';
+
+  @override
+  String videoRateLimitedUntil(String time) {
+    return 'リクエストが多すぎます。$time以降に再試行してください。';
+  }
+
+  @override
   String get videoVerificationRequired =>
       '配信元サイトでブラウザー認証が必要です。アクセスを確認してから再試行してください。';
 

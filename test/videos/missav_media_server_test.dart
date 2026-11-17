@@ -286,6 +286,52 @@ https://fourhoi.com/segment.ts
     expect(transport.requests.map((request) => request.uri), [source]);
   });
 
+  test(
+    'reports a confirmed media challenge without treating 502 as one',
+    () async {
+      final source = Uri.parse('https://surrit.com/open/playlist.m3u8');
+      final reported = <Uri>[];
+      final challengedServer = await MissavMediaServer.start(
+        transport,
+        onVerificationRequired: reported.add,
+      );
+      addTearDown(challengedServer.close);
+      transport.whenOpened(
+        source,
+        () => _response(
+          'Challenge',
+          statusCode: HttpStatus.serviceUnavailable,
+          headers: {'cf-mitigated': 'challenge'},
+        ),
+      );
+      final response = await get(challengedServer.register(source));
+      expect(response.statusCode, HttpStatus.badGateway);
+      await response.drain<void>();
+      expect(reported, [source]);
+
+      reported.clear();
+      transport.whenOpened(
+        source,
+        () => _response(
+          '<html><head><title>Just a moment...</title></head></html>',
+          headers: {'content-type': 'text/html'},
+        ),
+      );
+      final bodyChallenge = await get(challengedServer.register(source));
+      await bodyChallenge.drain<void>();
+      expect(reported, [source]);
+
+      reported.clear();
+      transport.whenOpened(
+        source,
+        () => _response('Unavailable', statusCode: HttpStatus.badGateway),
+      );
+      final failed = await get(challengedServer.register(source));
+      await failed.drain<void>();
+      expect(reported, isEmpty);
+    },
+  );
+
   test('cancels an active remote request when the server closes', () async {
     final source = Uri.parse('https://surrit.com/open/playlist.m3u8');
     final started = Completer<RemoteAssetCancellation>();

@@ -292,11 +292,11 @@ class VideoDownloads extends ChangeNotifier {
     _VideoDownloadOperation operation,
   ) async {
     _ensureCurrent(operation);
-    final details =
-        await (sourceClientFor?.call(task.video.sourceKey) ?? client).details(
-          task.video,
-          includeAccountState: false,
-        );
+    final source = sourceClientFor?.call(task.video.sourceKey) ?? client;
+    final details = await source.details(
+      task.video,
+      includeAccountState: false,
+    );
     _ensureCurrent(operation);
     final stream = _selectStream(details, task.quality);
     if (stream == null) {
@@ -310,10 +310,18 @@ class VideoDownloads extends ChangeNotifier {
       );
     }
 
-    final uri = _requireHttpUri(Uri.parse(stream.url));
+    final prepared = source is MissavClient
+        ? await source.prepareMediaStreamWithCancellation(
+            details.video,
+            stream,
+            operation.cancellation,
+          )
+        : stream;
+    _ensureCurrent(operation);
+    final uri = _requireHttpUri(Uri.parse(prepared.url));
     final directory = _taskDirectory(task.id);
     await directory.create(recursive: true);
-    final headers = _headersFor(task.video, uri, stream.headers);
+    final headers = _headersFor(task.video, uri, prepared.headers);
     if (task.isHls) {
       await _downloadHls(task, uri, headers, directory, operation);
     } else {
@@ -1005,9 +1013,12 @@ class VideoDownloads extends ChangeNotifier {
     await pending;
   }
 
-  String _safeFailure(Object error) => error is _VideoDownloadException
-      ? error.message
-      : 'The video download failed. Check the source and retry.';
+  String _safeFailure(Object error) => switch (error) {
+    _VideoDownloadException(:final message) => message,
+    MissavVerificationRequiredException() =>
+      'The source requires verification. Open the source website to check access.',
+    _ => 'The video download failed. Check the source and retry.',
+  };
 
   void _notify() {
     if (!_disposed) notifyListeners();

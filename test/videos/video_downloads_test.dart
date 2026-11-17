@@ -53,6 +53,41 @@ void main() {
   });
 
   test(
+    'pausing during media preparation releases the download queue',
+    () async {
+      final routeStarted = Completer<void>();
+      final routeResult = Completer<Uri>();
+      const video = VideoItem(
+        id: 'cancel-preparation',
+        title: 'Cancel preparation',
+        pageUrl: 'https://missav.ai/cn/cancel-preparation',
+      );
+      const stream = VideoStream(
+        label: 'Source',
+        url: 'https://media.example/video.mp4',
+      );
+      final client = _FixtureMissavClient(
+        (_) async => const VideoDetails(video: video, streams: [stream]),
+      );
+      _activeTest.sourceClients.add(client);
+      client.useVerifiedBrowserTransport(
+        _SourceAdapter((_) => throw StateError('Unexpected source request.')),
+        mediaRoute: (_) {
+          if (!routeStarted.isCompleted) routeStarted.complete();
+          return routeResult.future;
+        },
+      );
+      final downloads = await _downloads(client);
+      await downloads.add(video, stream);
+      await routeStarted.future;
+      await downloads.pause(video.id).timeout(const Duration(seconds: 2));
+      expect(downloads.forVideo(video.id)!.status, VideoDownloadStatus.paused);
+      routeResult.complete(Uri.parse('http://127.0.0.1/video.mp4'));
+      await Future<void>.delayed(Duration.zero);
+    },
+  );
+
+  test(
     'downloads document streams without supplemental account requests',
     () async {
       FlutterSecureStorage.setMockInitialValues({});

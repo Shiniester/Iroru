@@ -1944,6 +1944,13 @@
   "videoWatchHistory": "Watch history",
   "videoDownloads": "Video downloads",
   "videoSourceUnavailable": "This feature is unavailable in the app. Open the source website.",
+  "videoAccessDenied": "The source website denied access. Open the website to check access.",
+  "videoRateLimited": "Too many requests. Wait a while, then try again.",
+  "videoRateLimitedUntil": "Too many requests. Try again after {time}.",
+  "@videoRateLimitedUntil": {
+    "description": "The source website has limited requests and provided a time to try again.",
+    "placeholders": { "time": { "type": "String", "example": "Nov 17, 2026 3:30 PM" } }
+  },
   "videoVerificationRequired": "The video source requires browser verification. Verify access, then retry.",
   "videoVerifyAccess": "Verify access",
   "videoVerificationHelp": "Complete verification on the source website, then select Check access.",

@@ -303,6 +303,18 @@ class MissavAuthenticationException extends MissavException {
   }) : super(message, sourceUrl: sourceUrl);
 }
 
+class MissavAccessDeniedException extends MissavException {
+  const MissavAccessDeniedException({required String sourceUrl})
+    : super('MissAV denied access.', sourceUrl: sourceUrl);
+}
+
+class MissavRateLimitException extends MissavException {
+  const MissavRateLimitException({required String sourceUrl, this.retryAt})
+    : super('MissAV rate limited the request.', sourceUrl: sourceUrl);
+
+  final DateTime? retryAt;
+}
+
 class MissavMirrorUnavailableException extends MissavException {
   const MissavMirrorUnavailableException({
     required this.challenged,

@@ -320,7 +320,10 @@ void main() {
     final firstRequest = Completer<List<VideoItem>>();
     final secondRequest = Completer<List<VideoItem>>();
     final verification = Completer<void>();
-    final client = _FakeMissavClient({video.id: _details(video)});
+    final client = _FakeMissavClient({video.id: _details(video)})
+      ..mediaError = MissavVerificationRequiredException(
+        sourceUrl: video.pageUrl,
+      );
     var recommendationCalls = 0;
     var verificationCalls = 0;
     client.relatedLoader = (_) {
@@ -340,15 +343,14 @@ void main() {
             verificationCalls++;
             client.changeSession();
             await verification.future;
+            client.mediaError = null;
             return true;
           },
     );
     final s = await S.delegate.load(const Locale('en'));
 
     expect(recommendationCalls, 1);
-    sessions.single.emitError(
-      'The media server requires browser verification.',
-    );
+    expect(sessions, hasLength(1));
     await tester.pump();
     await tester.tap(find.text(s.videoVerifyAccess));
     await tester.pump();
@@ -522,6 +524,7 @@ class _FakeMissavClient extends MissavClient {
   VideoDetails? readyDetails;
   Completer<VideoDetails>? detailsCompleter;
   Future<List<VideoItem>> Function(VideoItem video)? relatedLoader;
+  MissavVerificationRequiredException? mediaError;
   int _sessionGeneration = 0;
   int detailsCalls = 0;
   int recommendationCalls = 0;
@@ -536,6 +539,15 @@ class _FakeMissavClient extends MissavClient {
 
   @override
   Future<void> initialize() async {}
+
+  @override
+  Future<VideoStream> prepareMediaStream(
+    VideoItem video,
+    VideoStream stream,
+  ) async {
+    if (mediaError case final error?) throw error;
+    return stream;
+  }
 
   @override
   Future<VideoDetails> details(

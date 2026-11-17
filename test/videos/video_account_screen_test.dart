@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
@@ -106,7 +108,7 @@ void main() {
     expect(find.text('native-viewer'), findsOneWidget);
   });
 
-  testWidgets('native login opens verification and retries automatically', (
+  testWidgets('blocked login waits for a tap before verifying and retrying', (
     tester,
   ) async {
     const challengeUrl = 'https://missav.ai/en/api/login';
@@ -126,13 +128,18 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField).first, 'viewer@example.test');
-    await tester.enterText(find.byType(TextField).last, 'password');
-    await tester.tap(find.text(s.login));
+    await _submitLogin(tester, s);
+
+    expect(requests, isEmpty);
+    expect(client.nativeLogins, [_credentials]);
+    expect(find.text(s.videoVerificationRequired), findsOneWidget);
+    expect(find.byType(TextField), findsNWidgets(2));
+
+    await tester.tap(find.text(s.videoVerifyAccess));
     await tester.pumpAndSettle();
 
     expect(requests, [(sourceUrl: challengeUrl)]);
-    expect(client.nativeLoginCalls, 2);
+    expect(client.nativeLogins, [_credentials, _credentials]);
     expect(find.text(s.videoVerificationRequired), findsNothing);
     expect(find.text('native-viewer'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
@@ -167,6 +174,8 @@ void main() {
         await tester.enterText(find.byType(TextField).last, 'password');
         await tester.tap(find.text(s.login));
         await tester.pumpAndSettle();
+        await tester.tap(find.text(s.videoVerifyAccess));
+        await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
         expect(client.nativeLoginCalls, signedInOnWeb ? 1 : 2);
@@ -182,41 +191,209 @@ void main() {
     );
   }
 
+  for (final editForm in [false, true]) {
+    testWidgets(
+      editForm
+          ? 'verification does not submit edited credentials'
+          : 'manual verification does not submit a filled form',
+      (tester) async {
+        final client = _TestMissavClient();
+        final s = await S.delegate.load(const Locale('en'));
+        await tester.pumpWidget(
+          _app(
+            client,
+            verifier: (_, _, {required sourceUrl}) async =>
+                (verified: true, signedIn: false),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        if (editForm) {
+          client.nativeLoginChallengeUrl = 'https://missav.ai/en';
+          await _submitLogin(tester, s);
+        } else {
+          await tester.enterText(
+            find.byType(TextField).first,
+            _credentials.email,
+          );
+        }
+        await tester.enterText(find.byType(TextField).last, 'new-password');
+        await tester.tap(find.text(s.videoVerifyAccess));
+        await tester.pumpAndSettle();
+
+        expect(client.nativeLoginCalls, editForm ? 1 : 0);
+        expect(find.text(s.videoVerificationRequired), findsNothing);
+        expect(find.byType(TextField), findsNWidgets(2));
+      },
+    );
+  }
+
+  testWidgets('another challenge does not rearm the blocked login', (
+    tester,
+  ) async {
+    final client = _TestMissavClient()
+      ..nativeLoginChallengeUrl = 'https://missav.ai/en';
+    var verifierCalls = 0;
+    final s = await S.delegate.load(const Locale('en'));
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl}) async {
+          verifierCalls++;
+          return (verified: true, signedIn: false);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _submitLogin(tester, s);
+    await tester.tap(find.text(s.videoVerifyAccess));
+    await tester.pumpAndSettle();
+
+    expect(client.nativeLoginCalls, 2);
+    expect(verifierCalls, 1);
+    expect(find.text(s.videoOpenSource), findsOneWidget);
+
+    await tester.tap(find.text(s.videoVerifyAccess));
+    await tester.pumpAndSettle();
+
+    expect(verifierCalls, 2);
+    expect(client.nativeLoginCalls, 2);
+  });
+
   testWidgets('cancelled verification keeps the login form retryable', (
     tester,
   ) async {
     final client = _TestMissavClient()
       ..nativeLoginChallengeUrl = 'https://missav.ai/en';
+    var verifierCalls = 0;
     final s = await S.delegate.load(const Locale('en'));
 
     await tester.pumpWidget(
       _app(
         client,
         verifier: (_, _, {required sourceUrl}) async {
+          verifierCalls++;
           return (verified: false, signedIn: false);
         },
       ),
     );
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField).first, 'viewer@example.test');
-    await tester.enterText(find.byType(TextField).last, 'password');
-    await tester.tap(find.text(s.login));
+    await _submitLogin(tester, s);
+    expect(verifierCalls, 0);
+
+    await tester.tap(find.text(s.videoVerifyAccess));
     await tester.pumpAndSettle();
 
+    expect(verifierCalls, 1);
     expect(client.nativeLoginCalls, 1);
     expect(client.isLoggedIn, isFalse);
     expect(find.text(s.videoVerificationRequired), findsOneWidget);
+    expect(find.text(s.videoOpenSource), findsOneWidget);
     expect(find.byType(TextField), findsNWidgets(2));
 
     client.nativeLoginChallengeUrl = null;
     await tester.tap(find.text(s.login));
     await tester.pumpAndSettle();
 
-    expect(client.nativeLoginCalls, 2);
+    expect(client.nativeLogins, [_credentials, _credentials]);
+    expect(verifierCalls, 1);
     expect(find.text('native-viewer'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
   });
+
+  testWidgets('access denial offers the approved source without verifying', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const channel = MethodChannel('plugins.flutter.io/url_launcher');
+    final launchedUrls = <String>[];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method != 'launch') return null;
+      launchedUrls.add((call.arguments as Map)['url'] as String);
+      return true;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final client = _TestMissavClient()
+      ..nativeLoginError = const MissavAccessDeniedException(
+        sourceUrl: 'https://unapproved.example.test/en/api/login',
+      );
+    var verifierCalls = 0;
+    final s = await S.delegate.load(const Locale('en'));
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl}) async {
+          verifierCalls++;
+          return (verified: false, signedIn: false);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _submitLogin(tester, s);
+
+    expect(client.nativeLoginCalls, 1);
+    expect(find.text(s.videoAccessDenied), findsOneWidget);
+    expect(find.text(s.videoVerificationRequired), findsNothing);
+    expect(launchedUrls, isEmpty);
+    final openSource = find.text(s.videoOpenSource);
+    await tester.ensureVisible(openSource);
+    await tester.tap(openSource);
+    await tester.pumpAndSettle();
+
+    expect(launchedUrls, [client.originHomeUrl]);
+    expect(verifierCalls, 0);
+  });
+
+  for (final hasRetryTime in [false, true]) {
+    testWidgets(
+      hasRetryTime
+          ? 'rate limiting shows the local retry time'
+          : 'rate limiting without a time asks the user to wait',
+      (tester) async {
+        final retryAt = hasRetryTime
+            ? DateTime.now().toUtc().add(const Duration(hours: 2))
+            : null;
+        final client = _TestMissavClient()
+          ..nativeLoginError = MissavRateLimitException(
+            sourceUrl: 'https://missav.ai/en/api/login',
+            retryAt: retryAt,
+          );
+        var verifierCalls = 0;
+        final s = await S.delegate.load(const Locale('en'));
+        await tester.pumpWidget(
+          _app(
+            client,
+            verifier: (_, _, {required sourceUrl}) async {
+              verifierCalls++;
+              return (verified: false, signedIn: false);
+            },
+          ),
+        );
+        await tester.pumpAndSettle();
+        await _submitLogin(tester, s);
+
+        final message = retryAt == null
+            ? s.videoRateLimited
+            : s.videoRateLimitedUntil(
+                DateFormat.yMMMd(
+                  s.localeName,
+                ).add_jm().format(retryAt.toLocal()),
+              );
+        expect(find.text(message), findsOneWidget);
+        expect(find.text(s.videoVerificationRequired), findsNothing);
+        expect(find.byType(TextField), findsNWidgets(2));
+        expect(client.nativeLoginCalls, 1);
+        expect(verifierCalls, 0);
+      },
+    );
+  }
 
   testWidgets('invalid credentials stay in the login form', (tester) async {
     final client = _TestMissavClient()..rejectLogin = true;
@@ -299,6 +476,15 @@ void main() {
   });
 }
 
+const _credentials = (email: 'viewer@example.test', password: 'password');
+
+Future<void> _submitLogin(WidgetTester tester, S s) async {
+  await tester.enterText(find.byType(TextField).first, _credentials.email);
+  await tester.enterText(find.byType(TextField).last, _credentials.password);
+  await tester.tap(find.text(s.login));
+  await tester.pumpAndSettle();
+}
+
 Widget _app(
   _TestMissavClient client, {
   required _MissavAccountVerifier verifier,
@@ -330,8 +516,10 @@ class _TestMissavClient extends MissavClient {
   String? _name;
   int browserAccessChecks = 0;
   int logoutCalls = 0;
-  int nativeLoginCalls = 0;
+  final nativeLogins = <({String email, String password})>[];
+  int get nativeLoginCalls => nativeLogins.length;
   String? nativeLoginChallengeUrl;
+  MissavException? nativeLoginError;
   bool rejectLogin = false;
   bool failLogin = false;
 
@@ -363,7 +551,8 @@ class _TestMissavClient extends MissavClient {
 
   @override
   Future<void> login({required String email, required String password}) async {
-    nativeLoginCalls++;
+    nativeLogins.add((email: email, password: password));
+    if (nativeLoginError case final error?) throw error;
     if (nativeLoginChallengeUrl case final challengeUrl?) {
       throw MissavVerificationRequiredException(sourceUrl: challengeUrl);
     }

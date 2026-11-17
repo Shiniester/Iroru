@@ -62,6 +62,8 @@
 
 功能说明和检查结果见[视频接入](../video-integration.md)。
 
+MissAV 的验证提示、首播与媒体转发的后续决策见 [ADR 0013](0013-missav-verification-and-playback-recovery.md)。
+
 2026-11-15 修订：MissAV 访问改为原生优先。
 应用先使用保存的 Cookie 和 User-Agent 请求原生页面、账号 API 和媒体地址。
 原生请求遇到 Cloudflare 验证页或 HTTP 403 时，恢复浏览器会话或显示“验证访问”。

@@ -8128,6 +8128,24 @@ abstract class S {
   /// **'This feature is unavailable in the app. Open the source website.'**
   String get videoSourceUnavailable;
 
+  /// No description provided for @videoAccessDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'The source website denied access. Open the website to check access.'**
+  String get videoAccessDenied;
+
+  /// No description provided for @videoRateLimited.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many requests. Wait a while, then try again.'**
+  String get videoRateLimited;
+
+  /// The source website has limited requests and provided a time to try again.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many requests. Try again after {time}.'**
+  String videoRateLimitedUntil(String time);
+
   /// No description provided for @videoVerificationRequired.
   ///
   /// In en, this message translates to:

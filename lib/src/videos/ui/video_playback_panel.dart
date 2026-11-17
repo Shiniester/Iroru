@@ -14,7 +14,6 @@ import '../../services/proxy_config.dart';
 import '../../widgets/app_navigation_scope.dart';
 import '../../widgets/image_save_service.dart';
 import '../../widgets/responsive_dialog.dart';
-import '../missav_stream_prefetch.dart';
 import '../video_library.dart';
 import '../video_models.dart';
 import '../video_playback_settings.dart';
@@ -598,9 +597,12 @@ class VideoPlaybackPanel extends StatefulWidget {
     this.savePositionOnSourceChange = false,
     this.sessionFactory,
     this.platform,
+    this.prepareStream,
+    this.mediaVerificationError,
     this.onStreamChanged,
     this.onOpenSource,
     this.onVerifyAccess,
+    this.requireVerificationError = false,
     this.onFullscreenChanged,
   });
 
@@ -618,9 +620,12 @@ class VideoPlaybackPanel extends StatefulWidget {
   final bool savePositionOnSourceChange;
   final VideoPlaybackSessionFactory? sessionFactory;
   final VideoPlayerPlatform? platform;
+  final Future<VideoStream> Function(VideoStream)? prepareStream;
+  final VideoVerificationRequired? mediaVerificationError;
   final ValueChanged<VideoStream>? onStreamChanged;
   final VoidCallback? onOpenSource;
   final Future<void> Function()? onVerifyAccess;
+  final bool requireVerificationError;
   final ValueChanged<bool>? onFullscreenChanged;
 
   @override
@@ -639,8 +644,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   final Map<int, Offset> _transformPointers = {};
   late double _volume;
   late int _streamIndex;
-  MissavStreamPrefetch? _streamPrefetch;
-  String? _prefetchedStreamSource;
   late Future<void> _loadTail;
   Future<void> _rateTail = Future<void>.value();
   Future<void> _loopModeTail = Future<void>.value();
@@ -721,7 +724,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   bool? _appTabWasSelected;
   int _pauseGeneration = 0;
   int _loadGeneration = 0;
-  String? _error;
+  Object? _error;
   ({int level, bool charging})? _batteryStatus;
 
   @override
@@ -738,7 +741,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     if (_volume > 0) _lastNonZeroVolume = _volume;
     _streamIndex = 0;
     _loadTail = Future<void>.value();
-    _prefetchInitialStream();
     WidgetsBinding.instance.addObserver(this);
     _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       unawaited(_savePosition());
@@ -1013,7 +1015,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         _videoOffset = Offset.zero;
       }
       _streamIndex = 0;
-      if (!_sourceLoaded) _prefetchInitialStream();
       unawaited(
         _loadSource(
           position: widget.initialPosition,
@@ -1131,6 +1132,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     final sourceLocalPath = widget.localPath;
     final sourceStreams = widget.streams;
     final sourceStreamIndex = _streamIndex;
+    final prepareStream = widget.prepareStream;
     final pendingSourcePosition = _pendingSourcePosition;
     final pendingSeekPosition = _pendingSeekPosition;
     final pendingSeekVideoId = _loadedVideoId;
@@ -1190,9 +1192,8 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         );
       } else {
         if (sourceStreams.isEmpty) return;
-        final stream = await _takePrefetchedStream(
-          sourceStreams[sourceStreamIndex],
-        );
+        var stream = sourceStreams[sourceStreamIndex];
+        if (prepareStream != null) stream = await prepareStream(stream);
         if (_disposed || generation != _loadGeneration) return;
         await _session.loadStream(
           stream,
@@ -1266,7 +1267,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       _controlsTimer?.cancel();
       _updatePlayerState(() {
         _loading = false;
-        _error = error.toString();
+        _error = error;
         _controlsVisible = true;
       });
       if (widget.savePositionOnSourceChange &&
@@ -2213,7 +2214,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       return;
     }
     final previousIndex = _streamIndex;
-    _cancelPrefetch();
     final position =
         _seekPreview ??
         _pendingSeekPosition ??
@@ -2227,43 +2227,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       _updatePlayerState(() => _streamIndex = previousIndex);
       widget.onStreamChanged?.call(widget.streams[previousIndex]);
     }
-  }
-
-  void _prefetchInitialStream() {
-    if (widget.streams.isEmpty) return;
-    final stream = widget.streams[_streamIndex];
-    _cancelPrefetch();
-    _prefetchedStreamSource = stream.url;
-    _streamPrefetch = MissavStreamPrefetch(stream);
-  }
-
-  Future<VideoStream> _takePrefetchedStream(VideoStream stream) async {
-    final prefetch = _streamPrefetch;
-    final source = _prefetchedStreamSource;
-    if (prefetch == null) return stream;
-    if (source != stream.url) {
-      if (identical(_streamPrefetch, prefetch)) _cancelPrefetch();
-      return stream;
-    }
-    try {
-      return await prefetch.resolve().timeout(
-        const Duration(milliseconds: 1500),
-      );
-    } catch (_) {
-      prefetch.cancel();
-      return stream;
-    } finally {
-      if (identical(_streamPrefetch, prefetch)) {
-        _streamPrefetch = null;
-        _prefetchedStreamSource = null;
-      }
-    }
-  }
-
-  void _cancelPrefetch() {
-    _streamPrefetch?.cancel();
-    _streamPrefetch = null;
-    _prefetchedStreamSource = null;
   }
 
   Future<void> _setVolume(double value) async {
@@ -2694,7 +2657,10 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                         icon: const Icon(Icons.refresh),
                         onPressed: () => unawaited(_reloadSource()),
                       ),
-                      if (widget.onVerifyAccess != null)
+                      if (widget.onVerifyAccess != null &&
+                          (!widget.requireVerificationError ||
+                              _error is VideoVerificationRequired ||
+                              widget.mediaVerificationError != null))
                         TextButton.icon(
                           onPressed: () => unawaited(_verifyAccess()),
                           icon: const Icon(Icons.verified_user_outlined),
@@ -4258,7 +4224,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _fullscreenMetricsChanged?.complete();
     _fullscreenMetricsChanged = null;
     _loadGeneration++;
-    _cancelPrefetch();
     _saveTimer?.cancel();
     _controlsTimer?.cancel();
     _seekPreviewClearTimer?.cancel();

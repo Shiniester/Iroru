@@ -4396,6 +4396,17 @@ class SZh extends S {
   String get videoSourceUnavailable => '此功能暂无法在应用内使用，可打开源站。';
 
   @override
+  String get videoAccessDenied => '源站拒绝访问。请打开源站确认能否访问。';
+
+  @override
+  String get videoRateLimited => '请求次数过多。请稍后重试。';
+
+  @override
+  String videoRateLimitedUntil(String time) {
+    return '请求次数过多。请在 $time 后重试。';
+  }
+
+  @override
   String get videoVerificationRequired => '源站要求浏览器验证。请先验证访问，再重试。';
 
   @override
@@ -9381,6 +9392,17 @@ class SZhHant extends SZh {
 
   @override
   String get videoSourceUnavailable => '此功能暫時無法在應用程式內使用，可開啟來源網站。';
+
+  @override
+  String get videoAccessDenied => '來源網站拒絕存取。請開啟來源網站確認是否可存取。';
+
+  @override
+  String get videoRateLimited => '請求次數過多。請稍後再試。';
+
+  @override
+  String videoRateLimitedUntil(String time) {
+    return '請求次數過多。請在 $time 後再試。';
+  }
 
   @override
   String get videoVerificationRequired => '來源網站要求瀏覽器驗證。請先驗證存取，再重試。';

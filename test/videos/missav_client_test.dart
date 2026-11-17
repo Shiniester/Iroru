@@ -7,6 +7,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
+import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
 import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
 import 'package:kikoeru_flutter/src/videos/missav_mirrors.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
@@ -222,6 +223,119 @@ void main() {
   });
 
   group('MissAV content recovery', () {
+    testWidgets('cancels slow lines and stops at the full page deadline', (
+      tester,
+    ) async {
+      final hosts = [
+        for (final mirror in missavMirrors.take(4)) mirror.baseUrl,
+      ];
+      final lateResponse = Completer<ResponseBody>();
+      final adapter = _Adapter((_) => lateResponse.future);
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: _MemorySecureStorage(),
+        contentHosts: hosts,
+      );
+      addTearDown(client.dispose);
+      await client.initialize();
+      final result = expectLater(
+        client.browse('https://missav.ai/cn/release'),
+        throwsA(
+          isA<MissavException>().having(
+            (error) => error.message,
+            'message',
+            contains('content loading timed out'),
+          ),
+        ),
+      );
+      await tester.pump(Duration.zero);
+      expect(adapter.requests.single.uri.origin, hosts.first);
+      for (var attempt = 0; attempt < 3; attempt++) {
+        await tester.pump(const Duration(seconds: 4));
+      }
+      await result;
+      expect(
+        adapter.requests.map((request) => request.uri.origin),
+        hosts.take(3),
+      );
+      expect(
+        adapter.requests.every((request) => request.cancelToken!.isCancelled),
+        isTrue,
+      );
+      lateResponse.complete(_response(_searchCatalogHtml(['late'])));
+      await tester.pump(Duration.zero);
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getString(missavLastGoodHostKey), isNull);
+    });
+
+    testWidgets('a deadline preserves an earlier official challenge', (
+      tester,
+    ) async {
+      final slowResponse = Completer<ResponseBody>();
+      final adapter = _Adapter((request) {
+        if (request.uri.host == 'missav.live') {
+          return _response(
+            'Challenge',
+            statusCode: HttpStatus.serviceUnavailable,
+            headers: {
+              'cf-mitigated': ['challenge'],
+            },
+          );
+        }
+        return slowResponse.future;
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: _MemorySecureStorage(),
+        contentHosts: [
+          'https://missav.live',
+          missavMirrors.first.baseUrl,
+          'https://missav.ws',
+          'https://missav.ai',
+        ],
+      );
+      addTearDown(client.dispose);
+      final result = expectLater(
+        client.browse('https://missav.ai/cn/release'),
+        throwsA(isA<MissavVerificationRequiredException>()),
+      );
+      await tester.pump(Duration.zero);
+      await tester.pump(const Duration(seconds: 12));
+      await result;
+      slowResponse.complete(_response(_searchCatalogHtml(['late'])));
+      await tester.pump(Duration.zero);
+    });
+
+    test('a missing detail keeps the last good content line', () async {
+      final mirror = missavMirrors.first.baseUrl;
+      SharedPreferences.setMockInitialValues({missavLastGoodHostKey: mirror});
+      final adapter = _Adapter((_) => _response('', statusCode: 404));
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: _MemorySecureStorage(),
+        contentHosts: [mirror],
+      );
+      addTearDown(client.dispose);
+
+      await expectLater(
+        client.details(
+          const VideoItem(
+            id: 'missing',
+            title: 'Missing detail',
+            pageUrl: 'https://missav.ws/cn/missing',
+          ),
+          includeAccountState: false,
+        ),
+        throwsA(isA<MissavException>()),
+      );
+      expect(adapter.requests.first.uri.origin, mirror);
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getString(missavLastGoodHostKey), mirror);
+    });
+
     test(
       'detail skips an invalid page and a timeout before saving a working line',
       () async {
@@ -3759,9 +3873,13 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
         },
       );
       client.useVerifiedBrowserTransport(browser);
+      var mediaRoutes = 0;
       client.useVerifiedBrowserTransport(
         browser,
-        mediaRoute: (uri) => Uri.parse('http://127.0.0.1:1234${uri.path}'),
+        mediaRoute: (uri) {
+          mediaRoutes++;
+          return Uri.parse('http://127.0.0.1:1234${uri.path}');
+        },
       );
 
       final details = await client.details(
@@ -3776,13 +3894,14 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       expect(apiRequests, ['https://missav.ai/api/items/source-123/view']);
       expect(client.isLoggedIn, isTrue);
       expect(details.streams, hasLength(2));
-      expect(
-        details.streams.every(
-          (stream) => Uri.parse(stream.url).host == '127.0.0.1',
-        ),
-        isTrue,
+      expect(mediaRoutes, 0);
+      final prepared = await client.prepareMediaStream(
+        details.video,
+        details.streams.first,
       );
-      expect(details.streams.every((stream) => stream.headers.isEmpty), isTrue);
+      expect(Uri.parse(prepared.url).host, '127.0.0.1');
+      expect(prepared.headers, isEmpty);
+      expect(mediaRoutes, 1);
       expect(nativeAdapter.requests, isEmpty);
 
       client.restoreNativeTransport();
@@ -4528,7 +4647,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     expect(client.isLoggedIn, isTrue);
   });
 
-  test('login falls back to missav.ws when missav.live is blocked', () async {
+  test('login falls back when the selected line has a gateway error', () async {
     final loginHosts = <String>[];
     final adapter = _Adapter((request) {
       if (request.method == 'POST' && request.uri.path.endsWith('/api/login')) {
@@ -4539,10 +4658,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
             ? _response('{"user":{"name":"ws-viewer"}}')
             : _response('<html></html>');
       }
-      return _response(
-        '<title>Just a moment...</title>',
-        statusCode: HttpStatus.forbidden,
-      );
+      return _response('Gateway error', statusCode: HttpStatus.badGateway);
     });
     final client = MissavClient(
       dio: Dio()..httpClientAdapter = adapter,
@@ -4561,6 +4677,117 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     expect(client.accountHostUrl, 'https://missav.ws');
     expect(client.isLoggedIn, isTrue);
   });
+
+  test('a late media route is discarded on account logout', () async {
+    final route = Completer<Uri>();
+    final client = MissavClient(secureStorage: _MemorySecureStorage());
+    addTearDown(client.dispose);
+    client.useVerifiedBrowserTransport(
+      _Adapter((_) => throw StateError('Unexpected source request.')),
+      mediaRoute: (_) => route.future,
+    );
+    final pending = expectLater(
+      client.prepareMediaStream(
+        const VideoItem(
+          id: 'sample',
+          title: 'Sample',
+          pageUrl: 'https://missav.ai/cn/sample',
+        ),
+        const VideoStream(label: 'Original', url: 'https://media.example/hls'),
+      ),
+      throwsA(isA<MissavException>()),
+    );
+    await client.logout();
+    route.complete(Uri.parse('http://127.0.0.1/media'));
+    await pending;
+  });
+
+  test(
+    'cancelling media preparation leaves the shared route available',
+    () async {
+      final routeStarted = Completer<void>();
+      final routeResult = Completer<Uri>();
+      final client = MissavClient(secureStorage: _MemorySecureStorage());
+      addTearDown(client.dispose);
+      client.useVerifiedBrowserTransport(
+        _Adapter((_) => throw StateError('Unexpected source request.')),
+        mediaRoute: (_) {
+          if (!routeStarted.isCompleted) routeStarted.complete();
+          return routeResult.future;
+        },
+      );
+      const video = VideoItem(
+        id: 'sample',
+        title: 'Sample',
+        pageUrl: 'https://missav.ai/cn/sample',
+      );
+      const stream = VideoStream(
+        label: 'Source',
+        url: 'https://media.example/hls',
+      );
+      final cancellation = RemoteAssetCancellation();
+      final pending = expectLater(
+        client.prepareMediaStreamWithCancellation(video, stream, cancellation),
+        throwsA(isA<MissavException>()),
+      );
+      await routeStarted.future;
+      cancellation.cancel();
+      await pending;
+      routeResult.complete(Uri.parse('http://127.0.0.1/media'));
+      final next = await client.prepareMediaStream(video, stream);
+      expect(next.url, 'http://127.0.0.1/media');
+    },
+  );
+
+  for (final (status, headers, errorType) in [
+    (403, <String, List<String>>{}, MissavAccessDeniedException),
+    (
+      429,
+      {
+        HttpHeaders.retryAfterHeader: [HttpDate.format(DateTime.utc(2030, 4))],
+      },
+      MissavRateLimitException,
+    ),
+    (
+      503,
+      {
+        'cf-mitigated': ['challenge'],
+      },
+      MissavVerificationRequiredException,
+    ),
+  ]) {
+    test('login stops on HTTP $status with the classified response', () async {
+      final adapter = _Adapter(
+        (request) => request.method == 'POST'
+            ? _response('Source response', statusCode: status, headers: headers)
+            : _response('<html></html>'),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      await expectLater(
+        client.login(email: 'viewer@example.invalid', password: 'sample'),
+        throwsA(
+          predicate<MissavException>(
+            (error) =>
+                error.runtimeType == errorType &&
+                (error is! MissavRateLimitException ||
+                    error.retryAt == DateTime.utc(2030, 4)),
+          ),
+        ),
+      );
+      expect(
+        adapter.requests.where((request) => request.method == 'POST'),
+        hasLength(1),
+      );
+      expect(adapter.requests.map((request) => request.uri.host).toSet(), {
+        'missav.live',
+      });
+    });
+  }
 
   test('login starts from the selected account host', () async {
     final loginHosts = <String>[];

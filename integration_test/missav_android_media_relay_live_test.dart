@@ -152,7 +152,10 @@ void main() {
           debugPrint('ANDROID_MISSAV streamCount=0');
           fail('MissAV video details returned no playable streams.');
         }
-        final stream = details.streams.first;
+        final stream = await client.prepareMediaStream(
+          details.video,
+          details.streams.first,
+        );
         final mediaUri = Uri.parse(stream.url);
         debugPrint(
           'ANDROID_MISSAV streamCount=${details.streams.length} relayHost=${mediaUri.host} hls=${stream.isHls}',

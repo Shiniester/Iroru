@@ -298,12 +298,11 @@ Future<void> waitForMissavMobilePage(
     ensureActive();
     const readyScript =
         '''
+($_verificationPageScript) ? 'challenge' : (
 location.origin === '${MissavClient.origin}' &&
 document.readyState !== 'loading' && !!document.documentElement &&
 document.documentElement.id !== 'kikoflu-browser-bridge' &&
-window.__kikofluMissavNavigationPending !== true &&
-typeof window._cf_chl_opt === 'undefined' &&
-!/^Just a moment|Attention Required.*Cloudflare/i.test(document.title)
+window.__kikofluMissavNavigationPending !== true)
 ''';
     await _waitForBrowserVerification(
       () {
@@ -387,11 +386,16 @@ document.documentElement.id === 'kikoflu-browser-bridge'
   ], eagerError: true);
 }
 
-const _verificationReadyScript = '''
+const _verificationPageScript = '''
+typeof window._cf_chl_opt !== 'undefined' ||
+/^Just a moment|Attention Required.*Cloudflare/i.test(document.title)
+''';
+
+const _verificationReadyScript =
+    '''
+($_verificationPageScript) ? 'challenge' : (
 document.readyState === 'complete' && !!document.documentElement &&
-document.documentElement.id !== 'kikoflu-browser-bridge' &&
-typeof window._cf_chl_opt === 'undefined' &&
-!/^Just a moment|Attention Required.*Cloudflare/i.test(document.title)
+document.documentElement.id !== 'kikoflu-browser-bridge')
 ''';
 
 Future<void> _waitForBrowserVerification(
@@ -400,15 +404,18 @@ Future<void> _waitForBrowserVerification(
   Completer<void>? cancelSignal,
 ) async {
   final deadline = DateTime.now().add(const Duration(seconds: 30));
+  var challenged = false;
   while (DateTime.now().isBefore(deadline)) {
     final result = await _cancelable(ready(), cancelSignal);
     if (result == true || result == 'true') return;
+    challenged = result == 'challenge' || result == '"challenge"';
     await _cancelable(
       Future<void>.delayed(const Duration(milliseconds: 250)),
       cancelSignal,
     );
   }
-  throw MissavVerificationRequiredException(sourceUrl: url);
+  if (challenged) throw MissavVerificationRequiredException(sourceUrl: url);
+  throw TimeoutException('MissAV browser page was not ready.');
 }
 
 const _documentMarkupScript = '''
@@ -663,12 +670,17 @@ window.__kikoMissavRequests?.clear();
   }
 }
 
-Future<({MissavMediaServer server, MissavBrowserMediaTransport transport})>
-_createMissavMediaRelay({
+typedef _MissavMediaRelay = ({
+  MissavMediaServer server,
+  MissavBrowserMediaTransport transport,
+});
+
+Future<_MissavMediaRelay> _createMissavMediaRelay({
   required bool mobile,
   required String homeUrl,
   required void Function() ensureActive,
-  Completer<void>? cancelSignal,
+  required Completer<void> cancelSignal,
+  required void Function(Uri source) onVerificationRequired,
 }) async {
   Webview? desktop;
   WebViewController? controller;
@@ -716,14 +728,20 @@ _createMissavMediaRelay({
         (message, origin) => media.receiveMessage(message, origin: origin),
       );
       unawaited(browser.onClose.then((_) => media.close()));
-      await browser.setOnUrlRequestCallback(isMissavVerificationUrl);
+      await _cancelable(
+        browser.setOnUrlRequestCallback(isMissavVerificationUrl),
+        cancelSignal,
+      );
       ensureActive();
       await _waitForDesktopPage(browser, startUrl, cancelSignal: cancelSignal);
       ensureActive();
     } else {
       final browser = WebViewController();
       controller = browser;
-      await browser.setJavaScriptMode(JavaScriptMode.unrestricted);
+      await _cancelable(
+        browser.setJavaScriptMode(JavaScriptMode.unrestricted),
+        cancelSignal,
+      );
       ensureActive();
       final overlay = rootNavigatorKey.currentState?.overlay;
       if (overlay == null) throw StateError('Application overlay unavailable');
@@ -738,7 +756,7 @@ _createMissavMediaRelay({
       );
       overlay.insert(view);
       entry = view;
-      await WidgetsBinding.instance.endOfFrame;
+      await _cancelable(WidgetsBinding.instance.endOfFrame, cancelSignal);
       ensureActive();
       final media = MissavBrowserMediaTransport(
         runJavaScript: browser.runJavaScript,
@@ -748,9 +766,12 @@ _createMissavMediaRelay({
         disposeBrowser: disposeMobile,
       );
       transport = media;
-      await browser.addJavaScriptChannel(
-        MissavBrowserMediaTransport.channelName,
-        onMessageReceived: (message) => media.receiveMessage(message.message),
+      await _cancelable(
+        browser.addJavaScriptChannel(
+          MissavBrowserMediaTransport.channelName,
+          onMessageReceived: (message) => media.receiveMessage(message.message),
+        ),
+        cancelSignal,
       );
       ensureActive();
       if (Platform.isAndroid) {
@@ -769,7 +790,10 @@ _createMissavMediaRelay({
       ensureActive();
     }
     final media = transport;
-    final server = await MissavMediaServer.start(media);
+    final server = await MissavMediaServer.start(
+      media,
+      onVerificationRequired: onVerificationRequired,
+    );
     try {
       ensureActive();
     } catch (_) {
@@ -799,7 +823,6 @@ Future<({bool signedIn})> connectMissavBrowserSession(
   bool preserveMobilePageOnFailure = true,
   bool checkAccess = true,
   bool requireLogin = false,
-  bool deferMediaRelay = false,
   Future<Object?> Function(String script)? readLoginPage,
 }) async {
   if (expectedGeneration != null &&
@@ -819,18 +842,29 @@ Future<({bool signedIn})> connectMissavBrowserSession(
 
   Webview? desktop;
   MissavBrowserAdapter? adapter;
-  ({MissavMediaServer server, MissavBrowserMediaTransport transport})?
-  mediaRelay;
-  Future<void> closeMedia() async {
-    final relay = mediaRelay;
-    mediaRelay = null;
-    if (relay == null) return;
-    relay.transport.close();
-    try {
-      await relay.server.close();
-    } finally {
-      await relay.transport.whenClosed;
-    }
+  ({
+    Completer<void> cancellation,
+    Future<_MissavMediaRelay> relay,
+    Future<_MissavMediaRelay> ready,
+  })?
+  mediaAttempt;
+  Future<void> mediaCleanup = Future<void>.value();
+  Future<void> resetMedia() {
+    final attempt = mediaAttempt;
+    if (attempt == null) return mediaCleanup;
+    mediaAttempt = null;
+    attempt.cancellation.complete();
+    return mediaCleanup = () async {
+      try {
+        final relay = await attempt.relay;
+        relay.transport.close();
+        try {
+          await relay.server.close();
+        } finally {
+          await relay.transport.whenClosed;
+        }
+      } catch (_) {}
+    }();
   }
 
   var preserveMobilePage = false;
@@ -986,7 +1020,7 @@ Future<({bool signedIn})> connectMissavBrowserSession(
         ),
         disposeBrowser: () async {
           disposing = true;
-          await closeMedia();
+          await resetMedia();
           await _disposeDesktopBrowser(browser);
           _clearBrowserOwner(browserAdapter);
         },
@@ -1085,7 +1119,7 @@ Future<({bool signedIn})> connectMissavBrowserSession(
               : null,
         ),
         disposeBrowser: () async {
-          await closeMedia();
+          await resetMedia();
           await _disposeMobileBrowser(mobile, preservePage: preserveMobilePage);
           final proxyToRelease = identical(_activeBrowser, browserAdapter)
               ? _activeBrowserAndroidProxyGeneration
@@ -1205,54 +1239,6 @@ Future<({bool signedIn})> connectMissavBrowserSession(
       throw StateError('MissAV sign-in could not be confirmed.');
     }
 
-    Future<void> attachMediaRelay() async {
-      final relay = await _createMissavMediaRelay(
-        mobile: mobile != null,
-        homeUrl: client.originHomeUrl,
-        cancelSignal: cancelSignal,
-        ensureActive: () => ensureMissavBrowserConnectionCurrent(
-          connectionGeneration,
-          cancelSignal,
-          client: deferMediaRelay ? null : client,
-          clientGeneration: deferMediaRelay ? null : clientGeneration,
-          browserAdapter: deferMediaRelay ? connectedAdapter : null,
-        ),
-      );
-      if (connectedAdapter.isClosed ||
-          !identical(_activeBrowser, connectedAdapter) ||
-          !identical(_activeBrowserClient, client)) {
-        relay.transport.close();
-        try {
-          await relay.server.close();
-        } finally {
-          await relay.transport.whenClosed;
-        }
-        return;
-      }
-      mediaRelay = relay;
-      unawaited(
-        relay.transport.whenClosed.then(
-          (_) => connectedAdapter.close(force: true),
-        ),
-      );
-      client.useVerifiedBrowserTransport(
-        connectedAdapter,
-        mediaRoute: relay.server.register,
-      );
-    }
-
-    if (deferMediaRelay) {
-      unawaited(attachMediaRelay().catchError((_) {}));
-    } else {
-      await attachMediaRelay();
-    }
-
-    ensureMissavBrowserConnectionCurrent(
-      connectionGeneration,
-      cancelSignal,
-      client: client,
-      clientGeneration: clientGeneration,
-    );
     if (requireLogin && mobile != null && Platform.isAndroid) {
       await parkMissavMobileBrowser(
         mobile,
@@ -1265,6 +1251,80 @@ Future<({bool signedIn})> connectMissavBrowserSession(
         ),
       );
     }
+    ensureMissavBrowserConnectionCurrent(
+      connectionGeneration,
+      cancelSignal,
+      client: client,
+      clientGeneration: clientGeneration,
+    );
+
+    void ensureMediaCurrent([Completer<void>? cancellation]) {
+      if (connectionGeneration != _browserConnectionGeneration ||
+          !identical(_activeBrowser, connectedAdapter) ||
+          !identical(_activeBrowserClient, client) ||
+          connectedAdapter.isClosed ||
+          (cancelSignal?.isCompleted ?? false) ||
+          (cancellation?.isCompleted ?? false)) {
+        throw const MissavException('MissAV media route was cancelled.');
+      }
+    }
+
+    Future<_MissavMediaRelay> startMedia(Completer<void> cancellation) async {
+      try {
+        ensureMediaCurrent(cancellation);
+        final relay = await _createMissavMediaRelay(
+          mobile: mobile != null,
+          homeUrl: client.originHomeUrl,
+          cancelSignal: cancellation,
+          ensureActive: () => ensureMediaCurrent(cancellation),
+          onVerificationRequired: (source) {
+            ensureMediaCurrent(cancellation);
+            client.reportMediaVerification(source);
+          },
+        );
+        relay.transport.whenClosed.whenComplete(() async {
+          if (identical(mediaAttempt?.cancellation, cancellation)) {
+            await resetMedia();
+          }
+        }).ignore();
+        return relay;
+      } catch (_) {
+        if (identical(mediaAttempt?.cancellation, cancellation)) {
+          mediaAttempt = null;
+        }
+        rethrow;
+      }
+    }
+
+    Future<Uri> routeMedia(Uri uri) async {
+      ensureMediaCurrent();
+      var attempt = mediaAttempt;
+      if (attempt == null) {
+        final cancellation = Completer<void>();
+        final relay = mediaCleanup.then((_) => startMedia(cancellation));
+        attempt = (
+          cancellation: cancellation,
+          relay: relay,
+          ready: _cancelable(relay, cancellation),
+        );
+        mediaAttempt = attempt;
+      }
+      late final _MissavMediaRelay relay;
+      try {
+        relay = await attempt.ready;
+      } finally {
+        ensureMediaCurrent(attempt.cancellation);
+      }
+      return relay.server.register(uri);
+    }
+
+    ensureMediaCurrent();
+    client.useVerifiedBrowserTransport(
+      connectedAdapter,
+      mediaRoute: routeMedia,
+      resetMedia: resetMedia,
+    );
+    cancelSignal?.future.then((_) => resetMedia()).ignore();
     connected = true;
     return (signedIn: client.isLoggedIn);
   } catch (_) {
@@ -1369,19 +1429,13 @@ Future<MissavVerificationResult> verifyMissavAccount(
   BuildContext context,
   MissavClient client, {
   required String sourceUrl,
-}) => _verifyMissavSession(
-  context,
-  client,
-  sourceUrl: sourceUrl,
-  deferMediaRelay: true,
-);
+}) => _verifyMissavSession(context, client, sourceUrl: sourceUrl);
 
 Future<MissavVerificationResult> _verifyMissavSession(
   BuildContext context,
   MissavClient client, {
   required String sourceUrl,
   bool requireLogin = false,
-  bool deferMediaRelay = false,
 }) async {
   final sourceUri = Uri.tryParse(sourceUrl);
   final pageUrl =
@@ -1403,7 +1457,6 @@ Future<MissavVerificationResult> _verifyMissavSession(
         client: client,
         sourceUrl: pageUrl,
         requireLogin: requireLogin,
-        deferMediaRelay: deferMediaRelay,
         androidProxyGeneration: proxyGeneration,
       ),
     );
@@ -1480,14 +1533,12 @@ class _MissavVerification extends StatefulWidget {
     required this.client,
     required this.sourceUrl,
     required this.requireLogin,
-    required this.deferMediaRelay,
     this.androidProxyGeneration,
   });
 
   final MissavClient client;
   final String sourceUrl;
   final bool requireLogin;
-  final bool deferMediaRelay;
   final int? androidProxyGeneration;
 
   @override
@@ -1636,7 +1687,6 @@ class _MissavVerificationState extends State<_MissavVerification> {
           cancelSignal: cancellation,
           androidProxyGeneration: widget.androidProxyGeneration,
           requireLogin: widget.requireLogin,
-          deferMediaRelay: widget.deferMediaRelay,
           readLoginPage: _isDesktop ? _desktop?.evaluateJavaScript : null,
         );
         final connectionGeneration = _browserConnectionGeneration;

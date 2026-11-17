@@ -83,6 +83,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   bool _savingFavorite = false;
   Object? _error;
   VideoVerificationRequired? _verificationError;
+  MissavVerificationRequiredException? _mediaVerification;
   bool _verifyingAccess = false;
   bool _accountChangedDuringVerification = false;
   int _loadGeneration = 0;
@@ -128,7 +129,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     _accountName = _client.accountName;
     _sessionGeneration = _client.sessionGeneration;
     if (widget.video.sourceKey == 'missav') {
-      _client.addListener(_onClientChanged);
+      _client.addListener(_onMissavClientChanged);
     }
     _jableAccount?.addListener(_onJableAccountChanged);
     _scheduleInitialize();
@@ -165,6 +166,15 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       route: ModalRoute.of(context),
       navigator: Navigator.maybeOf(context),
     );
+  }
+
+  void _onMissavClientChanged() {
+    final mediaVerification = _client.mediaVerification;
+    if (!identical(mediaVerification, _mediaVerification)) {
+      _mediaVerification = mediaVerification;
+      if (mounted) setState(() {});
+    }
+    _onClientChanged();
   }
 
   void _onClientChanged() {
@@ -300,14 +310,14 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   void didUpdateWidget(VideoDetailsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.video.sourceKey != widget.video.sourceKey) {
-      _client.removeListener(_onClientChanged);
+      _client.removeListener(_onMissavClientChanged);
       _jableAccount?.removeListener(_onJableAccountChanged);
       _sourceClient = ref.read(
         videoSourceClientProvider(widget.video.sourceKey),
       );
       _jableAccount?.addListener(_onJableAccountChanged);
       if (widget.video.sourceKey == 'missav') {
-        _client.addListener(_onClientChanged);
+        _client.addListener(_onMissavClientChanged);
         _accountWasLoggedIn = _client.isLoggedIn;
         _accountName = _client.accountName;
         _sessionGeneration = _client.sessionGeneration;
@@ -332,7 +342,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   void dispose() {
     _jableAccount?.removeListener(_onJableAccountChanged);
     if (widget.video.sourceKey == 'missav') {
-      _client.removeListener(_onClientChanged);
+      _client.removeListener(_onMissavClientChanged);
     }
     _routeReadiness.dispose();
     _fullscreenTransition.dispose();
@@ -353,9 +363,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     }
   }
 
-  Future<void> _verifyAndRetry() async {
+  Future<void> _verifyAndRetry({VideoVerificationRequired? reason}) async {
     if (_verifyingAccess) return;
-    final verification = videoVerificationFor(widget.video, _verificationError);
+    final verification =
+        reason ?? videoVerificationFor(widget.video, _verificationError);
     _verifyingAccess = true;
     var verified = false;
     try {
@@ -404,29 +415,37 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     await _initialize();
   }
 
-  Future<bool> _verifyMissavFor(String sourceUrl) async {
-    if (!mounted || widget.video.sourceKey != 'missav') return false;
-    final verified = await ref.read(missavAccessVerifierProvider)(
-      context,
-      _client,
-      sourceUrl: sourceUrl,
-    );
-    return verified && mounted;
-  }
-
-  Future<void> _sourceFallback([String? url]) async {
+  Future<void> _sourceFallback([String? url, MissavException? error]) async {
     if (!mounted) return;
     final s = S.of(context);
-    await showDialog<void>(
+    final retryAt = error is MissavRateLimitException
+        ? error.retryAt?.toLocal()
+        : null;
+    final message = switch (error) {
+      MissavVerificationRequiredException() => s.videoVerificationRequired,
+      MissavAccessDeniedException() => s.videoAccessDenied,
+      MissavRateLimitException() when retryAt != null =>
+        s.videoRateLimitedUntil(
+          '${MaterialLocalizations.of(context).formatCompactDate(retryAt)} '
+          '${TimeOfDay.fromDateTime(retryAt).format(context)}',
+        ),
+      MissavRateLimitException() => s.videoRateLimited,
+      _ => s.videoSourceUnavailable,
+    };
+    final verify = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(s.videoSourceUnavailable),
-        content: Text(s.videoOpenSource),
+        title: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: Text(s.cancel),
           ),
+          if (error is MissavVerificationRequiredException)
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(s.videoVerifyAccess),
+            ),
           FilledButton.icon(
             onPressed: () {
               Navigator.of(context).pop();
@@ -438,6 +457,11 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         ],
       ),
     );
+    if (verify == true &&
+        mounted &&
+        error is MissavVerificationRequiredException) {
+      await _verifyAndRetry(reason: error);
+    }
   }
 
   Future<void> _loginRequired() async {
@@ -564,20 +588,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       if (mounted && identical(_details, details)) await _loginRequired();
     } on MissavAuthenticationException {
       await _loginRequired();
-    } on MissavVerificationRequiredException catch (error) {
-      if (await _verifyMissavFor(error.sourceUrl ?? details.video.pageUrl)) {
-        if (!mounted || !identical(_details, details)) return;
-        try {
-          await _client.setVideoFavorite(details, favorite);
-          if (mounted && identical(_details, details)) {
-            setState(() => _favorite = favorite);
-          }
-        } on MissavException catch (retryError) {
-          await _sourceFallback(retryError.sourceUrl ?? details.video.pageUrl);
-        }
-      }
     } on MissavException catch (error) {
-      await _sourceFallback(error.sourceUrl ?? widget.video.pageUrl);
+      await _sourceFallback(details.video.pageUrl, error);
     } catch (_) {
       await _sourceFallback(widget.video.pageUrl);
     } finally {
@@ -595,17 +607,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       await _client.setActorFavorite(actor, favorite);
     } on MissavAuthenticationException {
       await _loginRequired();
-    } on MissavVerificationRequiredException catch (error) {
-      if (await _verifyMissavFor(error.sourceUrl ?? actor.url)) {
-        if (!mounted) return;
-        try {
-          await _client.setActorFavorite(actor, favorite);
-        } on MissavException catch (retryError) {
-          await _sourceFallback(retryError.sourceUrl ?? actor.url);
-        }
-      }
     } on MissavException catch (error) {
-      await _sourceFallback(error.sourceUrl ?? actor.url);
+      await _sourceFallback(actor.url, error);
     } catch (_) {
       await _sourceFallback(actor.url);
     }
@@ -1214,9 +1217,14 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         initialPosition: _library.positionFor(details.video.storageKey),
         initialVolume: _library.volume,
         sessionFactory: widget.sessionFactory,
+        prepareStream: widget.video.sourceKey == 'missav'
+            ? (stream) => _client.prepareMediaStream(details.video, stream)
+            : null,
+        mediaVerificationError: _mediaVerification,
         onStreamChanged: (stream) => setState(() => _selectedStream = stream),
         onOpenSource: () => unawaited(_openSource()),
         onVerifyAccess: _isOffline ? null : _verifyAndRetry,
+        requireVerificationError: widget.video.sourceKey == 'missav',
         onFullscreenChanged: (fullscreen) {
           if (mounted && _fullscreen != fullscreen) {
             final size = View.of(context).physicalSize;

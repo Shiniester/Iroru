@@ -4545,6 +4545,19 @@ class SEn extends S {
       'This feature is unavailable in the app. Open the source website.';
 
   @override
+  String get videoAccessDenied =>
+      'The source website denied access. Open the website to check access.';
+
+  @override
+  String get videoRateLimited =>
+      'Too many requests. Wait a while, then try again.';
+
+  @override
+  String videoRateLimitedUntil(String time) {
+    return 'Too many requests. Try again after $time.';
+  }
+
+  @override
   String get videoVerificationRequired =>
       'The video source requires browser verification. Verify access, then retry.';
 

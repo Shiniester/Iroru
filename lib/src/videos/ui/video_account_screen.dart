@@ -2,12 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../utils/snackbar_util.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../missav_client.dart';
-import '../missav_verification.dart';
 import '../video_models.dart';
 import '../video_providers.dart';
 
@@ -27,6 +28,8 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   bool _obscurePassword = true;
   String? _error;
   MissavVerificationRequiredException? _verificationError;
+  String? _pendingLoginHost;
+  bool _showOpenSource = false;
 
   @override
   void initState() {
@@ -44,12 +47,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
       if (mounted) {
         setState(() {
           _ready = true;
-          _verificationError = error is MissavVerificationRequiredException
-              ? error
-              : null;
-          _error = _verificationError == null
-              ? S.of(context).videoSourceUnavailable
-              : S.of(context).videoVerificationRequired;
+          _setAccountError(error, S.of(context).videoSourceUnavailable);
         });
       }
     }
@@ -59,33 +57,61 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<MissavVerificationResult> _openVerification(String sourceUrl) async {
-    final result = await ref.read(missavAccountVerifierProvider)(
-      context,
-      _client,
-      sourceUrl: sourceUrl,
-    );
-    if (mounted && result.signedIn) {
-      _client.resumeContentBrowsing();
-      _passwordController.clear();
-    }
-    return result;
-  }
-
   Future<void> _verifyAccess() async {
+    if (_loading) return;
     setState(() => _loading = true);
+    var resumeLogin = false;
     try {
-      final result = await _openVerification(
-        _verificationError?.sourceUrl ?? _client.homeUrl,
+      final result = await ref.read(missavAccountVerifierProvider)(
+        context,
+        _client,
+        sourceUrl: _verificationError?.sourceUrl ?? _client.homeUrl,
       );
-      if (mounted && result.verified) {
+      if (!mounted) return;
+      if (result.signedIn) {
+        _client.resumeContentBrowsing();
+        _passwordController.clear();
+      }
+      if (result.verified) {
+        resumeLogin =
+            !result.signedIn &&
+            !_client.isLoggedIn &&
+            _pendingLoginHost == _client.accountHostUrl;
         setState(() {
           _error = null;
           _verificationError = null;
+          _pendingLoginHost = null;
+          _showOpenSource = false;
+        });
+      } else {
+        setState(() => _showOpenSource = true);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = S.of(context).videoVerificationFailed;
+          _showOpenSource = true;
         });
       }
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+    if (mounted && resumeLogin) await _nativeLogin(resuming: true);
+  }
+
+  Future<void> _openSource() async {
+    try {
+      final opened = await launchUrl(
+        Uri.parse(_client.originHomeUrl),
+        mode: LaunchMode.externalApplication,
+      );
+      if (opened) return;
+    } catch (_) {}
+    if (mounted) {
+      SnackBarUtil.showFromSnackBar(
+        context,
+        SnackBar(content: Text(S.of(context).videoSourceUnavailable)),
+      );
     }
   }
 
@@ -114,7 +140,8 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     }
   }
 
-  Future<void> _nativeLogin() async {
+  Future<void> _nativeLogin({bool resuming = false}) async {
+    if (_loading) return;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
     if (email.isEmpty || password.isEmpty) {
@@ -125,35 +152,49 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
       _loading = true;
       _error = null;
       _verificationError = null;
+      _pendingLoginHost = null;
+      _showOpenSource = false;
     });
     try {
-      try {
-        await _client.login(email: email, password: password);
-      } on MissavVerificationRequiredException catch (error) {
-        if (!mounted) return;
-        final result = await _openVerification(
-          error.sourceUrl ?? _client.homeUrl,
-        );
-        if (!mounted) return;
-        if (!result.verified) rethrow;
-        if (!result.signedIn) {
-          await _client.login(email: email, password: password);
-        }
+      await _client.login(email: email, password: password);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _setAccountError(error, S.of(context).loginFailed);
+          if (_verificationError != null) {
+            if (resuming) {
+              _showOpenSource = true;
+            } else if (email == _emailController.text.trim() &&
+                password == _passwordController.text) {
+              _pendingLoginHost = _client.accountHostUrl;
+            }
+          }
+        });
       }
-    } on MissavVerificationRequiredException catch (error) {
-      if (mounted) _showVerificationRequired(error);
-    } catch (_) {
-      if (mounted) setState(() => _error = S.of(context).loginFailed);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  void _showVerificationRequired(MissavVerificationRequiredException error) {
-    setState(() {
-      _verificationError = error;
-      _error = S.of(context).videoVerificationRequired;
-    });
+  void _setAccountError(Object error, String fallback) {
+    final l10n = S.of(context);
+    _verificationError = error is MissavVerificationRequiredException
+        ? error
+        : null;
+    _showOpenSource = error is MissavAccessDeniedException;
+    _error = switch (error) {
+      MissavVerificationRequiredException() => l10n.videoVerificationRequired,
+      MissavAccessDeniedException() => l10n.videoAccessDenied,
+      MissavRateLimitException(:final retryAt) =>
+        retryAt != null && retryAt.isAfter(DateTime.now())
+            ? l10n.videoRateLimitedUntil(
+                DateFormat.yMMMd(
+                  l10n.localeName,
+                ).add_jm().format(retryAt.toLocal()),
+              )
+            : l10n.videoRateLimited,
+      _ => fallback,
+    };
   }
 
   @override
@@ -227,7 +268,14 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                           onChanged: _loading
                               ? null
                               : (host) {
-                                  if (host != null) {
+                                  if (host != null &&
+                                      host != _client.accountHostUrl) {
+                                    setState(() {
+                                      _error = null;
+                                      _verificationError = null;
+                                      _pendingLoginHost = null;
+                                      _showOpenSource = false;
+                                    });
                                     unawaited(_client.selectAccountHost(host));
                                   }
                                 },
@@ -236,6 +284,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                         TextField(
                           controller: _emailController,
                           enabled: !_loading,
+                          onChanged: (_) => _pendingLoginHost = null,
                           keyboardType: TextInputType.emailAddress,
                           textInputAction: TextInputAction.next,
                           autofillHints: const [AutofillHints.email],
@@ -248,6 +297,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                         TextField(
                           controller: _passwordController,
                           enabled: !_loading,
+                          onChanged: (_) => _pendingLoginHost = null,
                           obscureText: _obscurePassword,
                           textInputAction: TextInputAction.done,
                           autofillHints: const [AutofillHints.password],
@@ -290,6 +340,12 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                           icon: const Icon(Icons.verified_user_outlined),
                           label: Text(s.videoVerifyAccess),
                         ),
+                        if (_showOpenSource)
+                          OutlinedButton.icon(
+                            onPressed: _loading ? null : _openSource,
+                            icon: const Icon(Icons.open_in_new),
+                            label: Text(s.videoOpenSource),
+                          ),
                       ],
                     ],
                   ),

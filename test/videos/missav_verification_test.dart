@@ -556,6 +556,8 @@ void main() {
                   ? isA<MissavVerificationRequiredException>()
                   : status == 401
                   ? isA<MissavAuthenticationException>()
+                  : status == 403
+                  ? isA<MissavAccessDeniedException>()
                   : isA<MissavException>().having(
                       (error) => error.message,
                       'message',
@@ -1098,7 +1100,6 @@ void main() {
         final result = connection
             .timeout(const Duration(seconds: 5))
             .whenComplete(() => finished = true);
-        // The media relay needs widget frames and real socket events to finish.
         await Future.wait([
           result,
           () async {
@@ -1115,14 +1116,14 @@ void main() {
     },
   );
 
-  testWidgets('account verification does not wait for the media relay', (
+  testWidgets('media starts on demand and can retry without signing out', (
     tester,
   ) async {
     final oldPlatform = WebViewPlatform.instance;
     var mediaChannelAttempts = 0;
     final mediaChannelStarted = Completer<void>();
     final mediaChannelRelease = Completer<void>();
-    WebViewPlatform.instance = _FakeWebViewPlatform(
+    final platform = _FakeWebViewPlatform(
       Future.value([
         const WebViewCookie(
           name: 'session',
@@ -1137,6 +1138,7 @@ void main() {
         if (!mediaChannelStarted.isCompleted) mediaChannelStarted.complete();
       },
     );
+    WebViewPlatform.instance = platform;
     addTearDown(() {
       if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
       if (!mediaChannelRelease.isCompleted) mediaChannelRelease.complete();
@@ -1151,44 +1153,57 @@ void main() {
     addTearDown(client.dispose);
 
     await tester.runAsync(() async {
-      final connection = connectMissavBrowserSession(
-        client,
-        mobile: mobile,
-        deferMediaRelay: true,
+      final connection = await _pumpUntilComplete(
+        tester,
+        connectMissavBrowserSession(client, mobile: mobile, requireLogin: true),
       );
-      var finished = false;
-      final result = connection
-          .timeout(const Duration(seconds: 5))
-          .whenComplete(() => finished = true);
-      await Future.wait([
-        result.then((value) => expect(value.signedIn, isTrue)),
-        () async {
-          while (!finished) {
-            await tester.pump();
-            await Future<void>.delayed(Duration.zero);
-          }
-        }(),
+      expect(connection.signedIn, isTrue);
+      expect(mediaChannelAttempts, 0);
+
+      Future<VideoStream> prepare() =>
+          client.prepareMediaStream(_relayVideo, _relayStream);
+      final unavailable = throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          'Media relay unavailable.',
+        ),
+      );
+      final failures = Future.wait([
+        expectLater(prepare(), unavailable),
+        expectLater(prepare(), unavailable),
       ]);
-      while (!mediaChannelStarted.isCompleted) {
-        await tester.pump();
-        await Future<void>.delayed(Duration.zero);
-      }
-      expect(mediaChannelRelease.isCompleted, isFalse);
+      await _pumpUntilComplete(tester, mediaChannelStarted.future);
+      expect(mediaChannelAttempts, 1);
       mediaChannelRelease.complete();
+      await _pumpUntilComplete(tester, failures);
+      expect(mediaChannelAttempts, 1);
+      expect(client.isLoggedIn, isTrue);
+      expect(client.accountName, 'browser-viewer');
+      expect(await mobile.currentUrl(), client.originHomeUrl);
+
+      platform.failMediaChannel = false;
+      final routed = await _pumpUntilComplete(tester, prepare());
+      expect(Uri.parse(routed.url).host, '127.0.0.1');
+      expect(routed.headers, isEmpty);
+      expect((await prepare()).url, routed.url);
+      expect(mediaChannelAttempts, 2);
+      await client.importVerifiedSession(
+        cookieHeader: 'session=verified',
+        userAgent: 'test-browser',
+      );
     });
     await tester.pumpAndSettle();
-
-    expect(mediaChannelAttempts, 1);
-    expect(client.isLoggedIn, isTrue);
-    expect(client.accountName, 'browser-viewer');
   });
 
-  testWidgets('access verification still requires the media relay', (
+  testWidgets('replacing the account cancels a pending media relay', (
     tester,
   ) async {
     final oldPlatform = WebViewPlatform.instance;
     var mediaChannelAttempts = 0;
-    WebViewPlatform.instance = _FakeWebViewPlatform(
+    final mediaChannelStarted = Completer<void>();
+    final mediaChannelRelease = Completer<void>();
+    final platform = _FakeWebViewPlatform(
       Future.value([
         const WebViewCookie(
           name: 'session',
@@ -1196,11 +1211,16 @@ void main() {
           domain: 'missav.ai',
         ),
       ]),
-      failMediaChannel: true,
-      onMediaChannel: () => mediaChannelAttempts++,
+      mediaChannelDelay: mediaChannelRelease.future,
+      onMediaChannel: () {
+        mediaChannelAttempts++;
+        if (!mediaChannelStarted.isCompleted) mediaChannelStarted.complete();
+      },
     );
+    WebViewPlatform.instance = platform;
     addTearDown(() {
       if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      if (!mediaChannelRelease.isCompleted) mediaChannelRelease.complete();
     });
     await tester.pumpWidget(
       MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
@@ -1210,90 +1230,40 @@ void main() {
     addTearDown(client.dispose);
 
     await tester.runAsync(() async {
-      final connection = connectMissavBrowserSession(client, mobile: mobile);
-      var finished = false;
-      final result = expectLater(
-        connection.timeout(const Duration(seconds: 5)),
-        throwsA(isA<StateError>()),
-      ).whenComplete(() => finished = true);
-      await Future.wait([
-        result,
-        () async {
-          while (!finished) {
-            await tester.pump();
-            await Future<void>.delayed(Duration.zero);
-          }
-        }(),
-      ]);
+      final connection = await _pumpUntilComplete(
+        tester,
+        connectMissavBrowserSession(client, mobile: mobile),
+      );
+      expect(connection.signedIn, isFalse);
+      expect(mediaChannelAttempts, 0);
+
+      Future<VideoStream> prepare() =>
+          client.prepareMediaStream(_relayVideo, _relayStream);
+      final cancelled = expectLater(prepare(), throwsA(isA<MissavException>()));
+      await _pumpUntilComplete(tester, mediaChannelStarted.future);
+      await _pumpUntilComplete(
+        tester,
+        client.importVerifiedSession(
+          cookieHeader: 'session=replaced',
+          userAgent: 'test-browser',
+        ),
+      );
+      await _pumpUntilComplete(tester, cancelled);
+      expect(await mobile.currentUrl(), client.originHomeUrl);
+
+      platform.mediaChannelDelay = null;
+      final routed = await _pumpUntilComplete(tester, prepare());
+      expect(Uri.parse(routed.url).host, '127.0.0.1');
+      mediaChannelRelease.complete();
+      expect((await prepare()).url, routed.url);
+      expect(mediaChannelAttempts, 2);
+      await client.importVerifiedSession(
+        cookieHeader: 'session=replaced',
+        userAgent: 'test-browser',
+      );
     });
     await tester.pumpAndSettle();
-
-    expect(mediaChannelAttempts, greaterThan(0));
   });
-
-  testWidgets(
-    'account verification reports an anonymous visitor when media is slow',
-    (tester) async {
-      final oldPlatform = WebViewPlatform.instance;
-      var mediaChannelAttempts = 0;
-      final mediaChannelStarted = Completer<void>();
-      WebViewPlatform.instance = _FakeWebViewPlatform(
-        Future.value([
-          const WebViewCookie(
-            name: 'session',
-            value: 'verified',
-            domain: 'missav.ai',
-          ),
-        ]),
-        failMediaChannel: true,
-        mediaChannelDelay: Future.value(),
-        onMediaChannel: () {
-          mediaChannelAttempts++;
-          if (!mediaChannelStarted.isCompleted) mediaChannelStarted.complete();
-        },
-      );
-      addTearDown(() {
-        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
-      });
-      await tester.pumpWidget(
-        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
-      );
-      final mobile = WebViewController();
-      final client = MissavClient(secureStorage: _MemorySecureStorage());
-      addTearDown(client.dispose);
-
-      var signedIn = true;
-      await tester.runAsync(() async {
-        final connection = connectMissavBrowserSession(
-          client,
-          mobile: mobile,
-          deferMediaRelay: true,
-        );
-        var finished = false;
-        final result = connection
-            .timeout(const Duration(seconds: 5))
-            .whenComplete(() => finished = true);
-        await Future.wait([
-          result.then((value) => signedIn = value.signedIn),
-          () async {
-            while (!finished) {
-              await tester.pump();
-              await Future<void>.delayed(Duration.zero);
-            }
-          }(),
-        ]);
-        while (!mediaChannelStarted.isCompleted) {
-          await tester.pump();
-          await Future<void>.delayed(Duration.zero);
-        }
-      });
-      await tester.pumpAndSettle();
-
-      expect(mediaChannelAttempts, greaterThan(0));
-      expect(signedIn, isFalse);
-      expect(client.isLoggedIn, isFalse);
-    },
-  );
 
   for (final (trustedPage, accountInMarkup) in [
     (true, false),
@@ -1357,7 +1327,6 @@ void main() {
           );
           var finished = false;
           final result = outcome.whenComplete(() => finished = true);
-          // The media relay needs widget frames and real socket events to finish.
           await Future.wait([
             result,
             () async {
@@ -1496,7 +1465,6 @@ void main() {
           connection.timeout(const Duration(seconds: 5)),
           throwsA(isA<StateError>()),
         ).whenComplete(() => finished = true);
-        // The media relay needs widget frames and real socket events to finish.
         await Future.wait([
           result,
           () async {
@@ -1569,6 +1537,39 @@ void main() {
   });
 }
 
+const _relayVideo = VideoItem(
+  id: 'open-sample-001',
+  title: 'Sample',
+  pageUrl: 'https://missav.ai/cn/open-sample-001',
+);
+
+const _relayStream = VideoStream(
+  label: 'Source',
+  url: 'https://media.example.net/master.m3u8',
+  headers: {'Referer': 'https://missav.ai/'},
+  isHls: true,
+);
+
+Future<T> _pumpUntilComplete<T>(
+  WidgetTester tester,
+  Future<T> operation,
+) async {
+  var finished = false;
+  final result = operation
+      .timeout(const Duration(seconds: 5))
+      .whenComplete(() => finished = true);
+  await Future.wait<void>([
+    result.then<void>((_) {}),
+    () async {
+      while (!finished) {
+        await tester.pump();
+        await Future<void>.delayed(Duration.zero);
+      }
+    }(),
+  ]);
+  return result;
+}
+
 class _DesktopBrowser extends Fake implements Webview {
   final state = ValueNotifier(
     const WebviewNavigationState(url: 'https://missav.ai/cn', isLoading: true),
@@ -1603,8 +1604,8 @@ class _FakeWebViewPlatform extends WebViewPlatform {
   final Future<void> Function(LoadRequestParams params)? onLoadRequest;
   final Future<void> Function()? onLoadHtml;
   final Future<void>? loadRequestCompletion;
-  final bool failMediaChannel;
-  final Future<void>? mediaChannelDelay;
+  bool failMediaChannel;
+  Future<void>? mediaChannelDelay;
   final void Function()? onMediaChannel;
   final cookiesRequested = Completer<void>();
 

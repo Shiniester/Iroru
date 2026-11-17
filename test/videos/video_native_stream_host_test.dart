@@ -115,12 +115,16 @@ void main() {
   }
 
   test(
-    'MissAV-style HLS segments decode through the native video session',
+    'MissAV-style HLS redirect and segments decode through the native video session',
     () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       final requests = <String>[];
       server.listen((request) async {
         requests.add(request.uri.path);
+        if (request.uri.path == '/jmpres/master.m3u8') {
+          await request.response.redirect(Uri(path: '/master.m3u8'));
+          return;
+        }
         if (request.uri.path == '/master.m3u8') {
           request.response.headers.contentType = ContentType(
             'audio',
@@ -159,7 +163,7 @@ void main() {
         await session.loadStream(
           VideoStream(
             label: 'Source',
-            url: 'http://127.0.0.1:${server.port}/master.m3u8',
+            url: 'http://127.0.0.1:${server.port}/jmpres/master.m3u8',
             isHls: true,
           ),
           position: Duration.zero,
@@ -173,6 +177,7 @@ void main() {
         expect(errors, isEmpty);
         expect(session.snapshot.value.error, isNull);
         expect(player.state.duration, greaterThan(Duration.zero));
+        expect(requests.take(2), ['/jmpres/master.m3u8', '/master.m3u8']);
         expect(requests, contains('/hls/index.m3u8'));
         expect(requests, contains('/hls/segment00.jpeg'));
       } finally {

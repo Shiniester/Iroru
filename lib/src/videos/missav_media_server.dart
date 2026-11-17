@@ -5,12 +5,9 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import '../services/remote_asset_cache.dart';
+import 'missav_client.dart';
 
 class MissavMediaServer {
-  MissavMediaServer._(this._server, this._transport) {
-    _requestSubscription = _server.listen(_acceptRequest);
-  }
-
   static const _playlistLimit = 2 * 1024 * 1024;
   static const _mediaPath = 'media';
   static const _requestHeaders = {
@@ -44,6 +41,7 @@ class MissavMediaServer {
 
   final HttpServer _server;
   final RemoteAssetTransport _transport;
+  final void Function(Uri source)? _onVerificationRequired;
   final Map<String, _RegisteredMedia> _registrations = {};
   final Map<String, String> _tokenBySource = {};
   final Set<String> _seedOrigins = {};
@@ -54,9 +52,20 @@ class MissavMediaServer {
   bool _closed = false;
   Future<void>? _closeFuture;
 
-  static Future<MissavMediaServer> start(RemoteAssetTransport transport) async {
+  MissavMediaServer._(
+    this._server,
+    this._transport,
+    this._onVerificationRequired,
+  ) {
+    _requestSubscription = _server.listen(_acceptRequest);
+  }
+
+  static Future<MissavMediaServer> start(
+    RemoteAssetTransport transport, {
+    void Function(Uri source)? onVerificationRequired,
+  }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    return MissavMediaServer._(server, transport);
+    return MissavMediaServer._(server, transport, onVerificationRequired);
   }
 
   Uri register(Uri source) {
@@ -82,6 +91,7 @@ class MissavMediaServer {
   Future<void> _handleRequest(HttpRequest request) async {
     final cancellation = RemoteAssetCancellation();
     _activeRequests.add(cancellation);
+    Uri? source;
     final response = request.response;
     unawaited(
       response.done.then<void>(
@@ -109,12 +119,18 @@ class MissavMediaServer {
 
       final isHead = request.method == 'HEAD';
       final isManifest = _isManifest(registration.source);
+      source = registration.source;
       var remoteResponse = await _openRemote(
         registration.source,
         _copyRequestHeaders(request, includeRange: !isManifest),
         cancellation,
       );
       _ensureActive(cancellation);
+      if (remoteResponse.header('cf-mitigated')?.trim().toLowerCase() ==
+          'challenge') {
+        _onVerificationRequired?.call(source);
+        throw const HttpException('MissAV media requires verification.');
+      }
       if (remoteResponse.statusCode == HttpStatus.partialContent &&
           remoteResponse.header('content-range') == null &&
           request.headers.value(HttpHeaders.rangeHeader) != null) {
@@ -270,6 +286,10 @@ class MissavMediaServer {
 
     final sourceBytes = builder.takeBytes();
     final sourceText = utf8.decode(sourceBytes, allowMalformed: false);
+    if (MissavClient.isChallengeResponse(sourceText)) {
+      _onVerificationRequired?.call(manifestUri);
+      throw const HttpException('MissAV media requires verification.');
+    }
     final lines = const LineSplitter().convert(sourceText);
     if (!lines.any((line) => line.trim() == '#EXTM3U')) {
       throw const FormatException('The response is not an HLS playlist.');

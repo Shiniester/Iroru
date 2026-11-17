@@ -691,7 +691,7 @@ void main() {
           downloads,
           _testVideoDetailsScreen(
             video: _video(),
-            sessionFactory: () => session,
+            sessionFactory: () => _FakePlaybackSession(),
           ),
           appNavigationController: navigation,
         ),
@@ -6381,7 +6381,36 @@ void main() {
   });
 
   _testPlayerWidget(
-    'failed playback can open browser verification from video details',
+    'a media challenge shows verification while the generic playback error remains',
+    (tester) async {
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _testVideoDetailsScreen(
+            video: _video(),
+            sessionFactory: () => session,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      session.emitError('The media relay returned HTTP 502.');
+      await tester.pump();
+      final l10n = await S.delegate.load(const Locale('en'));
+      expect(find.text(l10n.videoVerifyAccess), findsNothing);
+      client.reportMediaVerification(Uri.parse(_video().pageUrl));
+      await tester.pump();
+      expect(find.text(l10n.videoVerifyAccess), findsOneWidget);
+    },
+  );
+
+  _testPlayerWidget(
+    'playback retries transfer errors and offers verification on confirmation',
     (tester) async {
       final client = _TestMissavClient(_details());
       final library = await _testLibrary();
@@ -6400,11 +6429,18 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      session.emitError('The media server requires browser verification.');
+      session.emitError('The media relay returned HTTP 502.');
       await tester.pump();
 
       final l10n = await S.delegate.load(const Locale('en'));
       expect(find.text(l10n.videoPlaybackFailed), findsOneWidget);
+      expect(find.text(l10n.videoVerifyAccess), findsNothing);
+
+      client.mediaError = MissavVerificationRequiredException(
+        sourceUrl: _video().pageUrl,
+      );
+      await tester.tap(find.byTooltip(l10n.retry));
+      await tester.pumpAndSettle();
       await tester.tap(find.text(l10n.videoVerifyAccess).last);
       await tester.pumpAndSettle();
 
@@ -8961,6 +8997,7 @@ class _TestMissavClient extends MissavClient {
   final List<bool> actorFavoriteChanges = [];
   final List<bool> videoFavoriteChanges = [];
   Future<void>? favoriteResponse;
+  MissavVerificationRequiredException? mediaError;
   Completer<VideoDetails>? detailsCompleter;
   Completer<VideoDetails>? supplementCompleter;
   VideoDetails Function(VideoItem video)? detailsForVideo;
@@ -8991,6 +9028,15 @@ class _TestMissavClient extends MissavClient {
 
   @override
   String get homeUrl => 'https://missav.ai/cn';
+
+  @override
+  Future<VideoStream> prepareMediaStream(
+    VideoItem video,
+    VideoStream stream,
+  ) async {
+    if (mediaError case final error?) throw error;
+    return stream;
+  }
 
   @override
   bool get isLoggedIn => loggedIn;
