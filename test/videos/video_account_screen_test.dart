@@ -105,7 +105,7 @@ void main() {
     expect(find.text('native-viewer'), findsOneWidget);
   });
 
-  testWidgets('native login waits for manual verification and resubmission', (
+  testWidgets('native login opens verification and retries automatically', (
     tester,
   ) async {
     const challengeUrl = 'https://missav.ai/en/api/login';
@@ -130,23 +130,9 @@ void main() {
     await tester.tap(find.text(s.login));
     await tester.pumpAndSettle();
 
-    expect(requests, isEmpty);
-    expect(client.nativeLoginCalls, 1);
-    expect(find.text(s.videoVerificationRequired), findsOneWidget);
-
-    await tester.tap(find.text(s.videoVerifyAccess));
-    await tester.pumpAndSettle();
-
     expect(requests, [(sourceUrl: challengeUrl, requireLogin: false)]);
-    expect(client.nativeLoginCalls, 1);
-    expect(find.text(s.videoVerificationRequired), findsNothing);
-    expect(find.text('viewer@example.test'), findsOneWidget);
-    expect(find.text('password'), findsOneWidget);
-
-    await tester.tap(find.text(s.login));
-    await tester.pumpAndSettle();
-
     expect(client.nativeLoginCalls, 2);
+    expect(find.text(s.videoVerificationRequired), findsNothing);
     expect(find.text('native-viewer'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
   });
@@ -173,13 +159,18 @@ void main() {
     await tester.tap(find.text(s.login));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text(s.videoVerifyAccess));
-    await tester.pumpAndSettle();
-
     expect(client.nativeLoginCalls, 1);
     expect(client.isLoggedIn, isFalse);
     expect(find.text(s.videoVerificationRequired), findsOneWidget);
     expect(find.byType(TextField), findsNWidgets(2));
+
+    client.nativeLoginChallengeUrl = null;
+    await tester.tap(find.text(s.login));
+    await tester.pumpAndSettle();
+
+    expect(client.nativeLoginCalls, 2);
+    expect(find.text('native-viewer'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets('invalid credentials stay in the login form', (tester) async {

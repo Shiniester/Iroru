@@ -117,17 +117,34 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     try {
       await _client.login(email: email, password: password);
     } on MissavVerificationRequiredException catch (error) {
-      if (mounted) {
-        setState(() {
-          _verificationError = error;
-          _error = S.of(context).videoVerificationRequired;
-        });
+      if (!mounted) return;
+      final verified = await ref.read(missavAccessVerifierProvider)(
+        context,
+        _client,
+        sourceUrl: error.sourceUrl ?? _client.homeUrl,
+      );
+      if (!mounted) return;
+      if (!verified) {
+        _showVerificationRequired(error);
+        return;
+      }
+      try {
+        await _client.login(email: email, password: password);
+      } on MissavVerificationRequiredException catch (error) {
+        if (mounted) _showVerificationRequired(error);
       }
     } catch (_) {
       if (mounted) setState(() => _error = S.of(context).loginFailed);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _showVerificationRequired(MissavVerificationRequiredException error) {
+    setState(() {
+      _verificationError = error;
+      _error = S.of(context).videoVerificationRequired;
+    });
   }
 
   @override
