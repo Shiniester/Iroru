@@ -1188,6 +1188,22 @@ void main() {
     );
   }
 
+  test('document navigation rejects a locale-home redirect', () async {
+    await expectLater(
+      navigateMissavDocument(
+        Uri.parse('https://missav.ai/cn/open-sample-001'),
+        Completer<void>().future,
+        navigate: (_) async {},
+        read: (_) async => {
+          'url': 'https://missav.ai/cn',
+          'html': '<main><h1>Home</h1></main>',
+        },
+        stop: () async {},
+      ),
+      throwsA(isA<MissavException>()),
+    );
+  });
+
   testWidgets(
     'a rejected login snapshot releases the browser retained across a session change',
     (tester) async {

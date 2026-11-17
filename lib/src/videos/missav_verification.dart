@@ -423,10 +423,17 @@ const _documentMarkupScript = '''
   const visitorCookie = document.cookie.split(';').map(value => value.trim())
     .find(value => value.startsWith('user_uuid='));
   const navigation = performance.getEntriesByType('navigation')[0];
-  const accountRoot = document.querySelector('[x-data*="user"]');
-  const runtimeUser = accountRoot && window.Alpine?.\$data
-    ? window.Alpine.\$data(accountRoot).user
-    : null;
+  let runtimeUser = null;
+  if (window.Alpine?.\$data) {
+    for (const accountRoot of document.querySelectorAll('[x-data*="user"]')) {
+      const user = window.Alpine.\$data(accountRoot)?.user;
+      if (user && typeof user === 'object' &&
+          (user.id || user.email || user.username || user.name)) {
+        runtimeUser = user;
+        break;
+      }
+    }
+  }
   return JSON.stringify({
     url:location.href,
     html:root.outerHTML,
@@ -503,6 +510,13 @@ Future<String> navigateMissavDocument(
         sourceUrl: uri.toString(),
       );
     }
+    final finalUri = Uri.parse(document['url'] as String);
+    if (_isMissavHomePath(finalUri) && !_isMissavHomePath(uri)) {
+      throw MissavException(
+        'MissAV redirected the page to its home page.',
+        sourceUrl: uri.toString(),
+      );
+    }
     documentRead = true;
     var html = document['html'] as String;
     final status = document['responseStatus'];
@@ -540,6 +554,14 @@ Future<String> navigateMissavDocument(
     // Stop failed navigation before parking, keeping both in the adapter queue.
     await releaseDocument?.call(documentRead);
   }
+}
+
+bool _isMissavHomePath(Uri uri) {
+  final segments = uri.pathSegments.where((part) => part.isNotEmpty).toList();
+  if (segments.isNotEmpty && RegExp(r'^dm\d+$').hasMatch(segments.first)) {
+    segments.removeAt(0);
+  }
+  return segments.length <= 1;
 }
 
 String _webViewCookieHeader(Iterable<WebViewCookie> cookies) => cookies

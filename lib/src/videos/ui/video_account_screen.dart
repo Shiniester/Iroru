@@ -187,7 +187,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                       const SizedBox(height: 16),
                       if (loggedIn) ...[
                         Text(
-                          _client.accountName ?? s.videoSourceAccount,
+                          _client.accountName ?? s.videoAccountSignedIn,
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.titleLarge,
                         ),

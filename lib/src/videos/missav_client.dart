@@ -454,6 +454,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     StackTrace? lastTrace;
     final hosts = accountPage
         ? [sourceUri.origin]
+        : details
+        ? {
+            if (sourceUri.origin != origin) sourceUri.origin,
+            ..._contentHostCandidates(sourceUri),
+            if (sourceUri.origin == origin) sourceUri.origin,
+          }
         : _contentHostCandidates(sourceUri);
     for (final baseUrl in hosts) {
       final target = sourceUri.replace(host: Uri.parse(baseUrl).host);
@@ -465,6 +471,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
           generation,
           cancelToken: cancelToken,
           isContentPage: true,
+          allowNotFound: details,
         );
         _checkContentRequest(uri, generation, locale, cancelToken);
         final main = document.querySelector('main');
@@ -478,7 +485,9 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         final hasPageContent = details
             ? streams.isNotEmpty ||
                   (main != null && (title?.isNotEmpty ?? false))
-            : main != null || _parseVideos(document, uri).isNotEmpty;
+            : main != null ||
+                  _parseVideos(document, uri).isNotEmpty ||
+                  (accountPage && _hasAccountDirectory(document, uri));
         if (!hasPageContent) {
           throw _ContentHostFailure(
             'MissAV returned an invalid content page.',
@@ -1843,6 +1852,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     int generation, {
     CancelToken? cancelToken,
     bool isContentPage = false,
+    bool allowNotFound = false,
   }) async {
     var uri = target;
     _checkGeneration(generation, uri);
@@ -1869,6 +1879,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         generation: generation,
         cancelToken: cancelToken,
         isContentPage: isContentPage,
+        allowNotFound: allowNotFound,
       );
       body = response.data as String;
       if (isContentPage) uri = response.requestOptions.uri;
@@ -1886,10 +1897,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         throw MissavAuthenticationException(sourceUrl: uri.toString());
       }
       if (status != null && status >= 400) {
-        throw MissavException(
-          'MissAV returned HTTP $status.',
-          sourceUrl: uri.toString(),
-        );
+        throw allowNotFound && const {404, 410}.contains(status)
+            ? _ContentHostFailure(
+                'MissAV returned HTTP $status.',
+                sourceUrl: uri.toString(),
+              )
+            : MissavException(
+                'MissAV returned HTTP $status.',
+                sourceUrl: uri.toString(),
+              );
       }
     }
     final context = document.querySelector(
@@ -1920,6 +1936,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     CancelToken? cancelToken,
     bool direct = false,
     bool isContentPage = false,
+    bool allowNotFound = false,
   }) async {
     if (generation == null) await _prepareOnlineAccess();
     final requestGeneration = generation ?? _sessionGeneration;
@@ -2010,6 +2027,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         );
       }
       if (isContentPage && status >= 500) {
+        throw _ContentHostFailure(
+          'MissAV returned HTTP $status.',
+          sourceUrl: requestUri.toString(),
+        );
+      }
+      if (allowNotFound && const {404, 410}.contains(status)) {
         throw _ContentHostFailure(
           'MissAV returned HTTP $status.',
           sourceUrl: requestUri.toString(),
@@ -2467,15 +2490,18 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
     for (final element in document.querySelectorAll('[x-data]')) {
       final source = element.attributes['x-data'] ?? '';
-      final match = RegExp(r'\buser\s*:\s*(null|\{)').firstMatch(source);
+      final match = RegExp(
+        r'''(?:^|[{,])\s*(?:user|"user"|'user')\s*:\s*\{([^}]*)\}''',
+      ).firstMatch(source);
       if (match == null) continue;
-      if (match.group(1) == 'null') return null;
-      final user = <String, dynamic>{};
-      final property = RegExp(
-        r'''['"]?(email|username|name)['"]?\s*:\s*(['"])(.*?)\2''',
-      ).firstMatch(source.substring(match.end));
-      if (property != null) user[property.group(1)!] = property.group(3);
-      return user;
+      final fields = match.group(1)!.trim();
+      if (fields.isEmpty) return null;
+      return {
+        for (final property in RegExp(
+          r'''['"]?(email|username|name)['"]?\s*:\s*(['"])(.*?)\2''',
+        ).allMatches(fields))
+          property.group(1)!: property.group(3),
+      };
     }
     return null;
   }
@@ -2865,7 +2891,11 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       final title = image.attributes['alt']?.trim() ?? '';
       if (href == null || title.isEmpty) continue;
       final itemUri = pageUri.resolve(href).removeFragment();
-      if (!_isSource(itemUri) || itemUri == pageUri.removeFragment()) continue;
+      if (!_isSource(itemUri) ||
+          itemUri == pageUri.removeFragment() ||
+          _collectionEntryKind(itemUri) != null) {
+        continue;
+      }
       final id = itemUri.pathSegments.isEmpty ? '' : itemUri.pathSegments.last;
       if (id.isEmpty || !seen.add(id)) continue;
       final dataCover = image.attributes['data-src'];
@@ -2989,23 +3019,19 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   static List<VideoLink> _parseLinks(Document document, Uri pageUri) {
     final seen = <String>{};
-    final videoAnchors = document
+    final videoUrls = document
         .querySelectorAll('div.relative.aspect-w-16.aspect-h-9 a[href]')
-        .toSet();
-    final videoUrls = videoAnchors
         .map(
-          (anchor) => pageUri
-              .resolve(anchor.attributes['href']!)
-              .removeFragment()
-              .toString(),
+          (anchor) =>
+              pageUri.resolve(anchor.attributes['href']!).removeFragment(),
         )
+        .where((uri) => _collectionEntryKind(uri) == null)
+        .map((uri) => uri.toString())
         .toSet();
     final navigationAnchors = document.querySelectorAll('nav a[href]').toSet();
     final links = <VideoLink>[];
     for (final anchor in document.querySelectorAll('a[href]')) {
-      if (videoAnchors.contains(anchor) ||
-          navigationAnchors.contains(anchor) ||
-          _isLanguageAnchor(anchor)) {
+      if (navigationAnchors.contains(anchor) || _isLanguageAnchor(anchor)) {
         continue;
       }
       final href = anchor.attributes['href'];
@@ -3031,11 +3057,41 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
           label: label,
           url: uri.toString(),
           cover: cover,
-          kind: _browseLinkKind(uri),
+          kind: _collectionEntryKind(uri) ?? _browseLinkKind(uri),
         ),
       );
     }
     return links;
+  }
+
+  static bool _hasAccountDirectory(Document document, Uri uri) {
+    final path = uri.pathSegments.where((part) => part.isNotEmpty).toList();
+    final kind = switch (path.reversed.toList()) {
+      ['actresses', 'saved', ...] => VideoLinkKind.actor,
+      ['playlists', ...] => VideoLinkKind.playlist,
+      _ => null,
+    };
+    return kind != null &&
+        _parseLinks(
+          document,
+          uri,
+        ).any((link) => _collectionEntryKind(Uri.parse(link.url)) == kind);
+  }
+
+  static VideoLinkKind? _collectionEntryKind(Uri uri) {
+    final path = uri.pathSegments
+        .where((part) => part.isNotEmpty)
+        .skipWhile(
+          (part) =>
+              _sourceLanguages.contains(part) ||
+              RegExp(r'^dm\d+$').hasMatch(part),
+        );
+    return switch (path.toList(growable: false)) {
+      ['actresses' || 'actors', String actor] when actor != 'ranking' =>
+        VideoLinkKind.actor,
+      ['playlists', String key] when key != 'create' => VideoLinkKind.playlist,
+      _ => null,
+    };
   }
 
   static bool _isLanguageAnchor(Element anchor) {

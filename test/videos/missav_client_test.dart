@@ -533,6 +533,77 @@ void main() {
       });
     }
 
+    test('detail tries its own content host before a selected line', () async {
+      final source = missavMirrors[0].baseUrl;
+      final selected = missavMirrors[1].baseUrl;
+      final detail = await _detailHtml();
+      final adapter = _Adapter(
+        (request) => request.uri.origin == source
+            ? _response(detail)
+            : _response('', statusCode: HttpStatus.notFound),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: _MemorySecureStorage(),
+        contentHosts: [selected, source, MissavClient.origin],
+      );
+      addTearDown(client.dispose);
+      client.selectMirror(selected);
+
+      final details = await client.details(
+        VideoItem(
+          id: 'open-sample-001',
+          title: 'Sample',
+          pageUrl: '$source/dm42/cn/open-sample-001',
+        ),
+      );
+
+      expect(adapter.requests.map((request) => request.uri.origin), [source]);
+      expect(details.video.pageUrl, '$source/dm42/cn/open-sample-001');
+      expect(details.streams, hasLength(2));
+    });
+
+    test(
+      'detail falls back to the account line after content hosts return 404',
+      () async {
+        final selected = missavMirrors[0].baseUrl;
+        final next = missavMirrors[1].baseUrl;
+        final detail = await _detailHtml();
+        final adapter = _Adapter(
+          (request) => request.uri.origin == MissavClient.origin
+              ? _response(detail)
+              : _response('', statusCode: HttpStatus.notFound),
+        );
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = adapter,
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: _MemorySecureStorage(),
+          contentHosts: [selected, next],
+        );
+        addTearDown(client.dispose);
+        await client.selectAccountHost(MissavClient.origin);
+        client.selectMirror(selected);
+
+        final details = await client.details(
+          const VideoItem(
+            id: 'open-sample-001',
+            title: 'Sample',
+            pageUrl: 'https://missav.ai/cn/open-sample-001',
+          ),
+          includeAccountState: false,
+        );
+
+        expect(adapter.requests.map((request) => request.uri.origin), [
+          selected,
+          next,
+          MissavClient.origin,
+        ]);
+        expect(details.video.title, 'Sample detail');
+        expect(details.streams, hasLength(2));
+      },
+    );
+
     test(
       'redirect failure keeps official requests behind every mirror',
       () async {
@@ -1145,6 +1216,37 @@ void main() {
     expect(page.links.single.kind, VideoLinkKind.actor);
     expect(page.links.single.cover, 'https://fourhoi.com/actor/sample-t.jpg');
   });
+
+  for (final (collection, path, kind) in [
+    ('actorFavorites', '/cn/actresses/sample-actor', VideoLinkKind.actor),
+    ('playlists', '/cn/playlists/sample-list', VideoLinkKind.playlist),
+  ]) {
+    test('$collection opens cards outside a main container', () async {
+      final adapter = _Adapter(
+        (_) => _response('''
+<div class="relative aspect-w-16 aspect-h-9">
+  <a href="$path"><img alt="Saved entry" src="https://media.example/cover.jpg"></a>
+</div>
+'''),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: _MemorySecureStorage(),
+        contentHosts: [missavMirrors.first.baseUrl, MissavClient.origin],
+      );
+      addTearDown(client.dispose);
+      await client.selectAccountHost(MissavClient.origin);
+
+      final page = await client.browse(client.collectionUrl(collection));
+
+      expect(page.videos, isEmpty);
+      expect(page.links.single.kind, kind);
+      expect(page.links.single.label, 'Saved entry');
+      expect(page.links.single.url, '${MissavClient.origin}$path');
+      expect(adapter.requests.single.uri.origin, MissavClient.origin);
+    });
+  }
 
   test(
     'homepage recommendations preserve source order and continue by cursor',
@@ -2353,7 +2455,11 @@ void main() {
 
   test('account checks prefer the current homepage account', () async {
     final pages = [
-      '<html><body x-data="{user: {username: \'Homepage viewer\'}}"></body></html>',
+      '''
+<body x-data="{user: null}">
+  <header x-data='{"user":{"username":"Homepage viewer"}}'></header>
+</body>
+''',
       '<html><body x-data="{user: null}"></body></html>',
     ];
     final client = MissavClient(
@@ -2375,6 +2481,23 @@ void main() {
 
     expect(client.isLoggedIn, isTrue);
     expect(client.accountName, 'Homepage viewer');
+  });
+
+  test('account checks accept a user object without a display name', () async {
+    final client = MissavClient(
+      dio: Dio()
+        ..httpClientAdapter = _Adapter(
+          (_) => _response('<body x-data="{user: {id: 42}}"></body>'),
+        ),
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    await client.checkBrowserAccess();
+
+    expect(client.isLoggedIn, isTrue);
+    expect(client.accountName, isNull);
   });
 
   test(
