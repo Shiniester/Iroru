@@ -76,6 +76,11 @@ assert "linux-arm64" not in build
 assert "Iroru-linux-arm64_" not in release
 assert "Iroru-linux-x64_" in release
 
+ios_verify = job(build, "ios-verify")
+assert "Restarting the simulator and retrying" in ios_verify
+assert "verified HTTPS video output remains independent from the audio graph (failed)" in ios_verify
+assert "native HTTPS rejects an untrusted certificate (failed)" in ios_verify
+
 for workflow in (build, android, beta):
     flutter_setups = workflow.count("uses: subosito/flutter-action@v2")
     assert workflow.count("          cache: true") == flutter_setups
