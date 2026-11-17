@@ -257,6 +257,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     notifyListeners();
   }
 
+  void resumeContentBrowsing() => selectMirror(_preferredMirror);
+
   Future<void> selectAccountHost(String baseUrl) async {
     if (_disposed || !accountHosts.contains(baseUrl)) return;
     if (_accountBaseUrl != baseUrl) {
@@ -1642,7 +1644,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       _accountName = _accountNameFrom(user) ?? email;
       _setAccountState(loggedIn: true, notify: false);
       if (browser != null) {
-        selectMirror(_preferredMirror);
+        resumeContentBrowsing();
       } else {
         notifyListeners();
       }

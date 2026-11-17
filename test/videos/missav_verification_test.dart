@@ -1114,74 +1114,79 @@ void main() {
     },
   );
 
-  testWidgets(
-    'required login preserves the account when navigation reloads the homepage',
-    (tester) async {
-      final oldPlatform = WebViewPlatform.instance;
-      late final _FakeWebViewController sourcePage;
-      var homeNavigations = 0;
-      WebViewPlatform.instance = _FakeWebViewPlatform(
-        Future.value([
-          const WebViewCookie(
-            name: 'session',
-            value: 'verified',
-            domain: 'missav.ai',
-          ),
-        ]),
-        initialUrl: 'https://missav.ai/login',
-        onLoadRequest: (_) async {
-          homeNavigations++;
-          sourcePage.runtimeUser = null;
-        },
-      );
-      addTearDown(() {
-        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
-      });
-
-      await tester.pumpWidget(
-        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
-      );
-      final mobile = WebViewController();
-      sourcePage = mobile.platform as _FakeWebViewController;
-      sourcePage.htmlDocument =
-          '<html><body x-data="{user: null}"></body></html>';
-      sourcePage.runtimeUser = {'username': 'browser-viewer'};
-      final client = MissavClient(secureStorage: _MemorySecureStorage());
-      addTearDown(client.dispose);
-
-      Object? connectionError;
-      await tester.runAsync(() async {
-        final connection = connectMissavBrowserSession(
-          client,
-          mobile: mobile,
-          requireLogin: true,
+  for (final trustedPage in [true, false]) {
+    testWidgets(
+      trustedPage
+          ? 'access check preserves the web sign-in before reloading'
+          : 'access check ignores an account from a foreign page',
+      (tester) async {
+        final oldPlatform = WebViewPlatform.instance;
+        late final _FakeWebViewController sourcePage;
+        var homeNavigations = 0;
+        WebViewPlatform.instance = _FakeWebViewPlatform(
+          Future.value([
+            const WebViewCookie(
+              name: 'session',
+              value: 'verified',
+              domain: 'missav.ai',
+            ),
+          ]),
+          initialUrl: trustedPage
+              ? 'https://missav.ai/login'
+              : 'https://example.invalid/login',
+          onLoadRequest: (_) async {
+            homeNavigations++;
+            sourcePage.runtimeUser = null;
+          },
         );
-        final outcome = connection.then<Object?>(
-          (_) => null,
-          onError: (Object error) => error,
-        );
-        var finished = false;
-        final result = outcome.whenComplete(() => finished = true);
-        // The media relay needs widget frames and real socket events to finish.
-        await Future.wait([
-          result,
-          () async {
-            while (!finished) {
-              await tester.pump();
-              await Future<void>.delayed(Duration.zero);
-            }
-          }(),
-        ]);
-        connectionError = await outcome;
-      });
-      await tester.pumpAndSettle();
+        addTearDown(() {
+          if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+        });
 
-      expect(connectionError, isNull);
-      expect(homeNavigations, greaterThan(0));
-      expect(client.isLoggedIn, isTrue);
-      expect(client.accountName, 'browser-viewer');
-    },
-  );
+        await tester.pumpWidget(
+          MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+        );
+        final mobile = WebViewController();
+        sourcePage = mobile.platform as _FakeWebViewController;
+        sourcePage.htmlDocument =
+            '<html><body x-data="{user: null}"></body></html>';
+        sourcePage.runtimeUser = {'username': 'browser-viewer'};
+        final client = MissavClient(secureStorage: _MemorySecureStorage());
+        addTearDown(client.dispose);
+
+        Object? connectionError;
+        await tester.runAsync(() async {
+          final connection = connectMissavBrowserSession(
+            client,
+            mobile: mobile,
+          );
+          final outcome = connection.then<Object?>(
+            (_) => null,
+            onError: (Object error) => error,
+          );
+          var finished = false;
+          final result = outcome.whenComplete(() => finished = true);
+          // The media relay needs widget frames and real socket events to finish.
+          await Future.wait([
+            result,
+            () async {
+              while (!finished) {
+                await tester.pump();
+                await Future<void>.delayed(Duration.zero);
+              }
+            }(),
+          ]);
+          connectionError = await outcome;
+        });
+        await tester.pumpAndSettle();
+
+        expect(connectionError, isNull);
+        expect(homeNavigations, greaterThan(0));
+        expect(client.isLoggedIn, trustedPage);
+        expect(client.accountName, trustedPage ? 'browser-viewer' : null);
+      },
+    );
+  }
 
   testWidgets(
     'a rejected login snapshot releases the browser retained across a session change',

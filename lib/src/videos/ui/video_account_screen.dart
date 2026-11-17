@@ -58,13 +58,24 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<bool> _openVerification(String sourceUrl) async {
+    final verified = await ref.read(missavAccessVerifierProvider)(
+      context,
+      _client,
+      sourceUrl: sourceUrl,
+    );
+    if (mounted && verified && _client.isLoggedIn) {
+      _client.resumeContentBrowsing();
+      _passwordController.clear();
+    }
+    return verified;
+  }
+
   Future<void> _verifyAccess() async {
     setState(() => _loading = true);
     try {
-      final verified = await ref.read(missavAccessVerifierProvider)(
-        context,
-        _client,
-        sourceUrl: _verificationError?.sourceUrl ?? _client.homeUrl,
+      final verified = await _openVerification(
+        _verificationError?.sourceUrl ?? _client.homeUrl,
       );
       if (mounted && verified) {
         setState(() {
@@ -115,24 +126,21 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
       _verificationError = null;
     });
     try {
-      await _client.login(email: email, password: password);
-    } on MissavVerificationRequiredException catch (error) {
-      if (!mounted) return;
-      final verified = await ref.read(missavAccessVerifierProvider)(
-        context,
-        _client,
-        sourceUrl: error.sourceUrl ?? _client.homeUrl,
-      );
-      if (!mounted) return;
-      if (!verified) {
-        _showVerificationRequired(error);
-        return;
-      }
       try {
         await _client.login(email: email, password: password);
       } on MissavVerificationRequiredException catch (error) {
-        if (mounted) _showVerificationRequired(error);
+        if (!mounted) return;
+        final verified = await _openVerification(
+          error.sourceUrl ?? _client.homeUrl,
+        );
+        if (!mounted) return;
+        if (!verified) rethrow;
+        if (!_client.isLoggedIn) {
+          await _client.login(email: email, password: password);
+        }
       }
+    } on MissavVerificationRequiredException catch (error) {
+      if (mounted) _showVerificationRequired(error);
     } catch (_) {
       if (mounted) setState(() => _error = S.of(context).loginFailed);
     } finally {

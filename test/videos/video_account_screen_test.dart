@@ -50,7 +50,7 @@ void main() {
     expect(find.byType(TextField), findsNWidgets(2));
   });
 
-  testWidgets('verification button opens the source access check', (
+  testWidgets('verification button accepts a manual web sign-in', (
     tester,
   ) async {
     final client = _TestMissavClient();
@@ -62,6 +62,7 @@ void main() {
         client,
         verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
           requests.add((sourceUrl: sourceUrl, requireLogin: requireLogin));
+          client.confirmAccount('web-viewer');
           return true;
         },
       ),
@@ -75,6 +76,9 @@ void main() {
       sourceUrl: 'https://missav.ai/cn',
       requireLogin: false,
     ));
+    expect(client.nativeLoginCalls, 0);
+    expect(find.text('web-viewer'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets('native login succeeds without opening the browser', (
@@ -136,6 +140,50 @@ void main() {
     expect(find.text('native-viewer'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
   });
+
+  for (final signedInOnWeb in [true, false]) {
+    testWidgets(
+      signedInOnWeb
+          ? 'keeps the web sign-in without resubmitting the password'
+          : 'a rejected retry after verification shows a login error',
+      (tester) async {
+        final client = _TestMissavClient()
+          ..nativeLoginChallengeUrl = 'https://missav.ai/en/api/login';
+        final s = await S.delegate.load(const Locale('en'));
+        await tester.pumpWidget(
+          _app(
+            client,
+            verifier: (_, _, {required sourceUrl, requireLogin = false}) async {
+              client.nativeLoginChallengeUrl = null;
+              client.rejectLogin = true;
+              if (signedInOnWeb) client.confirmAccount('web-viewer');
+              return true;
+            },
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byType(TextField).first,
+          'viewer@example.test',
+        );
+        await tester.enterText(find.byType(TextField).last, 'password');
+        await tester.tap(find.text(s.login));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(client.nativeLoginCalls, signedInOnWeb ? 1 : 2);
+        expect(client.isLoggedIn, signedInOnWeb);
+        if (signedInOnWeb) {
+          expect(find.text('web-viewer'), findsOneWidget);
+          expect(find.byType(TextField), findsNothing);
+        } else {
+          expect(find.text(s.loginFailed), findsOneWidget);
+          expect(find.widgetWithText(FilledButton, s.login), findsOneWidget);
+        }
+      },
+    );
+  }
 
   testWidgets('cancelled verification keeps the login form retryable', (
     tester,
