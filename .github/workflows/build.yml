@@ -553,11 +553,8 @@ jobs:
               flutter --verbose test --no-pub -d "$simulator" "$test_file"
             elif [[ "$test_file" == integration_test/audio_effects_production_test.dart ]] &&
               grep -Fq 'verified HTTPS video output remains independent from the audio graph (failed)' "$log" &&
-              grep -Fq 'native HTTPS rejects an untrusted certificate (failed)' "$log" &&
-              grep -Fq 'TimeoutException after 0:00:30.000000' "$log" &&
-              grep -Fq 'TimeoutException after 0:00:10.000000' "$log" &&
-              grep -Eq '[0-9]+ tests passed, 2 failed\.' "$log"; then
-              printf 'Restarting the simulator and retrying %s after both HTTPS tests timed out.\n' "$test_file"
+              grep -Fq 'TimeoutException after 0:00:30.000000' "$log"; then
+              printf 'Restarting the simulator and retrying %s after the HTTPS video test timed out.\n' "$test_file"
               xcrun simctl shutdown "$simulator"
               xcrun simctl bootstatus "$simulator" -b
               flutter test --no-pub -d "$simulator" "$test_file"

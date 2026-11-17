@@ -79,7 +79,8 @@ assert "Iroru-linux-x64_" in release
 ios_verify = job(build, "ios-verify")
 assert "Restarting the simulator and retrying" in ios_verify
 assert "verified HTTPS video output remains independent from the audio graph (failed)" in ios_verify
-assert "native HTTPS rejects an untrusted certificate (failed)" in ios_verify
+assert "TimeoutException after 0:00:30.000000" in ios_verify
+assert "native HTTPS rejects an untrusted certificate (failed)" not in ios_verify
 
 for workflow in (build, android, beta):
     flutter_setups = workflow.count("uses: subosito/flutter-action@v2")
@@ -91,6 +92,9 @@ for workflow in (build, android, beta):
 
 linux_cache = (ROOT / ".github/actions/linux-native-audio-cache/action.yml").read_text(encoding="utf-8")
 test_only = (WORKFLOWS / "build_test_only.yml").read_text(encoding="utf-8")
+test_only_ios = job(test_only, "ios-verify")
+assert "TimeoutException after 0:00:30.000000" in test_only_ios
+assert "native HTTPS rejects an untrusted certificate (failed)" not in test_only_ios
 assert "uses: ./.github/actions/linux-native-audio-cache" in build
 assert "uses: ./.github/actions/linux-native-audio-cache" in test_only
 assert "ImageOS" in linux_cache and "ImageVersion" in linux_cache
