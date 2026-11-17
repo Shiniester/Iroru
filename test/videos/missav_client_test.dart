@@ -291,6 +291,68 @@ void main() {
     );
 
     test(
+      'keeps a mirror catalog with video cards but no main element',
+      () async {
+        final first = missavMirrors[0].baseUrl;
+        final fallback = missavMirrors[1].baseUrl;
+        final adapter = _Adapter(
+          (request) => _response(
+            request.uri.origin == first
+                ? _searchCatalogHtml([
+                    'first-video',
+                  ]).replaceAll('<main>', '').replaceAll('</main>', '')
+                : _searchCatalogHtml(['fallback-video']),
+          ),
+        );
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = adapter,
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: _MemorySecureStorage(),
+          contentHosts: [first, fallback],
+        );
+        addTearDown(client.dispose);
+
+        final page = await client.browse('https://missav.ai/cn/release');
+
+        expect(page.videos.single.id, 'first-video');
+        expect(adapter.requests, hasLength(1));
+        final preferences = await SharedPreferences.getInstance();
+        expect(preferences.getString(missavLastGoodHostKey), first);
+      },
+    );
+
+    test(
+      'does not accept a self-link placeholder as a video catalog',
+      () async {
+        final first = missavMirrors[0].baseUrl;
+        final fallback = missavMirrors[1].baseUrl;
+        final adapter = _Adapter(
+          (request) => _response(
+            request.uri.origin == first
+                ? '''
+<div class="relative aspect-w-16 aspect-h-9">
+  <a href="#"><img alt="Loading video"></a>
+</div>
+'''
+                : _searchCatalogHtml(['fallback-video']),
+          ),
+        );
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = adapter,
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: _MemorySecureStorage(),
+          contentHosts: [first, fallback],
+        );
+        addTearDown(client.dispose);
+
+        final page = await client.browse('https://missav.ai/cn/release');
+
+        expect(page.videos.single.id, 'fallback-video');
+        expect(adapter.requests, hasLength(2));
+      },
+    );
+
+    test(
       'browse falls back from an invalid 200 page and accepts an empty main',
       () async {
         final invalid = missavMirrors[0].baseUrl;

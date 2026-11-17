@@ -47,6 +47,72 @@ typedef _RecommendationHandler =
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets('mirror cards without main replace the video list spinner', (
+    tester,
+  ) async {
+    final fallbackGate = Completer<void>();
+    final source = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) async {
+            if (options.uri.host != 'www.missav05.com') {
+              await fallbackGate.future;
+            }
+            handler.resolve(
+              Response<String>(
+                requestOptions: options,
+                statusCode: HttpStatus.ok,
+                data: '''
+<div class="relative aspect-w-16 aspect-h-9">
+  <a href="/en/replay-video"><img alt="Loaded mirror video"></a>
+</div>
+''',
+              ),
+            );
+          },
+        ),
+      );
+    final metadata = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) => handler.resolve(
+            Response<Object?>(
+              requestOptions: options,
+              statusCode: HttpStatus.ok,
+              data: {'recomms': []},
+            ),
+          ),
+        ),
+      );
+    final client = MissavClient(
+      dio: source,
+      metadataDio: metadata,
+      secureStorage: _EmptyVideoSecureStorage(),
+      contentHosts: const [
+        'https://www.missav05.com',
+        'https://www.missav02.net',
+      ],
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    addTearDown(() async {
+      fallbackGate.complete();
+      await tester.pumpWidget(const SizedBox.shrink());
+      client.dispose();
+    });
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    for (var frame = 0; frame < 20; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('Loaded mirror video').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'prepares parsed covers before metadata returns and waits before showing cards',
     (tester) async {
