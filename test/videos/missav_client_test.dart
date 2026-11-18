@@ -308,6 +308,231 @@ void main() {
       await tester.pump(Duration.zero);
     });
 
+    group('hedged detail mirrors', () {
+      const item = VideoItem(
+        id: 'open-sample-001',
+        title: 'Sample',
+        pageUrl: 'https://missav.ai/cn/open-sample-001',
+      );
+      late String detail;
+      late List<String> hosts;
+      late Map<String, Completer<ResponseBody>> responses;
+      late _Adapter adapter;
+      late MissavClient client;
+      late Future<VideoDetails> pending;
+
+      setUpAll(() async {
+        detail = await _detailHtml();
+      });
+
+      Future<void> begin(
+        WidgetTester tester, {
+        CancelToken? cancelToken,
+        String? selected,
+      }) async {
+        hosts = [for (final mirror in missavMirrors.take(4)) mirror.baseUrl];
+        responses = {for (final host in hosts) host: Completer<ResponseBody>()};
+        adapter = _Adapter((request) => responses[request.uri.origin]!.future);
+        client = MissavClient(
+          dio: Dio()..httpClientAdapter = adapter,
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: _MemorySecureStorage(),
+          contentHosts: hosts,
+        );
+        addTearDown(client.dispose);
+        await client.initialize();
+        if (selected != null) client.selectMirror(selected);
+        pending = client.details(item, cancelToken: cancelToken);
+        await tester.pump(Duration.zero);
+      }
+
+      List<String> requested() =>
+          adapter.requests.map((request) => request.uri.origin).toList();
+
+      testWidgets('waits 1500 ms before trying only the second mirror', (
+        tester,
+      ) async {
+        await begin(tester);
+        expect(client.isLoggedIn, isFalse);
+        expect(requested(), [hosts[0]]);
+        await tester.pump(const Duration(milliseconds: 1499));
+        expect(requested(), [hosts[0]]);
+        await tester.pump(const Duration(milliseconds: 1));
+        expect(requested(), hosts.take(2));
+
+        responses[hosts[1]]!.complete(_response(detail));
+        await tester.pump(Duration.zero);
+        final details = await pending;
+        expect(Uri.parse(details.video.pageUrl).host, Uri.parse(hosts[1]).host);
+        expect(details.streams, hasLength(2));
+        expect(adapter.requests.first.cancelToken!.isCancelled, isTrue);
+
+        responses[hosts[0]]!.complete(
+          _response(
+            detail.replaceFirst(
+              '<h1>Sample detail</h1>',
+              '<h1>Late first mirror</h1>',
+            ),
+          ),
+        );
+        await tester.pump(Duration.zero);
+        expect(requested(), hosts.take(2));
+        final preferences = await SharedPreferences.getInstance();
+        expect(preferences.getString(missavLastGoodHostKey), hosts[1]);
+      });
+
+      testWidgets('quick first result skips the backup mirror', (tester) async {
+        await begin(tester);
+        responses[hosts[0]]!.complete(_response(detail));
+        await tester.pump(Duration.zero);
+        final details = await pending;
+        await tester.pump(const Duration(seconds: 2));
+
+        expect(requested(), [hosts[0]]);
+        expect(Uri.parse(details.video.pageUrl).host, Uri.parse(hosts[0]).host);
+        expect(details.streams, hasLength(2));
+      });
+
+      for (final firstSucceeds in [true, false]) {
+        testWidgets('backup is rate-limited (first succeeds=$firstSucceeds)', (
+          tester,
+        ) async {
+          await begin(tester);
+          pending.ignore();
+          await tester.pump(const Duration(milliseconds: 1500));
+          expect(requested(), hosts.take(2));
+
+          responses[hosts[1]]!.complete(
+            _response('', statusCode: HttpStatus.tooManyRequests),
+          );
+          await tester.pump(Duration.zero);
+          expect(adapter.requests.first.cancelToken!.isCancelled, isFalse);
+
+          if (firstSucceeds) {
+            responses[hosts[0]]!.complete(_response(detail));
+            await tester.pump(Duration.zero);
+            final details = await pending;
+            expect(Uri.parse(details.video.pageUrl).origin, hosts[0]);
+            expect(details.streams, isNotEmpty);
+          } else {
+            final limited = expectLater(
+              pending,
+              throwsA(isA<MissavRateLimitException>()),
+            );
+            responses[hosts[0]]!.complete(
+              _response('', statusCode: HttpStatus.badGateway),
+            );
+            await tester.pump(Duration.zero);
+            await limited;
+          }
+          expect(requested(), hosts.take(2));
+        });
+      }
+
+      testWidgets('playable backup beats a metadata-only first mirror', (
+        tester,
+      ) async {
+        await begin(tester);
+        await tester.pump(const Duration(milliseconds: 1500));
+        expect(requested(), hosts.take(2));
+        var completed = false;
+        final result = pending.then((value) {
+          completed = true;
+          return value;
+        });
+
+        responses[hosts[0]]!.complete(
+          _response('<main><h1>Metadata only</h1></main>'),
+        );
+        await tester.pump(Duration.zero);
+        expect(completed, isFalse);
+
+        responses[hosts[1]]!.complete(_response(detail));
+        await tester.pump(Duration.zero);
+        final details = await result;
+        expect(completed, isTrue);
+        expect(Uri.parse(details.video.pageUrl).host, Uri.parse(hosts[1]).host);
+        expect(details.streams, hasLength(2));
+      });
+
+      testWidgets('remaining mirrors stay serial after both failures', (
+        tester,
+      ) async {
+        await begin(tester);
+        await tester.pump(const Duration(milliseconds: 1500));
+        expect(requested(), hosts.take(2));
+
+        responses[hosts[1]]!.complete(
+          _response('', statusCode: HttpStatus.badGateway),
+        );
+        await tester.pump(Duration.zero);
+        expect(requested(), hosts.take(2));
+
+        responses[hosts[0]]!.complete(
+          _response('', statusCode: HttpStatus.badGateway),
+        );
+        await tester.pump(Duration.zero);
+        expect(requested(), hosts.take(3));
+        await tester.pump(const Duration(seconds: 1));
+        expect(requested(), hosts.take(3));
+
+        responses[hosts[2]]!.complete(_response(detail));
+        await tester.pump(Duration.zero);
+        final details = await pending;
+        expect(Uri.parse(details.video.pageUrl).host, Uri.parse(hosts[2]).host);
+        expect(details.streams, hasLength(2));
+        final preferences = await SharedPreferences.getInstance();
+        expect(preferences.getString(missavLastGoodHostKey), hosts[2]);
+      });
+
+      testWidgets('caller cancellation cancels both pending mirrors', (
+        tester,
+      ) async {
+        final cancelToken = CancelToken();
+        await begin(tester, cancelToken: cancelToken);
+        final cancelled = expectLater(
+          pending,
+          throwsA(
+            isA<DioException>().having(
+              (error) => error.type,
+              'type',
+              DioExceptionType.cancel,
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 1500));
+        expect(requested(), hosts.take(2));
+
+        cancelToken.cancel('Leave the detail page.');
+        await tester.pump(Duration.zero);
+        await cancelled;
+        expect(
+          adapter.requests.every((request) => request.cancelToken!.isCancelled),
+          isTrue,
+        );
+        await tester.pump(const Duration(seconds: 2));
+        expect(requested(), hosts.take(2));
+      });
+
+      testWidgets('manual mirror selection stays serial', (tester) async {
+        await begin(tester, selected: hosts[0]);
+        await tester.pump(const Duration(seconds: 2));
+        expect(requested(), [hosts[0]]);
+
+        responses[hosts[0]]!.complete(
+          _response('', statusCode: HttpStatus.badGateway),
+        );
+        await tester.pump(Duration.zero);
+        expect(requested(), hosts.take(2));
+
+        responses[hosts[1]]!.complete(_response(detail));
+        await tester.pump(Duration.zero);
+        final details = await pending;
+        expect(Uri.parse(details.video.pageUrl).host, Uri.parse(hosts[1]).host);
+        expect(details.streams, hasLength(2));
+      });
+    });
+
     test('a missing detail keeps the last good content line', () async {
       final mirror = missavMirrors.first.baseUrl;
       SharedPreferences.setMockInitialValues({missavLastGoodHostKey: mirror});

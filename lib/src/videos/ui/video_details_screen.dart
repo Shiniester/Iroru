@@ -89,6 +89,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   bool _accountChangedDuringVerification = false;
   int _loadGeneration = 0;
   CancelToken? _detailsRequestToken;
+  VideoPlaybackSession? _preparedPlaybackSession;
   bool _accountWasLoggedIn = false;
   String? _accountName;
   late int _sessionGeneration;
@@ -247,6 +248,36 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     return ready && mounted && generation == _loadGeneration;
   }
 
+  Future<void> _preparePlaybackSession(
+    int generation,
+    CancelToken token,
+  ) async {
+    if (!await _waitForRouteIdle(generation) ||
+        token.isCancelled ||
+        !_loading ||
+        _details != null ||
+        _completedDownloadTask != null) {
+      return;
+    }
+    _preparedPlaybackSession = _createPlaybackSession();
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  VideoPlaybackSession _createPlaybackSession() =>
+      widget.sessionFactory?.call() ?? MediaKitVideoPlaybackSession();
+
+  VideoPlaybackSession _takePlaybackSession() {
+    final session = _preparedPlaybackSession;
+    _preparedPlaybackSession = null;
+    return session ?? _createPlaybackSession();
+  }
+
+  void _discardPreparedPlaybackSession() {
+    final session = _preparedPlaybackSession;
+    _preparedPlaybackSession = null;
+    session?.dispose().ignore();
+  }
+
   Future<void> _initialize({VideoDetails? supplement}) async {
     final generation = ++_loadGeneration;
     _cancelDetailsRequest();
@@ -289,6 +320,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         return;
       }
       if (!loadDuringEntry && !await _waitForRouteIdle(generation)) return;
+      if (loadDuringEntry) {
+        _preparePlaybackSession(generation, requestToken).ignore();
+      }
       Future<void> onReady(VideoDetails details) async {
         if (!await _waitForRouteIdle(generation)) return;
         if (_details == null) {
@@ -355,6 +389,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         });
         return;
       }
+      if (_details == null) _discardPreparedPlaybackSession();
       setState(() {
         _loading = false;
         _error = error;
@@ -410,6 +445,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   }
 
   void _cancelDetailsRequest() {
+    _discardPreparedPlaybackSession();
     final token = _detailsRequestToken;
     _detailsRequestToken = null;
     if (token != null && !token.isCancelled) {
@@ -1294,7 +1330,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         localPath: _isOffline ? task?.localPath : null,
         initialPosition: _library.positionFor(details.video.storageKey),
         initialVolume: _library.volume,
-        sessionFactory: widget.sessionFactory,
+        sessionFactory: _takePlaybackSession,
         prepareStream: widget.video.sourceKey == 'missav'
             ? (stream, cancellation) =>
                   _client.prepareMediaStreamWithCancellation(

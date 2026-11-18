@@ -154,6 +154,31 @@ void main() {
     expect(find.byType(TextField), findsNothing);
   });
 
+  testWidgets('verification refreshes a restored sign-in on the same page', (
+    tester,
+  ) async {
+    final client = _TestMissavClient();
+    final s = await S.delegate.load(const Locale('en'));
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl}) async {
+          client.restoredAccountName = 'web-viewer';
+          return (verified: true, signedIn: false);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNWidgets(2));
+
+    await tester.tap(find.text(s.videoVerifyAccess));
+    await tester.pumpAndSettle();
+
+    expect(find.text('web-viewer'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    expect(client.nativeLoginCalls, 0);
+  });
+
   testWidgets('native login succeeds without opening the browser', (
     tester,
   ) async {
@@ -218,6 +243,35 @@ void main() {
     expect(find.text('native-viewer'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
   });
+
+  testWidgets(
+    'verification does not retry a login after a rate-limited check',
+    (tester) async {
+      final client = _TestMissavClient()
+        ..nativeLoginChallengeUrl = 'https://missav.ai/en/api/login';
+      final s = await S.delegate.load(const Locale('en'));
+      await tester.pumpWidget(
+        _app(
+          client,
+          verifier: (_, _, {required sourceUrl}) async {
+            client.nativeLoginChallengeUrl = null;
+            client.accessCheckError = MissavRateLimitException(
+              sourceUrl: client.homeUrl,
+            );
+            return (verified: true, signedIn: false);
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _submitLogin(tester, s);
+      await tester.tap(find.text(s.videoVerifyAccess));
+      await tester.pumpAndSettle();
+
+      expect(client.browserAccessChecks, 1);
+      expect(client.nativeLoginCalls, 1);
+      expect(find.text(s.videoRateLimited), findsOneWidget);
+    },
+  );
 
   for (final signedInOnWeb in [true, false]) {
     testWidgets(
@@ -585,7 +639,7 @@ class _TestMissavClient extends MissavClient {
   _TestMissavClient({this.restoredAccountName})
     : super(secureStorage: _TestSecureStorage());
 
-  final String? restoredAccountName;
+  String? restoredAccountName;
   bool _loggedIn = false;
   String? _name;
   int browserAccessChecks = 0;
@@ -594,6 +648,7 @@ class _TestMissavClient extends MissavClient {
   int get nativeLoginCalls => nativeLogins.length;
   String? nativeLoginChallengeUrl;
   MissavException? nativeLoginError;
+  MissavException? accessCheckError;
   Completer<void>? accessCheckCompleter;
   bool accessCheckCancelled = false;
   bool rejectLogin = false;
@@ -606,7 +661,8 @@ class _TestMissavClient extends MissavClient {
   bool get isLoggedIn => _loggedIn;
 
   @override
-  bool get hasRestorableSession => restoredAccountName != null;
+  bool get hasRestorableSession =>
+      restoredAccountName != null || accessCheckError != null;
 
   @override
   String? get accountName => _name;
@@ -620,6 +676,7 @@ class _TestMissavClient extends MissavClient {
     CancelToken? cancelToken,
   }) async {
     browserAccessChecks++;
+    if (accessCheckError case final error?) throw error;
     if (cancelToken != null) {
       await Future.any<void>([
         accessCheckCompleter?.future ?? Future.value(),

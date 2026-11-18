@@ -244,6 +244,70 @@ void main() {
     },
   );
 
+  for (final outcome in ['ready', 'failed', 'popped']) {
+    _testPlayerWidget(
+      'MissAV prepares one player while online details are pending ($outcome)',
+      (tester) async {
+        final client = _TestMissavClient(_details())
+          ..detailsCompleter = Completer<VideoDetails>();
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(client: client, library: library);
+        final session = _FakePlaybackSession();
+        var sessionCreations = 0;
+
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            _videoDetailsLauncher(
+              sessionFactory: () {
+                sessionCreations++;
+                return session;
+              },
+            ),
+          ),
+        );
+        await tester.tap(find.text('Open video'));
+        await tester.pump();
+        await tester.pump();
+        final route = ModalRoute.of(
+          tester.element(find.byType(VideoDetailsScreen, skipOffstage: false)),
+        )!;
+        await tester.pump(route.transitionDuration * 0.5);
+        expect(route.animation!.status, AnimationStatus.forward);
+        expect(client.detailsCalls, 1);
+        expect(sessionCreations, 0);
+
+        await tester.pump(route.transitionDuration);
+        await tester.pump();
+        expect(route.animation!.status, AnimationStatus.completed);
+        expect(sessionCreations, 1);
+        expect(session.loadStreamCount, 0);
+
+        switch (outcome) {
+          case 'ready':
+            client.detailsCompleter!.complete(_details());
+          case 'failed':
+            client.detailsCompleter!.completeError(
+              const MissavException('Details failed'),
+            );
+          case 'popped':
+            route.navigator!.pop();
+            await tester.pump();
+            expect(client.lastDetailsToken!.isCancelled, isTrue);
+            expect(session.disposeCount, 1);
+            client.detailsCompleter!.complete(_details());
+        }
+        await tester.pumpAndSettle();
+
+        expect(sessionCreations, 1);
+        expect(session.loadStreamCount, outcome == 'ready' ? 1 : 0);
+        expect(session.disposeCount, outcome == 'ready' ? 0 : 1);
+      },
+    );
+  }
+
   for (final supplementFails in [false, true]) {
     for (final covered in [false, true]) {
       _testPlayerWidget(

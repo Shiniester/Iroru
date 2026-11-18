@@ -44,24 +44,6 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   Future<void> _initialize() async {
     try {
       await _client.initialize();
-      if (!mounted) return;
-      setState(() => _ready = true);
-      if (!_client.hasRestorableSession) return;
-      final token = _accessCheckToken = CancelToken();
-      setState(() => _checkingAccount = true);
-      try {
-        await _client.checkBrowserAccess(cancelToken: token);
-      } catch (error) {
-        if (!mounted || token.isCancelled) return;
-        setState(() {
-          _setAccountError(error, S.of(context).videoSourceUnavailable);
-        });
-      } finally {
-        if (mounted && identical(_accessCheckToken, token)) {
-          _accessCheckToken = null;
-          setState(() => _checkingAccount = false);
-        }
-      }
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -69,7 +51,33 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
           _setAccountError(error, S.of(context).videoSourceUnavailable);
         });
       }
+      return;
     }
+    if (!mounted) return;
+    setState(() => _ready = true);
+    await _refreshAccount();
+  }
+
+  Future<Object?> _refreshAccount() async {
+    if (!_client.hasRestorableSession) return null;
+    final token = _accessCheckToken = CancelToken();
+    setState(() => _checkingAccount = true);
+    try {
+      await _client.checkBrowserAccess(cancelToken: token);
+    } catch (error) {
+      if (mounted && !token.isCancelled) {
+        setState(() {
+          _setAccountError(error, S.of(context).videoSourceUnavailable);
+        });
+      }
+      return error;
+    } finally {
+      if (mounted && identical(_accessCheckToken, token)) {
+        _accessCheckToken = null;
+        setState(() => _checkingAccount = false);
+      }
+    }
+    return null;
   }
 
   void _cancelAccessCheck() {
@@ -99,21 +107,27 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
         sourceUrl: _verificationError?.sourceUrl ?? _client.homeUrl,
       );
       if (!mounted) return;
-      if (result.signedIn) {
-        _client.resumeContentBrowsing();
-        _passwordController.clear();
-      }
       if (result.verified) {
-        resumeLogin =
-            !result.signedIn &&
-            !_client.isLoggedIn &&
-            _pendingLoginHost == _client.accountHostUrl;
+        final pendingLoginHost = _pendingLoginHost;
         setState(() {
           _error = null;
           _verificationError = null;
           _pendingLoginHost = null;
           _showOpenSource = false;
         });
+        final refreshError = _client.isLoggedIn
+            ? null
+            : await _refreshAccount();
+        if (!mounted) return;
+        if (_client.isLoggedIn) {
+          _client.resumeContentBrowsing();
+          _passwordController.clear();
+        } else {
+          resumeLogin =
+              refreshError is! MissavRateLimitException &&
+              !result.signedIn &&
+              pendingLoginHost == _client.accountHostUrl;
+        }
       } else {
         setState(() => _showOpenSource = true);
       }

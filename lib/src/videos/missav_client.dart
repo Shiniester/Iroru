@@ -105,6 +105,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   static const _pageLimit = 5;
   static const _contentPageTimeout = Duration(seconds: 12);
   static const _contentHostTimeout = Duration(seconds: 4);
+  static const _contentBackupDelay = Duration(milliseconds: 1500);
   // MissAV publishes this frontend token for Recombee catalog requests.
   static const _metadataPublicToken =
       'Ikkg568nlM51RHvldlPvc2GzZPE9R4XGzaH9Qj4zK9npbbbTly1gj9K4mgRn0QlV';
@@ -3286,6 +3287,8 @@ class _ContentPageMissing extends MissavException {
   const _ContentPageMissing(super.message, {required super.sourceUrl});
 }
 
+typedef _AcceptedContentLine = ({String baseUrl, _ContentPage page});
+
 class _ContentLineLoader {
   _ContentLineLoader(
     this._client,
@@ -3326,11 +3329,11 @@ class _ContentLineLoader {
     StackTrace? officialChallengeTrace;
     MissavException? lastError;
     StackTrace? lastTrace;
-    for (final baseUrl in _candidateHosts()) {
+    Future<_AcceptedContentLine?> tryLine(String baseUrl) async {
       final target = _sourceUri.replace(host: Uri.parse(baseUrl).host);
       final official = MissavClient._officialHosts.contains(target.host);
       _client._checkContentRequest(target, generation, locale, cancelToken);
-      if (_attempts.expired) break;
+      if (_attempts.expired) return null;
       try {
         final (:document, :uri) = await _attempts.load(
           target,
@@ -3344,11 +3347,7 @@ class _ContentLineLoader {
         );
         _client._checkContentRequest(uri, generation, locale, cancelToken);
         final page = _readContentPage(document, uri);
-        if (!accountPage) {
-          _rememberAcceptedLine(baseUrl, document, uri);
-        }
-        _client._checkContentRequest(uri, generation, locale, cancelToken);
-        return page;
+        return (baseUrl: baseUrl, page: page);
       } on DioException catch (error) {
         if (error.type == DioExceptionType.cancel) {
           _client._checkContentRequest(target, generation, locale, cancelToken);
@@ -3366,7 +3365,7 @@ class _ContentLineLoader {
         }
         final missing = error is _ContentPageMissing;
         if (!missing && !_isContentHostFailure(error)) rethrow;
-        if (_attempts.expired) break;
+        if (_attempts.expired) return null;
         lastError = !official && error is MissavVerificationRequiredException
             ? MissavMirrorUnavailableException(
                 challenged: true,
@@ -3377,11 +3376,41 @@ class _ContentLineLoader {
         if (!missing) {
           _clearHostFailure(baseUrl, challenged: challenged);
         }
+        return null;
       }
     }
+
+    final hosts = _candidateHosts().toList();
+    var next = 0;
+    _AcceptedContentLine? accepted;
+    if (details &&
+        !accountPage &&
+        !_client.isLoggedIn &&
+        !_client._useBrowserForContent &&
+        _client._preferredMirror == null &&
+        hosts.length >= 2 &&
+        hosts
+            .take(2)
+            .every(
+              (base) => MissavClient._isMirrorHost(Uri.parse(base).host),
+            )) {
+      accepted = await _tryFirstMirrors(hosts[0], hosts[1], tryLine);
+      next = 2;
+    }
+    while (accepted == null && next < hosts.length && !_attempts.expired) {
+      accepted = await tryLine(hosts[next++]);
+    }
+    if (accepted != null) {
+      final (:baseUrl, :page) = accepted;
+      _client._checkContentRequest(page.uri, generation, locale, cancelToken);
+      if (!accountPage) {
+        _rememberAcceptedLine(baseUrl, page.document, page.uri);
+      }
+      return page;
+    }
     _client._checkContentRequest(_sourceUri, generation, locale, cancelToken);
-    if (officialChallenge != null) {
-      Error.throwWithStackTrace(officialChallenge, officialChallengeTrace!);
+    if (officialChallenge case final error?) {
+      Error.throwWithStackTrace(error, officialChallengeTrace!);
     }
     if (_attempts.expired) {
       throw _ContentHostFailure(
@@ -3389,11 +3418,49 @@ class _ContentLineLoader {
         sourceUrl: _sourceUri.toString(),
       );
     }
-    if (lastError != null) Error.throwWithStackTrace(lastError, lastTrace!);
+    if (lastError case final error?) {
+      Error.throwWithStackTrace(error, lastTrace!);
+    }
     throw MissavException(
       'MissAV has no available line.',
       sourceUrl: _sourceUri.toString(),
     );
+  }
+
+  Future<_AcceptedContentLine?> _tryFirstMirrors(
+    String firstHost,
+    String backupHost,
+    Future<_AcceptedContentLine?> Function(String) tryLine,
+  ) async {
+    final primary = tryLine(firstHost);
+    final delay = Completer<bool>();
+    final timer = Timer(
+      MissavClient._contentBackupDelay,
+      () => delay.complete(true),
+    );
+    final bool overlap;
+    try {
+      overlap = await Future.any([primary.then((_) => false), delay.future]);
+    } finally {
+      timer.cancel();
+    }
+    if (!overlap) return await primary ?? await tryLine(backupHost);
+
+    final backup = tryLine(backupHost).onError<MissavException>((
+      error,
+      trace,
+    ) async {
+      _client._checkContentRequest(_sourceUri, generation, locale, cancelToken);
+      if (await primary != null) return null;
+      Error.throwWithStackTrace(error, trace);
+    });
+    final (fromPrimary, first) = await Future.any([
+      primary.then((result) => (true, result)),
+      backup.then((result) => (false, result)),
+    ]);
+    if (first?.page.streams.isNotEmpty == true) return first;
+    final other = await (fromPrimary ? backup : primary);
+    return other?.page.streams.isNotEmpty == true ? other : first ?? other;
   }
 
   Iterable<String> _candidateHosts() {
@@ -3506,19 +3573,20 @@ class _ContentPageAttempts {
   ) {
     _deadline = Timer(totalTimeout, () {
       expired = true;
-      _active?.cancel();
+      _cancelActive();
     });
-    unawaited(caller.whenCancel.then((error) => _active?.cancel(error.error)));
+    unawaited(caller.whenCancel.then((error) => _cancelActive(error.error)));
   }
 
   final Duration hostTimeout;
   late final Timer _deadline;
-  CancelToken? _active;
+  final _active = <CancelToken>{};
   bool expired = false;
   int count = 0;
 
   Future<T> load<T>(Uri uri, Future<T> Function(CancelToken) request) async {
-    final token = _active = CancelToken();
+    final token = CancelToken();
+    _active.add(token);
     count++;
     var timedOut = false;
     final timer = Timer(hostTimeout, () {
@@ -3540,11 +3608,20 @@ class _ContentPageAttempts {
       );
     } finally {
       timer.cancel();
-      _active = null;
+      _active.remove(token);
     }
   }
 
-  void close() => _deadline.cancel();
+  void _cancelActive([Object? reason]) {
+    for (final token in _active) {
+      token.cancel(reason);
+    }
+  }
+
+  void close() {
+    _deadline.cancel();
+    _cancelActive();
+  }
 }
 
 class _MissavSearchState {
