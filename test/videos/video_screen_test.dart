@@ -48,6 +48,38 @@ typedef _RecommendationHandler =
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets('only schedules mirror probing on the idle video route', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Catalog',
+        url: 'https://missav.ai/cn/release',
+      ),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    expect(client.mirrorProbeScheduled, isTrue);
+
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    unawaited(
+      navigator.push<void>(MaterialPageRoute(builder: (_) => const Scaffold())),
+    );
+    await tester.pumpAndSettle();
+    expect(client.mirrorProbeScheduled, isFalse);
+
+    navigator.pop();
+    await tester.pumpAndSettle();
+    expect(client.mirrorProbeScheduled, isTrue);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(client.mirrorProbeScheduled, isFalse);
+  });
+
   testWidgets('mirror cards without main replace the video list spinner', (
     tester,
   ) async {
@@ -5448,10 +5480,17 @@ class _TestMissavClient extends MissavClient {
   final List<String> browsedUrls = [];
   final recommendationRequests = <({String? cursor, int count})>[];
   bool browseFinished = false;
+  bool mirrorProbeScheduled = false;
   String testLocale = 'cn';
   final filterOptionKinds = <VideoSearchFilterKind>[];
   final combinedSearchRequests =
       <({String query, List<VideoLink> filters, bool? current})>[];
+
+  @override
+  void scheduleBackgroundMirrorProbe() => mirrorProbeScheduled = true;
+
+  @override
+  void cancelBackgroundMirrorProbe() => mirrorProbeScheduled = false;
 
   @override
   String get homeUrl => sourceHomeUrl;

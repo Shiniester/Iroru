@@ -326,12 +326,14 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   void _scheduleInitialize() {
+    _client.cancelBackgroundMirrorProbe();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.active) unawaited(_initialize());
     });
   }
 
   void _scheduleLoadUrl(String url, {String? collectionKey}) {
+    _client.cancelBackgroundMirrorProbe();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.active) {
         unawaited(
@@ -342,9 +344,29 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   void _scheduleRecommendationLoad() {
+    _client.cancelBackgroundMirrorProbe();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.active) _openRecommendations();
     });
+  }
+
+  void _syncBackgroundMirrorProbe() {
+    if (mounted &&
+        widget.active &&
+        _sourceKey == 'missav' &&
+        _route?.isCurrent == true &&
+        _page != null &&
+        !_loading &&
+        _error == null &&
+        _loadingUrl == null &&
+        !_verifyingAccess &&
+        !_sourceChangePending &&
+        _pendingAccountReloadUrl == null &&
+        !_pendingRecommendationReload) {
+      _client.scheduleBackgroundMirrorProbe();
+    } else {
+      _client.cancelBackgroundMirrorProbe();
+    }
   }
 
   @override
@@ -356,6 +378,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _route?.secondaryAnimation?.removeStatusListener(_onRouteStatusChanged);
     _route = route;
     _route?.secondaryAnimation?.addStatusListener(_onRouteStatusChanged);
+    _syncBackgroundMirrorProbe();
   }
 
   void _syncSourceLocale() {
@@ -423,6 +446,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   void _changeSource(String sourceKey) {
     if (!mounted || _sourceKey == sourceKey) return;
+    _client.cancelBackgroundMirrorProbe();
     _sourceGeneration++;
     _discardCachedJableFavorites();
     _resetPlaylistCoverAccess(null);
@@ -471,6 +495,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     if (widget.sourceKey != null && oldWidget.sourceKey != widget.sourceKey) {
       _changeSource(widget.sourceKey!);
     }
+    if (oldWidget.active && !widget.active) {
+      _client.cancelBackgroundMirrorProbe();
+    }
     if (oldWidget.active &&
         !widget.active &&
         _playlistCoverDirectoryPath != null) {
@@ -510,6 +537,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
     if (widget.active && oldWidget.initialUrl != widget.initialUrl) {
       _scheduleInitialize();
+    }
+    if (!oldWidget.active &&
+        widget.active &&
+        oldWidget.initialUrl == widget.initialUrl) {
+      _syncBackgroundMirrorProbe();
     }
   }
 
@@ -701,7 +733,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   void _onRouteStatusChanged(AnimationStatus _) {
-    if (!mounted || _verifyingAccess) return;
+    if (!mounted) return;
+    if (_verifyingAccess) {
+      _syncBackgroundMirrorProbe();
+      return;
+    }
     if (_sourceChangePending && _route?.isCurrent == true && widget.active) {
       _sourceChangePending = false;
       unawaited(_loadUrl(_sourceClient.defaultCatalogUrl));
@@ -727,6 +763,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         _resumePlaylistCoverAccess();
       });
     }
+    _syncBackgroundMirrorProbe();
   }
 
   _VideoPageCacheKey _pageCacheKey(String url) => (
@@ -976,6 +1013,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     bool preserveCollection = false,
     bool reuseVisitedPage = false,
   }) async {
+    _client.cancelBackgroundMirrorProbe();
     _recommendationsActive = false;
     _activeRecommendationPageSize = null;
     _pendingRecommendationReload = false;
@@ -1148,6 +1186,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         _activeBrowseCancelToken = null;
       }
       if (request == _request && _loadingUrl == url) _loadingUrl = null;
+      if (request == _request) _syncBackgroundMirrorProbe();
     }
   }
 
@@ -1349,6 +1388,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final snapshot = state.pages[pageNumber];
     if (snapshot == null) return;
 
+    _client.cancelBackgroundMirrorProbe();
     final request = ++_request;
     _loadingUrl = null;
     final activeBrowseCancelToken = _activeBrowseCancelToken;
@@ -1390,6 +1430,10 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         _recordError(error);
         _discardStaging();
       });
+    } finally {
+      if (_isCurrentRecommendationRequest(request, pageSize)) {
+        _syncBackgroundMirrorProbe();
+      }
     }
   }
 
@@ -1421,6 +1465,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       return;
     }
 
+    _client.cancelBackgroundMirrorProbe();
     final request = ++_request;
     _activeRecommendationPageSize = pageSize;
     _loadingUrl = null;
@@ -1552,6 +1597,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       if (identical(_activeBrowseCancelToken, cancelToken)) {
         _activeBrowseCancelToken = null;
       }
+      if (_isCurrentRecommendationRequest(request, pageSize)) {
+        _syncBackgroundMirrorProbe();
+      }
     }
   }
 
@@ -1637,6 +1685,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   Future<void> _openDetails(VideoItem video) async {
+    _client.cancelBackgroundMirrorProbe();
     _pausePlaylistCoverAccess();
     _prepareJableFavoritesRefresh();
     final collectionKey = switch (_activeCollectionKey) {
@@ -2913,6 +2962,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   @override
   void dispose() {
+    _client.cancelBackgroundMirrorProbe();
     _resetPlaylistCoverAccess(null);
     _client.removeListener(_onClientChanged);
     _jableAccount.removeListener(_onJableAccountChanged);

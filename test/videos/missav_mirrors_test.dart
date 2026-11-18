@@ -98,6 +98,34 @@ void main() {
     expect(results.every((result) => !result.isAvailable), isTrue);
   });
 
+  test('aborts the timed-out request before probing the next mirror', () async {
+    final firstRequest = Completer<RequestOptions>();
+    final blocked = Completer<ResponseBody>();
+    final dio = Dio()
+      ..httpClientAdapter = _Adapter((request) async {
+        if (request.uri.host == missavMirrors.first.host) {
+          firstRequest.complete(request);
+          return blocked.future;
+        }
+        expect((await firstRequest.future).cancelToken!.isCancelled, isTrue);
+        return ResponseBody.fromString('<html></html>', HttpStatus.ok);
+      });
+    addTearDown(() => dio.close(force: true));
+    final prober = MissavMirrorProber(
+      dio: dio,
+      timeout: const Duration(milliseconds: 100),
+    );
+
+    final results = await prober.probeAll(
+      missavMirrors.take(2),
+      concurrency: 1,
+    );
+    blocked.complete(ResponseBody.fromString('<html></html>', HttpStatus.ok));
+
+    expect(results.first.mirror, missavMirrors[1]);
+    expect(results.last.error, 'timeout');
+  });
+
   test('resolves saved mirror base URLs', () {
     final mirror = missavMirrorForBaseUrl('https://www.missav9.net/');
 

@@ -162,13 +162,16 @@ class MissavMirrorProber {
   }) async {
     final separator = path.contains('?') ? '&' : '?';
     await ProxyConfig.ensureSystemProxyResolved();
+    if (cancelToken?.cancelError case final error?) throw error;
+    final requestToken = CancelToken();
+    cancelToken?.whenCancel.then((error) => requestToken.cancel(error.error));
     final stopwatch = Stopwatch()..start();
     try {
       final response = await _dio
           .get<String>(
             '${mirror.baseUrl}$path'
             '${separator}ts=${DateTime.now().millisecondsSinceEpoch}',
-            cancelToken: cancelToken,
+            cancelToken: requestToken,
             options: Options(
               responseType: ResponseType.plain,
               followRedirects: true,
@@ -183,7 +186,13 @@ class MissavMirrorProber {
                   status != null && status >= 200 && status < 600,
             ),
           )
-          .timeout(requestTimeout);
+          .timeout(
+            requestTimeout,
+            onTimeout: () {
+              requestToken.cancel();
+              throw TimeoutException('MissAV mirror probe timed out.');
+            },
+          );
       stopwatch.stop();
       final body = (response.data ?? '').trim().toLowerCase();
       final challenge =
