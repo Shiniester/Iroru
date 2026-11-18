@@ -18,6 +18,13 @@ import 'missav_mirrors.dart';
 import 'video_models.dart';
 import 'video_source_client.dart';
 
+typedef _ContentPage = ({
+  Document document,
+  Uri uri,
+  String? title,
+  List<VideoStream> streams,
+});
+
 class MissavClient extends ChangeNotifier implements VideoSourceClient {
   MissavClient({
     Dio? dio,
@@ -179,6 +186,10 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   @override
   String get defaultCatalogUrl => '$homeUrl/release';
+
+  void _notifyContentHostChanged() {
+    if (!_disposed) notifyListeners();
+  }
 
   @override
   List<VideoSearchFilterKind> get searchFilterKinds =>
@@ -359,56 +370,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     _contentHostReady = true;
   }
 
-  Iterable<String> _contentHostCandidates(Uri uri) {
-    if (_useBrowserForContent) return const [origin];
-    return {
-      if (_preferredMirror case final mirror?) mirror,
-      if (_cachedContentHost case final cached?) cached,
-      if (_contentHosts.isEmpty) _remapSource(uri, baseUrl: origin).origin,
-      for (final baseUrl in _contentHosts)
-        if (!_officialHosts.contains(Uri.parse(baseUrl).host)) baseUrl,
-      for (final baseUrl in missavOfficialBaseUrls)
-        if (_contentHosts.contains(baseUrl)) baseUrl,
-    };
-  }
-
   Future<void> _persistContentHost(String key, String? baseUrl) async {
     try {
       await _contentPreferences?.setString(key, baseUrl ?? '');
     } catch (_) {
       // A preference write failure must not fail the page load.
     }
-  }
-
-  void _clearContentHostFailure(String baseUrl, {required bool challenged}) {
-    final clearCache = _cachedContentHost == baseUrl;
-    final clearPreference = challenged && _preferredMirror == baseUrl;
-    if (clearCache) _cachedContentHost = null;
-    if (clearPreference) _preferredMirror = null;
-    if (clearCache) unawaited(_persistContentHost(missavLastGoodHostKey, null));
-    if (clearPreference) {
-      unawaited(_persistContentHost(missavMirrorBaseUrlKey, null));
-    }
-    if ((clearCache || clearPreference) && !_disposed) notifyListeners();
-  }
-
-  static bool _isContentHostFailure(MissavException error) {
-    if (error is _ContentHostFailure ||
-        error is MissavMirrorUnavailableException ||
-        error is MissavVerificationRequiredException) {
-      return true;
-    }
-    final cause = error.cause;
-    if (cause is! DioException) return false;
-    return switch (cause.type) {
-      DioExceptionType.connectionTimeout ||
-      DioExceptionType.sendTimeout ||
-      DioExceptionType.receiveTimeout ||
-      DioExceptionType.connectionError ||
-      DioExceptionType.badCertificate => true,
-      DioExceptionType.unknown => cause.error is IOException,
-      _ => false,
-    };
   }
 
   void _checkContentRequest(
@@ -495,163 +462,22 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
-  Future<
-    ({Document document, Uri uri, String? title, List<VideoStream> streams})
-  >
-  _loadContentPage(
+  Future<_ContentPage> _loadContentPage(
     Uri sourceUri,
     int generation,
     String locale,
     CancelToken cancelToken, {
     bool details = false,
     bool accountPage = false,
-  }) async {
-    final attempts = _ContentPageAttempts(
-      cancelToken,
-      _contentPageTimeout,
-      _contentHostTimeout,
-    );
-    try {
-      return await _tryContentHosts(
-        sourceUri,
-        generation,
-        locale,
-        cancelToken,
-        attempts,
-        details: details,
-        accountPage: accountPage,
-      );
-    } finally {
-      attempts.close();
-      if (kDebugMode) {
-        debugPrint('MissAV content lines attempted: ${attempts.count}');
-      }
-    }
-  }
-
-  Future<
-    ({Document document, Uri uri, String? title, List<VideoStream> streams})
-  >
-  _tryContentHosts(
-    Uri sourceUri,
-    int generation,
-    String locale,
-    CancelToken cancelToken,
-    _ContentPageAttempts attempts, {
-    required bool details,
-    required bool accountPage,
-  }) async {
-    MissavVerificationRequiredException? officialChallenge;
-    StackTrace? officialChallengeTrace;
-    MissavException? lastError;
-    StackTrace? lastTrace;
-    final hosts = accountPage
-        ? [sourceUri.origin]
-        : details
-        ? {
-            if (_isMirrorHost(sourceUri.host)) sourceUri.origin,
-            ..._contentHostCandidates(sourceUri),
-            sourceUri.origin,
-            _activeAccountBaseUrl,
-          }
-        : _contentHostCandidates(sourceUri);
-    for (final baseUrl in hosts) {
-      final target = sourceUri.replace(host: Uri.parse(baseUrl).host);
-      final official = _officialHosts.contains(target.host);
-      _checkContentRequest(target, generation, locale, cancelToken);
-      if (attempts.expired) break;
-      try {
-        final (:document, :uri) = await attempts.load(
-          target,
-          (attemptToken) => _loadDocument(
-            target,
-            generation,
-            cancelToken: attemptToken,
-            isContentPage: true,
-            allowNotFound: details,
-          ),
-        );
-        _checkContentRequest(uri, generation, locale, cancelToken);
-        final main = document.querySelector('main');
-        final title = details
-            ? (main?.querySelector('h1') ?? document.querySelector('h1'))?.text
-                  .trim()
-            : null;
-        final streams = details
-            ? _parseStreams(document, uri, userAgent: _userAgent)
-            : const <VideoStream>[];
-        final hasPageContent = details
-            ? streams.isNotEmpty ||
-                  (main != null && (title?.isNotEmpty ?? false))
-            : main != null ||
-                  _parseVideos(document, uri).isNotEmpty ||
-                  (accountPage && _hasAccountDirectory(document, uri));
-        if (!hasPageContent) {
-          throw _ContentHostFailure(
-            'MissAV returned an invalid content page.',
-            sourceUrl: uri.toString(),
-          );
-        }
-        if (!accountPage) {
-          if (_baseUrl != baseUrl) {
-            _baseUrl = baseUrl;
-            _homeUrl = '$baseUrl$_localePrefix';
-          }
-          _updateHomeUrl(document, uri);
-          if (missavMirrorForBaseUrl(baseUrl) != null &&
-              _cachedContentHost != baseUrl) {
-            _cachedContentHost = baseUrl;
-            unawaited(_persistContentHost(missavLastGoodHostKey, baseUrl));
-          }
-        }
-        _checkContentRequest(uri, generation, locale, cancelToken);
-        return (document: document, uri: uri, title: title, streams: streams);
-      } on DioException catch (error) {
-        if (error.type == DioExceptionType.cancel) {
-          _checkContentRequest(target, generation, locale, cancelToken);
-        }
-        rethrow;
-      } on MissavException catch (error, trace) {
-        _checkContentRequest(target, generation, locale, cancelToken);
-        if (accountPage) rethrow;
-        final challenged =
-            error is MissavVerificationRequiredException ||
-            (error is MissavMirrorUnavailableException && error.challenged);
-        if (official && error is MissavVerificationRequiredException) {
-          officialChallenge ??= error;
-          officialChallengeTrace ??= trace;
-        }
-        final missing = error is _ContentPageMissing;
-        if (!missing && !_isContentHostFailure(error)) rethrow;
-        if (attempts.expired) break;
-        lastError = !official && error is MissavVerificationRequiredException
-            ? MissavMirrorUnavailableException(
-                challenged: true,
-                sourceUrl: error.sourceUrl,
-              )
-            : error;
-        lastTrace = trace;
-        if (!missing) {
-          _clearContentHostFailure(baseUrl, challenged: challenged);
-        }
-      }
-    }
-    _checkContentRequest(sourceUri, generation, locale, cancelToken);
-    if (officialChallenge != null) {
-      Error.throwWithStackTrace(officialChallenge, officialChallengeTrace!);
-    }
-    if (attempts.expired) {
-      throw _ContentHostFailure(
-        'MissAV content loading timed out.',
-        sourceUrl: sourceUri.toString(),
-      );
-    }
-    if (lastError != null) Error.throwWithStackTrace(lastError, lastTrace!);
-    throw MissavException(
-      'MissAV has no available line.',
-      sourceUrl: sourceUri.toString(),
-    );
-  }
+  }) => _ContentLineLoader(
+    this,
+    sourceUri,
+    generation: generation,
+    locale: locale,
+    cancelToken: cancelToken,
+    details: details,
+    accountPage: accountPage,
+  ).load();
 
   Future<String?> loadPlaylistCover(
     String url, {
@@ -3458,6 +3284,218 @@ class _ContentHostFailure extends MissavException {
 
 class _ContentPageMissing extends MissavException {
   const _ContentPageMissing(super.message, {required super.sourceUrl});
+}
+
+class _ContentLineLoader {
+  _ContentLineLoader(
+    this._client,
+    this._sourceUri, {
+    required this.generation,
+    required this.locale,
+    required this.cancelToken,
+    required this.details,
+    required this.accountPage,
+  });
+
+  final MissavClient _client;
+  final Uri _sourceUri;
+  final int generation;
+  final String locale;
+  final CancelToken cancelToken;
+  final bool details;
+  final bool accountPage;
+  late final _ContentPageAttempts _attempts = _ContentPageAttempts(
+    cancelToken,
+    MissavClient._contentPageTimeout,
+    MissavClient._contentHostTimeout,
+  );
+
+  Future<_ContentPage> load() async {
+    try {
+      return await _load();
+    } finally {
+      _attempts.close();
+      if (kDebugMode) {
+        debugPrint('MissAV content lines attempted: ${_attempts.count}');
+      }
+    }
+  }
+
+  Future<_ContentPage> _load() async {
+    MissavVerificationRequiredException? officialChallenge;
+    StackTrace? officialChallengeTrace;
+    MissavException? lastError;
+    StackTrace? lastTrace;
+    for (final baseUrl in _candidateHosts()) {
+      final target = _sourceUri.replace(host: Uri.parse(baseUrl).host);
+      final official = MissavClient._officialHosts.contains(target.host);
+      _client._checkContentRequest(target, generation, locale, cancelToken);
+      if (_attempts.expired) break;
+      try {
+        final (:document, :uri) = await _attempts.load(
+          target,
+          (attemptToken) => _client._loadDocument(
+            target,
+            generation,
+            cancelToken: attemptToken,
+            isContentPage: true,
+            allowNotFound: details,
+          ),
+        );
+        _client._checkContentRequest(uri, generation, locale, cancelToken);
+        final page = _readContentPage(document, uri);
+        if (!accountPage) {
+          _rememberAcceptedLine(baseUrl, document, uri);
+        }
+        _client._checkContentRequest(uri, generation, locale, cancelToken);
+        return page;
+      } on DioException catch (error) {
+        if (error.type == DioExceptionType.cancel) {
+          _client._checkContentRequest(target, generation, locale, cancelToken);
+        }
+        rethrow;
+      } on MissavException catch (error, trace) {
+        _client._checkContentRequest(target, generation, locale, cancelToken);
+        if (accountPage) rethrow;
+        final challenged =
+            error is MissavVerificationRequiredException ||
+            (error is MissavMirrorUnavailableException && error.challenged);
+        if (official && error is MissavVerificationRequiredException) {
+          officialChallenge ??= error;
+          officialChallengeTrace ??= trace;
+        }
+        final missing = error is _ContentPageMissing;
+        if (!missing && !_isContentHostFailure(error)) rethrow;
+        if (_attempts.expired) break;
+        lastError = !official && error is MissavVerificationRequiredException
+            ? MissavMirrorUnavailableException(
+                challenged: true,
+                sourceUrl: error.sourceUrl,
+              )
+            : error;
+        lastTrace = trace;
+        if (!missing) {
+          _clearHostFailure(baseUrl, challenged: challenged);
+        }
+      }
+    }
+    _client._checkContentRequest(_sourceUri, generation, locale, cancelToken);
+    if (officialChallenge != null) {
+      Error.throwWithStackTrace(officialChallenge, officialChallengeTrace!);
+    }
+    if (_attempts.expired) {
+      throw _ContentHostFailure(
+        'MissAV content loading timed out.',
+        sourceUrl: _sourceUri.toString(),
+      );
+    }
+    if (lastError != null) Error.throwWithStackTrace(lastError, lastTrace!);
+    throw MissavException(
+      'MissAV has no available line.',
+      sourceUrl: _sourceUri.toString(),
+    );
+  }
+
+  Iterable<String> _candidateHosts() {
+    if (accountPage) return [_sourceUri.origin];
+    if (details) {
+      return {
+        if (MissavClient._isMirrorHost(_sourceUri.host)) _sourceUri.origin,
+        ..._contentHosts(),
+        _sourceUri.origin,
+        _client._activeAccountBaseUrl,
+      };
+    }
+    return _contentHosts();
+  }
+
+  Iterable<String> _contentHosts() {
+    if (_client._useBrowserForContent) return const [MissavClient.origin];
+    return {
+      if (_client._preferredMirror case final mirror?) mirror,
+      if (_client._cachedContentHost case final cached?) cached,
+      if (_client._contentHosts.isEmpty)
+        _client._remapSource(_sourceUri, baseUrl: MissavClient.origin).origin,
+      for (final baseUrl in _client._contentHosts)
+        if (!MissavClient._officialHosts.contains(Uri.parse(baseUrl).host))
+          baseUrl,
+      for (final baseUrl in missavOfficialBaseUrls)
+        if (_client._contentHosts.contains(baseUrl)) baseUrl,
+    };
+  }
+
+  _ContentPage _readContentPage(Document document, Uri uri) {
+    final main = document.querySelector('main');
+    final title = details
+        ? (main?.querySelector('h1') ?? document.querySelector('h1'))?.text
+              .trim()
+        : null;
+    final streams = details
+        ? MissavClient._parseStreams(
+            document,
+            uri,
+            userAgent: _client._userAgent,
+          )
+        : const <VideoStream>[];
+    final hasPageContent = details
+        ? streams.isNotEmpty || (main != null && (title?.isNotEmpty ?? false))
+        : main != null ||
+              MissavClient._parseVideos(document, uri).isNotEmpty ||
+              (accountPage && MissavClient._hasAccountDirectory(document, uri));
+    if (!hasPageContent) {
+      throw _ContentHostFailure(
+        'MissAV returned an invalid content page.',
+        sourceUrl: uri.toString(),
+      );
+    }
+    return (document: document, uri: uri, title: title, streams: streams);
+  }
+
+  void _rememberAcceptedLine(String baseUrl, Document document, Uri uri) {
+    if (_client._baseUrl != baseUrl) {
+      _client._baseUrl = baseUrl;
+      _client._homeUrl = '$baseUrl${_client._localePrefix}';
+    }
+    _client._updateHomeUrl(document, uri);
+    if (missavMirrorForBaseUrl(baseUrl) != null &&
+        _client._cachedContentHost != baseUrl) {
+      _client._cachedContentHost = baseUrl;
+      unawaited(_client._persistContentHost(missavLastGoodHostKey, baseUrl));
+    }
+  }
+
+  static bool _isContentHostFailure(MissavException error) {
+    if (error is _ContentHostFailure ||
+        error is MissavMirrorUnavailableException ||
+        error is MissavVerificationRequiredException) {
+      return true;
+    }
+    final cause = error.cause;
+    if (cause is! DioException) return false;
+    return switch (cause.type) {
+      DioExceptionType.connectionTimeout ||
+      DioExceptionType.sendTimeout ||
+      DioExceptionType.receiveTimeout ||
+      DioExceptionType.connectionError ||
+      DioExceptionType.badCertificate => true,
+      DioExceptionType.unknown => cause.error is IOException,
+      _ => false,
+    };
+  }
+
+  void _clearHostFailure(String baseUrl, {required bool challenged}) {
+    final clearCache = _client._cachedContentHost == baseUrl;
+    final clearPreference = challenged && _client._preferredMirror == baseUrl;
+    if (clearCache) _client._cachedContentHost = null;
+    if (clearPreference) _client._preferredMirror = null;
+    if (clearCache) {
+      unawaited(_client._persistContentHost(missavLastGoodHostKey, null));
+    }
+    if (clearPreference) {
+      unawaited(_client._persistContentHost(missavMirrorBaseUrlKey, null));
+    }
+    if (clearCache || clearPreference) _client._notifyContentHostChanged();
+  }
 }
 
 class _ContentPageAttempts {

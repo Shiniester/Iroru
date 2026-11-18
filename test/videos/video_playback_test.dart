@@ -202,48 +202,47 @@ void main() {
     },
   );
 
-  _testPlayerWidget('detail route waits for entry animation to settle', (
-    tester,
-  ) async {
-    final client = _TestMissavClient(_details());
-    final library = await _testLibrary();
-    final downloads = _TestVideoDownloads(client: client, library: library);
-    final session = _FakePlaybackSession();
-    var sessionCreations = 0;
+  _testPlayerWidget(
+    'MissAV fetches details during entry before opening media',
+    (tester) async {
+      final client = _TestMissavClient(_details())..readyDetails = _details();
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+      var sessionCreations = 0;
 
-    await tester.pumpWidget(
-      _app(
-        client,
-        library,
-        downloads,
-        _videoDetailsLauncher(
-          sessionFactory: () {
-            sessionCreations++;
-            return session;
-          },
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _videoDetailsLauncher(
+            sessionFactory: () {
+              sessionCreations++;
+              return session;
+            },
+          ),
         ),
-      ),
-    );
+      );
 
-    await tester.tap(find.text('Open video'));
-    await tester.pump();
-    expect(client.detailsCalls, 0);
-    expect(sessionCreations, 0);
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(client.detailsCalls, 0);
-    expect(sessionCreations, 0);
+      await tester.tap(find.text('Open video'));
+      await tester.pump();
+      await tester.pump();
+      final route = ModalRoute.of(
+        tester.element(find.byType(VideoDetailsScreen, skipOffstage: false)),
+      )!;
+      await tester.pump(route.transitionDuration * 0.5);
+      expect(route.animation!.status, AnimationStatus.forward);
+      expect(client.detailsCalls, 1);
+      expect(sessionCreations, 0);
+      expect(session.loadStreamCount, 0);
 
-    for (
-      var frame = 0;
-      (client.detailsCalls == 0 || session.loadStreamCount == 0) && frame < 40;
-      frame++
-    ) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-    expect(client.detailsCalls, 1);
-    expect(sessionCreations, 1);
-    expect(session.loadStreamCount, 1);
-  });
+      await tester.pumpAndSettle();
+      expect(client.detailsCalls, 1);
+      expect(sessionCreations, 1);
+      expect(session.loadStreamCount, 1);
+    },
+  );
 
   for (final supplementFails in [false, true]) {
     for (final covered in [false, true]) {
@@ -425,7 +424,7 @@ void main() {
     );
   }
 
-  _testPlayerWidget('detail route ignores a late result during pop', (
+  _testPlayerWidget('MissAV cancels details when popped during entry', (
     tester,
   ) async {
     final client = _TestMissavClient(_details())
@@ -454,44 +453,77 @@ void main() {
     final route = ModalRoute.of(
       tester.element(find.byType(VideoDetailsScreen, skipOffstage: false)),
     )!;
-    await tester.pump(route.transitionDuration);
-    for (
-      var frame = 0;
-      route.animation!.status != AnimationStatus.completed && frame < 60;
-      frame++
-    ) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-    expect(route.animation!.status, AnimationStatus.completed);
-    expect(route.secondaryAnimation?.status, AnimationStatus.dismissed);
-    expect(route.navigator!.userGestureInProgressNotifier.value, isFalse);
-    for (var frame = 0; client.detailsCalls == 0 && frame < 10; frame++) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-    expect(
-      client.detailsCalls,
-      1,
-      reason:
-          'route=${route.animation?.status}, current=${route.isCurrent}, '
-          'initializeCalls=${client.initializeCalls}',
-    );
+    await tester.pump(route.transitionDuration * 0.5);
+    expect(route.animation!.status, AnimationStatus.forward);
+    expect(client.detailsCalls, 1);
     expect(sessionCreations, 0);
     expect(client.lastDetailsToken, isNotNull);
     expect(client.lastDetailsToken!.isCancelled, isFalse);
 
-    final navigator = Navigator.of(
-      tester.element(find.byType(VideoDetailsScreen, skipOffstage: false)),
-    );
-    navigator.pop();
-    await tester.pumpAndSettle();
+    route.navigator!.pop();
+    await tester.pump();
     expect(client.lastDetailsToken!.isCancelled, isTrue);
     client.detailsCompleter!.complete(_details());
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(sessionCreations, 0);
     expect(find.byType(VideoPlaybackPanel), findsNothing);
     expect(find.byType(VideoDetailsScreen), findsNothing);
   });
+
+  for (final detailsFail in [false, true]) {
+    _testPlayerWidget(
+      'completed download during entry wins over online details '
+      '(failure=$detailsFail)',
+      (tester) async {
+        final client = _TestMissavClient(_details())
+          ..detailsCompleter = Completer<VideoDetails>();
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(
+          client: client,
+          library: library,
+          task: VideoDownloadTask(
+            id: 'dvd-1',
+            video: _video(),
+            quality: 'Auto',
+            isHls: true,
+            status: VideoDownloadStatus.downloading,
+            localPath: '/offline/video/index.m3u8',
+          ),
+        );
+        final session = _FakePlaybackSession();
+
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            _videoDetailsLauncher(sessionFactory: () => session),
+          ),
+        );
+        await tester.tap(find.text('Open video'));
+        await tester.pump();
+        await tester.pump();
+        expect(client.detailsCalls, 1);
+
+        downloads.completeDownload();
+        await tester.pump();
+        if (detailsFail) {
+          client.detailsCompleter!.completeError(
+            const MissavException('Online details failed.'),
+          );
+        } else {
+          client.detailsCompleter!.complete(_details());
+        }
+        await tester.pumpAndSettle();
+
+        expect(session.loadFileCount, 1);
+        expect(session.loadStreamCount, 0);
+        expect(session.localPath, downloads.task!.localPath);
+        expect(find.byType(VideoPlaybackPanel), findsOneWidget);
+      },
+    );
+  }
 
   _testPlayerWidget(
     'detail route pop pauses before completion and retains its surface',

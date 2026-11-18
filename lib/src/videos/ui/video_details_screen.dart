@@ -115,6 +115,28 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       _downloads.forVideo(widget.video.storageKey) ??
       _downloadedTask;
 
+  VideoDownloadTask? get _completedDownloadTask {
+    for (final task in [
+      _downloads.forVideo(widget.video.storageKey),
+      widget.downloadedTask,
+      _downloadedTask,
+    ]) {
+      if (task?.status == VideoDownloadStatus.completed &&
+          task?.localPath?.isNotEmpty == true) {
+        return task;
+      }
+    }
+    return null;
+  }
+
+  VideoDetails _offlineDetails(VideoDownloadTask task) => VideoDetails(
+    video: task.video,
+    metadata: {
+      if (task.video.sourceKey != 'jable' && task.video.releaseDate != null)
+        S.of(context).releaseDateInfo: task.video.releaseDate!,
+    },
+  );
+
   // Keep the source chosen at load time when a background download completes.
   bool get _isOffline =>
       _downloadedTask?.status == VideoDownloadStatus.completed &&
@@ -229,40 +251,49 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     final generation = ++_loadGeneration;
     _cancelDetailsRequest();
     final requestToken = _detailsRequestToken = CancelToken();
+    final loadDuringEntry =
+        widget.video.sourceKey == 'missav' && supplement == null;
     setState(() {
       _loading = true;
       _error = null;
       _verificationError = null;
     });
-    if (!await _waitForRouteIdle(generation)) return;
+    if (!loadDuringEntry && !await _waitForRouteIdle(generation)) return;
     try {
       await Future.wait([_library.initialize(), _downloads.initialize()]);
-      if (!await _waitForRouteIdle(generation)) return;
-      final task = supplement != null
+      if (!mounted ||
+          generation != _loadGeneration ||
+          requestToken.isCancelled) {
+        return;
+      }
+      var task = supplement != null
           ? _downloadedTask
           : widget.downloadedTask ??
                 _downloads.forVideo(widget.video.storageKey);
-      if (supplement == null &&
-          task?.status == VideoDownloadStatus.completed &&
-          task?.localPath?.isNotEmpty == true) {
+      final completedDownload = supplement == null
+          ? _completedDownloadTask
+          : null;
+      if (completedDownload != null) {
+        if (!await _waitForRouteIdle(generation)) return;
         setState(() {
-          _downloadedTask = task;
-          _details = VideoDetails(
-            video: task!.video,
-            metadata: {
-              if (task.video.sourceKey != 'jable' &&
-                  task.video.releaseDate != null)
-                S.of(context).releaseDateInfo: task.video.releaseDate!,
-            },
-          );
+          _downloadedTask = completedDownload;
+          _details = _offlineDetails(completedDownload);
           _loading = false;
         });
         return;
       }
       await _sourceClient.initialize();
-      if (!await _waitForRouteIdle(generation)) return;
+      if (!mounted ||
+          generation != _loadGeneration ||
+          requestToken.isCancelled) {
+        return;
+      }
+      if (!loadDuringEntry && !await _waitForRouteIdle(generation)) return;
       Future<void> onReady(VideoDetails details) async {
         if (!await _waitForRouteIdle(generation)) return;
+        if (_details == null) {
+          task = _completedDownloadTask ?? task;
+        }
         setState(() {
           _downloadedTask = task;
           _details = details;
@@ -292,6 +323,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         _ => await _sourceClient.details(widget.video, onReady: onReady),
       };
       if (!await _waitForRouteIdle(generation)) return;
+      if (_details == null) {
+        task = _completedDownloadTask ?? task;
+      }
       setState(() {
         _downloadedTask = task;
         _details = details;
@@ -308,6 +342,19 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       }
     } catch (error) {
       if (!await _waitForRouteIdle(generation)) return;
+      final completedDownload = _details == null
+          ? _completedDownloadTask
+          : null;
+      if (completedDownload != null) {
+        setState(() {
+          _downloadedTask = completedDownload;
+          _details = _offlineDetails(completedDownload);
+          _loading = false;
+          _error = null;
+          _verificationError = null;
+        });
+        return;
+      }
       setState(() {
         _loading = false;
         _error = error;
@@ -993,7 +1040,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         MediaQuery.orientationOf(context) == Orientation.landscape;
     ref.watch(videoDownloadsProvider);
     final currentTask = _availableTask;
-    return AnimatedBuilder(
+    final content = AnimatedBuilder(
       animation: _fullscreenTransition,
       builder: (context, child) => GlobalAudioPlayerWrapper(
         showMiniPlayer: !_fullscreen || !_fullscreenTransition.isCompleted,
@@ -1082,6 +1129,12 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
             ? const SizedBox.shrink()
             : _buildDetails(s, details, currentTask),
       ),
+    );
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _cancelDetailsRequest();
+      },
+      child: content,
     );
   }
 

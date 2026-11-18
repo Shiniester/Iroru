@@ -3619,7 +3619,8 @@ void main() {
     expect(client.browsedUrls, contains(page3Url));
     await tester.tap(find.text(l10n.previousPage));
     await tester.pumpAndSettle();
-    expect(client.browsedUrls, contains(page2Url));
+    expect(client.browsedUrls, [page2Url, page3Url]);
+    expect(find.text('Source page 2'), findsOneWidget);
     await tester.tap(find.text(l10n.jumpTo));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '4');
@@ -3631,6 +3632,121 @@ void main() {
       tester.widget<PaginationBar>(find.byType(PaginationBar)).jumpMaxPage,
       8,
     );
+  });
+
+  testWidgets('account collection pagination refreshes visited pages', (
+    tester,
+  ) async {
+    const firstUrl = 'https://missav.ai/en/saved?page=1';
+    const secondUrl = 'https://missav.ai/en/saved?page=2';
+    final client = _TestMissavClient(
+      loggedIn: true,
+      accountName: 'Account A',
+      pagesByUrl: {
+        firstUrl: const VideoCatalogPage(
+          title: 'Account collection',
+          url: firstUrl,
+          nextUrl: secondUrl,
+          videos: [
+            VideoItem(
+              id: 'account-page-1',
+              title: 'Account page 1',
+              pageUrl: 'https://missav.ai/en/account-page-1',
+            ),
+          ],
+        ),
+        secondUrl: const VideoCatalogPage(
+          title: 'Account collection',
+          url: secondUrl,
+          previousUrl: firstUrl,
+          currentPage: 2,
+          videos: [
+            VideoItem(
+              id: 'account-page-2',
+              title: 'Account page 2',
+              pageUrl: 'https://missav.ai/en/account-page-2',
+            ),
+          ],
+        ),
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        const VideoScreen.catalog(url: firstUrl),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    await tester.tap(find.text(l10n.nextPage));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.previousPage));
+    await tester.pumpAndSettle();
+
+    expect(client.browsedUrls, [firstUrl, secondUrl, firstUrl]);
+    expect(find.text('Account page 1'), findsOneWidget);
+  });
+
+  testWidgets('visited fallback page reuses its final source address', (
+    tester,
+  ) async {
+    const requestedFirstUrl = 'https://missav.ai/en/catalog?page=1';
+    const fallbackFirstUrl = 'https://missav.ws/en/catalog?page=1';
+    const secondUrl = 'https://missav.ws/en/catalog?page=2';
+    final client = _TestMissavClient(
+      pagesByUrl: {
+        requestedFirstUrl: const VideoCatalogPage(
+          title: 'Fallback catalog',
+          url: fallbackFirstUrl,
+          nextUrl: secondUrl,
+          videos: [
+            VideoItem(
+              id: 'fallback-page-1',
+              title: 'Fallback page 1',
+              pageUrl: 'https://missav.ws/en/fallback-page-1',
+            ),
+          ],
+        ),
+        secondUrl: const VideoCatalogPage(
+          title: 'Fallback catalog',
+          url: secondUrl,
+          previousUrl: fallbackFirstUrl,
+          currentPage: 2,
+          videos: [
+            VideoItem(
+              id: 'fallback-page-2',
+              title: 'Fallback page 2',
+              pageUrl: 'https://missav.ws/en/fallback-page-2',
+            ),
+          ],
+        ),
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        const VideoScreen.catalog(url: requestedFirstUrl),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    await tester.tap(find.text(l10n.nextPage));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.previousPage));
+    await tester.pumpAndSettle();
+
+    expect(client.browsedUrls, [requestedFirstUrl, secondUrl]);
+    expect(find.text('Fallback page 1'), findsOneWidget);
   });
 
   testWidgets('catalog locally pages loaded home items above the bottom dock', (

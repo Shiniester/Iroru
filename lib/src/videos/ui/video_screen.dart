@@ -743,8 +743,29 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final key = _pageCacheKey(url);
     final page = _pageCache.remove(key);
     if (page != null) _pageCache[key] = page;
-    return page;
+    if (page != null) return page;
+    _VideoPageCacheKey? matchingKey;
+    for (final entry in _pageCache.entries) {
+      if (entry.value.url == url && _samePageCacheScope(entry.key, key)) {
+        matchingKey = entry.key;
+        break;
+      }
+    }
+    if (matchingKey == null) return null;
+    final matchingPage = _pageCache.remove(matchingKey);
+    if (matchingPage != null) _pageCache[matchingKey] = matchingPage;
+    return matchingPage;
   }
+
+  static bool _samePageCacheScope(
+    _VideoPageCacheKey left,
+    _VideoPageCacheKey right,
+  ) =>
+      left.sourceKey == right.sourceKey &&
+      left.locale == right.locale &&
+      left.sessionGeneration == right.sessionGeneration &&
+      left.isLoggedIn == right.isLoggedIn &&
+      left.accountName == right.accountName;
 
   void _rememberPage(String url, VideoCatalogPage page) {
     if (_isJableFavoritesUrl(url)) return;
@@ -953,6 +974,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     String url, {
     String? collectionKey,
     bool preserveCollection = false,
+    bool reuseVisitedPage = false,
   }) async {
     _recommendationsActive = false;
     _activeRecommendationPageSize = null;
@@ -973,6 +995,8 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final cancelToken = CancelToken();
     _activeBrowseCancelToken = cancelToken;
     final cachedPage = _takeCachedPage(url);
+    final reuseCachedPage =
+        cachedPage != null && reuseVisitedPage && _activeCollectionKey == null;
     final cachedFailures =
         cachedPage != null && _publishedFailedPageUrl == cachedPage.url
         ? Set<VideoCoverImageKey>.of(_publishedFailedCovers)
@@ -1008,17 +1032,19 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     VideoCatalogPage? refreshedPage;
     Object? refreshError;
     StackTrace? refreshTrace;
-    final browseFuture = _sourceClient
-        .browse(url, cancelToken: cancelToken, onParsed: onParsed)
-        .then<void>(
-          (page) {
-            refreshedPage = page;
-          },
-          onError: (Object error, StackTrace trace) {
-            refreshError = error;
-            refreshTrace = trace;
-          },
-        );
+    final browseFuture = reuseCachedPage
+        ? Future<void>.value()
+        : _sourceClient
+              .browse(url, cancelToken: cancelToken, onParsed: onParsed)
+              .then<void>(
+                (page) {
+                  refreshedPage = page;
+                },
+                onError: (Object error, StackTrace trace) {
+                  refreshError = error;
+                  refreshTrace = trace;
+                },
+              );
 
     try {
       if (cachedPage != null) {
@@ -1051,6 +1077,16 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
         await WidgetsBinding.instance.endOfFrame;
         if (!mounted || request != _request) return;
+        if (reuseCachedPage) {
+          setState(() {
+            _loading = false;
+            _error = null;
+            _errorSourceUrl = null;
+            _verificationError = null;
+            _discardStaging();
+          });
+          return;
+        }
         if (refreshError != null) return;
       }
 
@@ -2599,7 +2635,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           : hasSourcePagination
           ? page.previousUrl == null
                 ? null
-                : () => _loadUrl(page.previousUrl!, preserveCollection: true)
+                : () => _loadUrl(
+                    page.previousUrl!,
+                    preserveCollection: true,
+                    reuseVisitedPage: true,
+                  )
           : hasLocalPagination && localPage > 1
           ? () => setState(() => _localPage = localPage - 1)
           : null,
@@ -2613,7 +2653,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           : hasSourcePagination
           ? page.nextUrl == null
                 ? null
-                : () => _loadUrl(page.nextUrl!, preserveCollection: true)
+                : () => _loadUrl(
+                    page.nextUrl!,
+                    preserveCollection: true,
+                    reuseVisitedPage: true,
+                  )
           : hasLocalPagination && localPage < localPageCount
           ? () => setState(() => _localPage = localPage + 1)
           : null,
@@ -2627,6 +2671,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                 : (targetPage) => _loadUrl(
                     page.pageUrl(targetPage),
                     preserveCollection: true,
+                    reuseVisitedPage: true,
                   )
           : hasLocalPagination
           ? (targetPage) => setState(() => _localPage = targetPage)
