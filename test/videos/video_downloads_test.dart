@@ -1007,6 +1007,7 @@ class _FixtureMissavClient extends MissavClient {
     VideoItem item, {
     FutureOr<void> Function(VideoDetails)? onReady,
     bool includeAccountState = true,
+    CancelToken? cancelToken,
   }) {
     detailsCalls++;
     return resolve(item);

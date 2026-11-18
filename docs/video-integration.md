@@ -388,6 +388,14 @@ flutter test --no-pub -d windows integration_test/video_native_playback_test.dar
 
 该检查先通过本机服务器下载视频，再关闭服务器。随后检查本机解码、续播起点、并发播放和独立音量，并确认暂停视频后音声继续。检查还覆盖系统安全存储的读写和删除。没有提供素材路径时跳过此检查。
 
+Windows 播放启动测量使用同一份本地素材，运行 3 次并写入 `build/diagnostics/video-startup/windows.json`：
+
+```powershell
+flutter test --no-pub -d windows integration_test/video_startup_profile_test.dart --dart-define=KIKOFLU_TEST_VIDEO=C:/path/to/butterfly.mp4
+```
+
+测量从播放器组件挂载开始，到 libmpv 报告首个已解码视频帧。首个样本包含 MediaKit 初始化，不能与后续样本直接比较。
+
 `KIKOFLU_TEST_VIDEO` 也可传入本机 `.m3u8`。清单引用的片段和初始化文件须放在清单所在目录。
 HLS 检查使用 [Apple 官方示例](https://developer.apple.com/streaming/examples/) 的两个 AVC 片段和初始化文件。
 

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -253,6 +254,7 @@ class _FixtureClient extends MissavClient {
     VideoItem item, {
     FutureOr<void> Function(VideoDetails)? onReady,
     bool includeAccountState = true,
+    CancelToken? cancelToken,
   }) async {
     detailsCalls++;
     return VideoDetails(video: video, streams: [stream]);

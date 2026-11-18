@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
@@ -87,6 +88,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   bool _verifyingAccess = false;
   bool _accountChangedDuringVerification = false;
   int _loadGeneration = 0;
+  CancelToken? _detailsRequestToken;
   bool _accountWasLoggedIn = false;
   String? _accountName;
   late int _sessionGeneration;
@@ -225,6 +227,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
 
   Future<void> _initialize({VideoDetails? supplement}) async {
     final generation = ++_loadGeneration;
+    _cancelDetailsRequest();
+    final requestToken = _detailsRequestToken = CancelToken();
     setState(() {
       _loading = true;
       _error = null;
@@ -278,6 +282,12 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         ('missav', final VideoDetails value) => await _client.supplementDetails(
           value,
           onReady: onReady,
+          cancelToken: requestToken,
+        ),
+        ('missav', _) => await _client.details(
+          widget.video,
+          onReady: onReady,
+          cancelToken: requestToken,
         ),
         _ => await _sourceClient.details(widget.video, onReady: onReady),
       };
@@ -340,6 +350,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
 
   @override
   void dispose() {
+    _cancelDetailsRequest();
     _jableAccount?.removeListener(_onJableAccountChanged);
     if (widget.video.sourceKey == 'missav') {
       _client.removeListener(_onMissavClientChanged);
@@ -349,6 +360,14 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     _portraitDetailsController.dispose();
     _landscapeDetailsController.dispose();
     super.dispose();
+  }
+
+  void _cancelDetailsRequest() {
+    final token = _detailsRequestToken;
+    _detailsRequestToken = null;
+    if (token != null && !token.isCancelled) {
+      token.cancel('Video details request cancelled.');
+    }
   }
 
   Future<void> _openSource([String? url]) async {
@@ -905,6 +924,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   }
 
   void _resetMissavRelated() {
+    _cancelDetailsRequest();
     _missavRelated = null;
     _missavRelatedVideoKey = null;
     _missavRelatedRequestGeneration++;
@@ -919,6 +939,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   }
 
   Future<void> _loadMissavRelated(VideoItem video) async {
+    final requestToken = _detailsRequestToken;
+    if (requestToken == null || requestToken.isCancelled) return;
     final requestGeneration = ++_missavRelatedRequestGeneration;
     final sessionGeneration = _client.sessionGeneration;
     setState(() {
@@ -927,7 +949,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       _missavRelatedFailed = false;
     });
     try {
-      final related = await _client.loadRelatedRecommendations(video);
+      final related = await _client.loadRelatedRecommendations(
+        video,
+        cancelToken: requestToken,
+      );
       if (!await _routeReadiness.waitForIdle() ||
           !mounted ||
           requestGeneration != _missavRelatedRequestGeneration ||
@@ -1218,7 +1243,12 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         initialVolume: _library.volume,
         sessionFactory: widget.sessionFactory,
         prepareStream: widget.video.sourceKey == 'missav'
-            ? (stream) => _client.prepareMediaStream(details.video, stream)
+            ? (stream, cancellation) =>
+                  _client.prepareMediaStreamWithCancellation(
+                    details.video,
+                    stream,
+                    cancellation,
+                  )
             : null,
         mediaVerificationError: _mediaVerification,
         onStreamChanged: (stream) => setState(() => _selectedStream = stream),

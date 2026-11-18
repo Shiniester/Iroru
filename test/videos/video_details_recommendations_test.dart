@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
 import 'package:kikoeru_flutter/src/videos/jable_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
@@ -54,6 +56,8 @@ void main() {
       final s = await S.delegate.load(const Locale('en'));
 
       expect(recommendationCalls, 1);
+      expect(client.lastDetailsToken, isNotNull);
+      expect(client.lastRelatedToken, same(client.lastDetailsToken));
       expect(find.text(s.videoRelated), findsOneWidget);
       expect(find.byType(MasonryGridView), findsOneWidget);
       expect(find.byType(VideoCard), findsNothing);
@@ -528,6 +532,8 @@ class _FakeMissavClient extends MissavClient {
   int _sessionGeneration = 0;
   int detailsCalls = 0;
   int recommendationCalls = 0;
+  CancelToken? lastDetailsToken;
+  CancelToken? lastRelatedToken;
 
   @override
   int get sessionGeneration => _sessionGeneration;
@@ -550,12 +556,24 @@ class _FakeMissavClient extends MissavClient {
   }
 
   @override
+  Future<VideoStream> prepareMediaStreamWithCancellation(
+    VideoItem video,
+    VideoStream stream,
+    RemoteAssetCancellation cancellation,
+  ) async {
+    if (mediaError case final error?) throw error;
+    return stream;
+  }
+
+  @override
   Future<VideoDetails> details(
     VideoItem item, {
     FutureOr<void> Function(VideoDetails)? onReady,
     bool includeAccountState = true,
+    CancelToken? cancelToken,
   }) async {
     detailsCalls++;
+    lastDetailsToken = cancelToken;
     final details = detailsById[item.id] ?? _details(item);
     final ready = detailsCalls == 1 ? readyDetails ?? details : details;
     await onReady?.call(ready);
@@ -563,8 +581,12 @@ class _FakeMissavClient extends MissavClient {
   }
 
   @override
-  Future<List<VideoItem>> loadRelatedRecommendations(VideoItem video) {
+  Future<List<VideoItem>> loadRelatedRecommendations(
+    VideoItem video, {
+    CancelToken? cancelToken,
+  }) {
     recommendationCalls++;
+    lastRelatedToken = cancelToken;
     requestedRecommendations.add(video);
     return relatedLoader?.call(video) ?? Future.value(const []);
   }

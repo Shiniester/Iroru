@@ -158,6 +158,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   final Map<String, _MissavSearchState> _searches = {};
 
   bool get isLoggedIn => _isLoggedIn;
+  bool get hasRestorableSession =>
+      (_cookie?.isNotEmpty ?? false) || _browserAdapter != null;
   @override
   String get sourceKey => 'missav';
   int get sessionGeneration => _sessionGeneration;
@@ -685,7 +687,10 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
-  Future<void> checkBrowserAccess({Map<String, dynamic>? browserUser}) async {
+  Future<void> checkBrowserAccess({
+    Map<String, dynamic>? browserUser,
+    CancelToken? cancelToken,
+  }) async {
     await initialize();
     final browser = _browserAdapter;
     if (browser == null ||
@@ -698,6 +703,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final (document: document, uri: pageUri) = await _loadDocument(
       uri,
       generation,
+      cancelToken: cancelToken,
       isContentPage: true,
     );
     _checkGeneration(generation, uri);
@@ -1076,7 +1082,10 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     );
   }
 
-  Future<List<VideoItem>> loadRelatedRecommendations(VideoItem video) async {
+  Future<List<VideoItem>> loadRelatedRecommendations(
+    VideoItem video, {
+    CancelToken? cancelToken,
+  }) async {
     await _prepareOnlineAccess();
     final generation = _sessionGeneration;
     final locale = _locale;
@@ -1108,7 +1117,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
               },
             },
         ],
-      });
+      }, cancelToken: cancelToken);
+      _checkCancelled(cancelToken, uri);
       _checkGeneration(generation, uri);
       if (_locale != locale) {
         throw MissavException(
@@ -1163,7 +1173,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
           videos.add(_recommendationVideo(id, values, titleLocale, uri));
         }
       }
-      final enriched = await _enrichVideos(videos, uri);
+      final enriched = await _enrichVideos(
+        videos,
+        uri,
+        cancelToken: cancelToken,
+      );
+      _checkCancelled(cancelToken, uri);
       _checkGeneration(generation, uri);
       if (_locale != locale) {
         throw MissavException(
@@ -1460,11 +1475,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     VideoItem item, {
     FutureOr<void> Function(VideoDetails)? onReady,
     bool includeAccountState = true,
+    CancelToken? cancelToken,
   }) async {
     await _prepareOnlineAccess();
     final generation = _sessionGeneration;
     final locale = _locale;
-    final contentToken = CancelToken();
+    final contentToken = cancelToken ?? CancelToken();
     _browseCancelTokens.add(contentToken);
     final ({
       Document document,
@@ -1542,12 +1558,14 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       saved: saved,
       onReady: onReady,
       includeAccountState: includeAccountState,
+      cancelToken: cancelToken,
     );
   }
 
   Future<VideoDetails> supplementDetails(
     VideoDetails details, {
     FutureOr<void> Function(VideoDetails)? onReady,
+    CancelToken? cancelToken,
   }) async {
     await _prepareOnlineAccess();
     return _supplementDetails(
@@ -1556,6 +1574,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       locale: _locale,
       saved: details.isFavorite,
       onReady: onReady,
+      cancelToken: cancelToken,
     );
   }
 
@@ -1566,13 +1585,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     bool? saved,
     FutureOr<void> Function(VideoDetails)? onReady,
     bool includeAccountState = true,
+    CancelToken? cancelToken,
   }) async {
     final uri = _sourceUri(initialDetails.video.pageUrl);
     _checkGeneration(generation, uri);
-    final enrichment = _enrichVideos([
-      initialDetails.video,
-      ...initialDetails.related,
-    ], uri);
+    final enrichment = _enrichVideos(
+      [initialDetails.video, ...initialDetails.related],
+      uri,
+      cancelToken: cancelToken,
+    );
     final sourceId = initialDetails.sourceId;
     Object? accountError;
     StackTrace? accountTrace;
@@ -1584,7 +1605,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         '$accountBase/api/items/${Uri.encodeComponent(sourceId)}/view',
       );
       try {
-        final viewResponse = await _request(viewUri, generation: generation);
+        final viewResponse = await _request(
+          viewUri,
+          generation: generation,
+          cancelToken: cancelToken,
+        );
+        _checkCancelled(cancelToken, uri);
         _checkGeneration(generation, viewUri);
         final viewBody = _decodeObject(viewResponse.data, viewUri);
         if (viewBody['saved'] is bool) saved = viewBody['saved'] as bool;
@@ -1599,8 +1625,10 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         }
         saved = null;
       }
+      _checkCancelled(cancelToken, uri);
     }
     final enriched = await enrichment;
+    _checkCancelled(cancelToken, uri);
     final detailedVideo = enriched.first;
     _checkGeneration(generation, uri);
     if (_locale != locale) {
@@ -2415,6 +2443,10 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         sourceUrl: uri.toString(),
       );
     }
+  }
+
+  void _checkCancelled(CancelToken? cancelToken, Uri uri) {
+    if (cancelToken?.cancelError case final error?) throw error;
   }
 
   static Uri _sourceUri(String url) {

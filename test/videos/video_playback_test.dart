@@ -22,6 +22,7 @@ import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/videos/jable_client.dart';
@@ -475,22 +476,21 @@ void main() {
           'initializeCalls=${client.initializeCalls}',
     );
     expect(sessionCreations, 0);
+    expect(client.lastDetailsToken, isNotNull);
+    expect(client.lastDetailsToken!.isCancelled, isFalse);
 
     final navigator = Navigator.of(
       tester.element(find.byType(VideoDetailsScreen, skipOffstage: false)),
     );
     navigator.pop();
-    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(client.lastDetailsToken!.isCancelled, isTrue);
     client.detailsCompleter!.complete(_details());
     await tester.pump();
 
     expect(sessionCreations, 0);
     expect(find.byType(VideoPlaybackPanel), findsNothing);
-    expect(find.byType(VideoDetailsScreen), findsOneWidget);
-
-    await tester.pumpAndSettle();
-    expect(sessionCreations, 0);
-    expect(find.byType(VideoPlaybackPanel), findsNothing);
+    expect(find.byType(VideoDetailsScreen), findsNothing);
   });
 
   _testPlayerWidget(
@@ -691,7 +691,7 @@ void main() {
           downloads,
           _testVideoDetailsScreen(
             video: _video(),
-            sessionFactory: () => _FakePlaybackSession(),
+            sessionFactory: () => session,
           ),
           appNavigationController: navigation,
         ),
@@ -5311,6 +5311,117 @@ void main() {
     },
   );
 
+  _testPlayerWidget('switching streams cancels stale media preparation', (
+    tester,
+  ) async {
+    final library = await _testLibrary();
+    final session = _FakePlaybackSession();
+    final platform = _TestVideoPlayerPlatform();
+    final firstPreparation = Completer<VideoStream>();
+    RemoteAssetCancellation? firstCancellation;
+    var prepareCalls = 0;
+
+    Future<VideoStream> prepare(
+      VideoStream stream,
+      RemoteAssetCancellation cancellation,
+    ) {
+      prepareCalls++;
+      if (prepareCalls == 1) {
+        firstCancellation = cancellation;
+        return firstPreparation.future;
+      }
+      return Future.value(stream);
+    }
+
+    Widget panel(List<VideoStream> streams) => MaterialApp(
+      locale: const Locale('en'),
+      supportedLocales: S.supportedLocales,
+      localizationsDelegates: S.localizationsDelegates,
+      home: Scaffold(
+        body: VideoPlaybackPanel(
+          key: const ValueKey('stale-preparation-player'),
+          videoId: 'stale-preparation',
+          library: library,
+          streams: streams,
+          autoPlayOnStart: true,
+          sessionFactory: () => session,
+          platform: platform,
+          prepareStream: prepare,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      panel(const [VideoStream(label: 'A', url: 'https://cdn.example/a.m3u8')]),
+    );
+    for (var frame = 0; frame < 10 && prepareCalls == 0; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(prepareCalls, 1);
+    expect(firstCancellation!.isCancelled, isFalse);
+
+    await tester.pumpWidget(
+      panel(const [VideoStream(label: 'B', url: 'https://cdn.example/b.m3u8')]),
+    );
+    await tester.pump();
+    expect(firstCancellation!.isCancelled, isTrue);
+
+    firstPreparation.complete(
+      const VideoStream(label: 'A', url: 'https://cdn.example/a.m3u8'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(prepareCalls, 2);
+    expect(session.loadStreamCount, 1);
+    expect(session.lastStreamUrl, 'https://cdn.example/b.m3u8');
+    expect(session.playCount, 1);
+  });
+
+  _testPlayerWidget(
+    'automatic playback does not wait for picture-in-picture preparation',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final library = await _testLibrary();
+      await (await SharedPreferences.getInstance()).setBool(
+        'video_player_v1_auto_pip',
+        true,
+      );
+      final session = _FakeAdvancedPlaybackSession();
+      final platform = _GatedAutoPiPPlatform();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: S.supportedLocales,
+          localizationsDelegates: S.localizationsDelegates,
+          home: Scaffold(
+            body: VideoPlaybackPanel(
+              videoId: 'auto-pip',
+              library: library,
+              streams: _details().streams,
+              autoPlayOnStart: true,
+              sessionFactory: () => session,
+              platform: platform,
+            ),
+          ),
+        ),
+      );
+      for (var frame = 0; frame < 20 && session.playCount == 0; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      expect(session.playCount, 1);
+      expect(platform.autoPipCalls, greaterThanOrEqualTo(1));
+      expect(platform.lastEnabled, isTrue);
+      expect(platform.autoPictureInPictureEnabled, isFalse);
+
+      platform.autoPipGate.complete();
+      await tester.pumpAndSettle();
+      expect(platform.autoPictureInPictureEnabled, isTrue);
+    },
+  );
+
   _testPlayerWidget(
     'quality switch keeps the pending seek target before snapshot feedback',
     (tester) async {
@@ -8993,6 +9104,8 @@ class _TestMissavClient extends MissavClient {
   VideoDetails? readyDetails;
   bool loggedIn;
   final Object? initializeError;
+  CancelToken? lastDetailsToken;
+  CancelToken? lastRelatedToken;
   String? _accountName;
   final List<bool> actorFavoriteChanges = [];
   final List<bool> videoFavoriteChanges = [];
@@ -9039,6 +9152,16 @@ class _TestMissavClient extends MissavClient {
   }
 
   @override
+  Future<VideoStream> prepareMediaStreamWithCancellation(
+    VideoItem video,
+    VideoStream stream,
+    RemoteAssetCancellation cancellation,
+  ) async {
+    if (mediaError case final error?) throw error;
+    return stream;
+  }
+
+  @override
   bool get isLoggedIn => loggedIn;
 
   @override
@@ -9074,8 +9197,10 @@ class _TestMissavClient extends MissavClient {
     VideoItem item, {
     FutureOr<void> Function(VideoDetails)? onReady,
     bool includeAccountState = true,
+    CancelToken? cancelToken,
   }) async {
     detailsCalls++;
+    lastDetailsToken = cancelToken;
     if (readyDetails case final preview?) await onReady?.call(preview);
     final completer = detailsCompleter;
     if (completer != null) return completer.future;
@@ -9086,14 +9211,20 @@ class _TestMissavClient extends MissavClient {
   Future<VideoDetails> supplementDetails(
     VideoDetails details, {
     FutureOr<void> Function(VideoDetails)? onReady,
+    CancelToken? cancelToken,
   }) async {
     supplementCalls++;
     return supplementCompleter?.future ?? Future.value(detailsResult);
   }
 
   @override
-  Future<List<VideoItem>> loadRelatedRecommendations(VideoItem video) async =>
-      (detailsForVideo?.call(video) ?? detailsResult).related;
+  Future<List<VideoItem>> loadRelatedRecommendations(
+    VideoItem video, {
+    CancelToken? cancelToken,
+  }) async {
+    lastRelatedToken = cancelToken;
+    return (detailsForVideo?.call(video) ?? detailsResult).related;
+  }
 
   @override
   Future<List<VideoLink>> playlistsFor(VideoItem item) {
@@ -9644,5 +9775,29 @@ class _DelayedAndroidPiPPlatform extends _TestVideoPlayerPlatform {
   @override
   Future<void> exitPictureInPicture() async {
     _pictureInPicture.value = false;
+  }
+}
+
+class _GatedAutoPiPPlatform extends _TestVideoPlayerPlatform {
+  final Completer<void> autoPipGate = Completer<void>();
+  bool autoPictureInPictureEnabled = false;
+  int autoPipCalls = 0;
+  bool? lastEnabled;
+
+  @override
+  bool get supportsPictureInPicture => true;
+
+  @override
+  Future<void> attachVideoController(VideoController controller) async {}
+
+  @override
+  Future<void> setAutoPictureInPicture(
+    bool enabled, {
+    double aspectRatio = 16 / 9,
+  }) async {
+    autoPipCalls++;
+    lastEnabled = enabled;
+    await autoPipGate.future;
+    autoPictureInPictureEnabled = enabled;
   }
 }

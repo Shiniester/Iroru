@@ -2179,6 +2179,7 @@ void main() {
     final browsesBeforeSelection = client.browsedUrls.length;
     final l10n = await S.delegate.load(const Locale('en'));
     expect(find.text('Source recent feed'), findsNothing);
+    await _videoDrawerTile(tester, l10n.videoRecentlyUpdated);
     await tester.tap(find.text(l10n.videoRecentlyUpdated));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 60));
@@ -5370,6 +5371,7 @@ class _TestMissavClient extends MissavClient {
     VideoItem item, {
     FutureOr<void> Function(VideoDetails)? onReady,
     bool includeAccountState = true,
+    CancelToken? cancelToken,
   }) async {
     final details = detailsResult ?? VideoDetails(video: item);
     await onReady?.call(details);
@@ -5580,13 +5582,13 @@ Future<void> _selectVideoDrawerLabel(
 Future<ListTile> _videoDrawerTile(WidgetTester tester, String label) async {
   final drawer = find.byKey(const ValueKey('library-drawer'));
   final labelFinder = find.descendant(of: drawer, matching: find.text(label));
-  await tester.scrollUntilVisible(
-    labelFinder,
-    240,
-    scrollable: find
-        .descendant(of: drawer, matching: find.byType(Scrollable))
-        .first,
-  );
+  final scrollable = find
+      .descendant(of: drawer, matching: find.byType(Scrollable))
+      .first;
+  // Reset to the top first so a tile above the current scroll position is mounted.
+  await tester.drag(scrollable, const Offset(0, 2000));
+  await tester.pumpAndSettle();
+  await tester.scrollUntilVisible(labelFinder, 240, scrollable: scrollable);
   await tester.pumpAndSettle();
   final tileFinder = find.ancestor(
     of: labelFinder,

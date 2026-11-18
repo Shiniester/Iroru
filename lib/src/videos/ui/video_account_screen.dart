@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -25,11 +26,13 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   final _passwordController = TextEditingController();
   bool _loading = false;
   bool _ready = false;
+  bool _checkingAccount = false;
   bool _obscurePassword = true;
   String? _error;
   MissavVerificationRequiredException? _verificationError;
   String? _pendingLoginHost;
   bool _showOpenSource = false;
+  CancelToken? _accessCheckToken;
 
   @override
   void initState() {
@@ -41,8 +44,24 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   Future<void> _initialize() async {
     try {
       await _client.initialize();
-      await _client.checkBrowserAccess();
-      if (mounted) setState(() => _ready = true);
+      if (!mounted) return;
+      setState(() => _ready = true);
+      if (!_client.hasRestorableSession) return;
+      final token = _accessCheckToken = CancelToken();
+      setState(() => _checkingAccount = true);
+      try {
+        await _client.checkBrowserAccess(cancelToken: token);
+      } catch (error) {
+        if (!mounted || token.isCancelled) return;
+        setState(() {
+          _setAccountError(error, S.of(context).videoSourceUnavailable);
+        });
+      } finally {
+        if (mounted && identical(_accessCheckToken, token)) {
+          _accessCheckToken = null;
+          setState(() => _checkingAccount = false);
+        }
+      }
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -53,13 +72,25 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     }
   }
 
+  void _cancelAccessCheck() {
+    final token = _accessCheckToken;
+    _accessCheckToken = null;
+    if (token != null && !token.isCancelled) {
+      token.cancel('Account action started.');
+    }
+  }
+
   void _accountChanged() {
     if (mounted) setState(() {});
   }
 
   Future<void> _verifyAccess() async {
     if (_loading) return;
-    setState(() => _loading = true);
+    _cancelAccessCheck();
+    setState(() {
+      _loading = true;
+      _checkingAccount = false;
+    });
     var resumeLogin = false;
     try {
       final result = await ref.read(missavAccountVerifierProvider)(
@@ -117,7 +148,11 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
 
   Future<void> _logout() async {
     final clearBrowserSession = ref.read(videoBrowserSessionCleanupProvider);
-    setState(() => _loading = true);
+    _cancelAccessCheck();
+    setState(() {
+      _loading = true;
+      _checkingAccount = false;
+    });
     Object? logoutError;
     try {
       await _client.logout();
@@ -148,8 +183,10 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
       setState(() => _error = S.of(context).loginFailed);
       return;
     }
+    _cancelAccessCheck();
     setState(() {
       _loading = true;
+      _checkingAccount = false;
       _error = null;
       _verificationError = null;
       _pendingLoginHost = null;
@@ -199,6 +236,11 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
 
   @override
   void dispose() {
+    final token = _accessCheckToken;
+    _accessCheckToken = null;
+    if (token != null && !token.isCancelled) {
+      token.cancel('Account page closed.');
+    }
     _client.removeListener(_accountChanged);
     _emailController.dispose();
     _passwordController.dispose();
@@ -227,6 +269,12 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                         color: Theme.of(context).colorScheme.primary,
                       ),
                       const SizedBox(height: 16),
+                      if (_checkingAccount) ...[
+                        const LinearProgressIndicator(
+                          key: ValueKey('video-account-checking'),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       if (loggedIn) ...[
                         Text(
                           _client.accountName ?? s.videoAccountSignedIn,

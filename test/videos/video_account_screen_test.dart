@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -50,6 +53,77 @@ void main() {
     expect(client.isLoggedIn, isFalse);
     expect(find.text(s.login), findsOneWidget);
     expect(find.byType(TextField), findsNWidgets(2));
+  });
+
+  testWidgets('anonymous account page skips the source access check', (
+    tester,
+  ) async {
+    final client = _TestMissavClient();
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl}) async =>
+            (verified: false, signedIn: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(client.browserAccessChecks, 0);
+    expect(find.byType(TextField), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('video-account-checking')), findsNothing);
+  });
+
+  testWidgets('saved account checks access without blocking the form', (
+    tester,
+  ) async {
+    final check = Completer<void>();
+    final client = _TestMissavClient(restoredAccountName: 'saved-viewer')
+      ..accessCheckCompleter = check;
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl}) async =>
+            (verified: false, signedIn: false),
+      ),
+    );
+    await tester.pump();
+
+    expect(client.browserAccessChecks, 1);
+    expect(find.byType(TextField), findsNWidgets(2));
+    expect(
+      find.byKey(const ValueKey('video-account-checking')),
+      findsOneWidget,
+    );
+
+    check.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('saved-viewer'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+  });
+
+  testWidgets('login cancels the background access check', (tester) async {
+    final check = Completer<void>();
+    final client = _TestMissavClient(restoredAccountName: 'saved-viewer')
+      ..accessCheckCompleter = check;
+    final s = await S.delegate.load(const Locale('en'));
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl}) async =>
+            (verified: false, signedIn: false),
+      ),
+    );
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField).first, 'viewer@example.test');
+    await tester.enterText(find.byType(TextField).last, 'password');
+    await tester.tap(find.text(s.login));
+    await tester.pumpAndSettle();
+
+    expect(client.accessCheckCancelled, isTrue);
+    expect(client.isLoggedIn, isTrue);
+    expect(find.text('native-viewer'), findsOneWidget);
+    expect(find.text(s.videoSourceUnavailable), findsNothing);
   });
 
   testWidgets('verification button accepts a manual web sign-in', (
@@ -520,6 +594,8 @@ class _TestMissavClient extends MissavClient {
   int get nativeLoginCalls => nativeLogins.length;
   String? nativeLoginChallengeUrl;
   MissavException? nativeLoginError;
+  Completer<void>? accessCheckCompleter;
+  bool accessCheckCancelled = false;
   bool rejectLogin = false;
   bool failLogin = false;
 
@@ -530,14 +606,31 @@ class _TestMissavClient extends MissavClient {
   bool get isLoggedIn => _loggedIn;
 
   @override
+  bool get hasRestorableSession => restoredAccountName != null;
+
+  @override
   String? get accountName => _name;
 
   @override
   Future<void> initialize() async {}
 
   @override
-  Future<void> checkBrowserAccess({Map<String, dynamic>? browserUser}) async {
+  Future<void> checkBrowserAccess({
+    Map<String, dynamic>? browserUser,
+    CancelToken? cancelToken,
+  }) async {
     browserAccessChecks++;
+    if (cancelToken != null) {
+      await Future.any<void>([
+        accessCheckCompleter?.future ?? Future.value(),
+        cancelToken.whenCancel.then<void>((_) {
+          accessCheckCancelled = true;
+          throw const MissavException('access check cancelled');
+        }),
+      ]);
+    } else {
+      await accessCheckCompleter?.future;
+    }
     if (restoredAccountName case final name?) confirmAccount(name);
   }
 
