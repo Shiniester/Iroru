@@ -779,6 +779,7 @@ void main() {
     tester.state<ScrollableState>(scrollable).position.jumpTo(0);
     await tester.pump();
     await tester.scrollUntilVisible(item, 250, scrollable: scrollable);
+    await tester.pumpAndSettle();
     await tester.tap(item);
   }
 

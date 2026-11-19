@@ -58,6 +58,7 @@ import 'package:kikoeru_flutter/src/screens/subtitle_library_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
 import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
 import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
+import 'package:kikoeru_flutter/src/widgets/async_state_view.dart';
 import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
 import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
@@ -889,12 +890,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(container.read(worksProvider).works, isEmpty);
+    final retryView = find.ancestor(
+      of: find.textContaining('[jp-asmr-verification-required]'),
+      matching: find.byType(AsyncStateView),
+    );
+    expect(retryView, findsOneWidget);
     expect(
-      find.textContaining('[jp-asmr-verification-required]'),
+      find.descendant(of: retryView, matching: find.text(s.loadFailed)),
       findsOneWidget,
     );
-    expect(find.text(s.loadFailed), findsOneWidget);
-    expect(find.text(s.retry), findsOneWidget);
+    expect(
+      find.descendant(of: retryView, matching: find.text(s.retry)),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

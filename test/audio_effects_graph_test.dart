@@ -180,6 +180,7 @@ void main() {
           );
           expect(graph, contains('t=o:w=1:g=6.5'));
           expect(graph, contains('volume@scene_amount=2.75'));
+          expect(graph, isNot(contains('[retained]')));
           final controls = AudioEffectsGraph.controls(settings);
           expect(
             controls.every(

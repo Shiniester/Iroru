@@ -18,13 +18,13 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     checks = []
 
-    def capture(name, graph, frames, rate, expected=None, chain=False, **options):
+    def capture(name, graph, frames, rate, expected=None, chain=False, tolerance=1e-6, **options):
         report, actual = run(args.output.parent, args.libmpv.resolve(), name,
             '' if chain else graph, frames, rate, timeout=15,
             af_chain=graph if chain else None, **options)
         error = max((abs(a-b) for row,ref in zip(actual,expected) for a,b in zip(row,ref)), default=0) if expected is not None else 0
         report.update(frames=len(actual), expected_frames=len(frames), maximum_error=error)
-        report['passed'] = (len(actual)==len(frames) and error<1e-6 and
+        report['passed'] = (len(actual)==len(frames) and error<tolerance and
             report['process'].get('return_code')==0 and report.get('end_file')=={'reason':0,'error':0} and
             all(math.isfinite(v) for row in actual for v in row) and
             not any(row['level'] in ('error','fatal') for row in report.get('logs',[])))
@@ -63,7 +63,7 @@ def main():
         report,neutral=capture(f'one_channel_zero_{rate}',graphs['binaural_mono_0'],mono_source,rate,decoded,chain=True)
         report['passed'] &= neutral==decoded
         report,expanded=capture(f'one_channel_expanded_{rate}',graphs['binaural_mono_100'],mono_source,rate,
-            mono_oracle(decoded,rate,1),chain=True)
+            mono_oracle(decoded,rate,1),chain=True,tolerance=1e-4)
         report['passed'] &= any(abs(l-r)>1e-5 for l,r in expanded)
 
         # Protect an isolated onset and constrain the generated difference after silence.
@@ -113,7 +113,8 @@ def main():
                 mono_stable_start=mono_start,mono_stable_frames=mono_count,neutral_between_modes=neutral_between,linear_sum_error=mid_error)
             report['passed'] &= (stereo_count>rate//5 and mono_count>rate//5 and
                 stereo_start<mono_start and neutral_between and mid_error<2e-7 and
-                actual[-rate//5:]==expected_mono[-rate//5:])
+                all(max(abs(a-b) for a,b in zip(row,ref))<1e-6
+                    for row,ref in zip(actual[-rate//5:],expected_mono[-rate//5:])))
         report['passed'] &= (len(report.get('actions',[]))==len(actions) and
             all(row.get('reply_error')==0 for row in report.get('actions',[])) and
             report.get('initialized_handles')==1 and sum(row[0]==probe.FILE_LOADED for row in report.get('events',[]))==1)

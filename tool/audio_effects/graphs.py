@@ -121,17 +121,15 @@ def scene_dynamic_graph(name, rate=48000, diagnostic=False, selector=None):
         "aformat=sample_fmts=dblp:channel_layouts=mono,"
         "aeval='st(0,ld(0)+clip(val(0)-ld(0),-1/(s*.02),1/(s*.02)));ld(0)':c=mono,"
     )
-    retain_selector = False
     if selector is not None:
-        index, retain_selector = selector
+        index = selector
         audio = (
             "[in]aformat=sample_fmts=dblp:channel_layouts=3.0,asplit=2[audio][selector];"
             "[audio]pan=stereo|c0=c0|c1=c1,"
         )
         work = "asetpts=N/SR/TB[raw];"
+        # The selector control ends at this scene module; keep the output stereo.
         control = "[selector]pan=mono|c0=c2,"
-        if retain_selector:
-            control += "asplit=2[retained][level];[level]"
         control += (
             "asetnsamples=n=128:p=1,asetpts=N/SR/TB,"
             f"aeval='if(eq(floor(val(0)/2),{index}),val(0)-{2*index},0)':c=mono,"
@@ -208,12 +206,6 @@ def scene_dynamic_graph(name, rate=48000, diagnostic=False, selector=None):
     if diagnostic:
         graph += ",aformat=sample_fmts=dblp:channel_layouts=stereo[effect];[effect][i_observe]join=inputs=2:channel_layout=3.0:"
         graph += "map=0.0-FL|0.1-FR|1.0-FC,aformat=channel_layouts=3.0[out]"
-    elif retain_selector:
-        graph += (
-            ",aformat=sample_fmts=dblp:channel_layouts=stereo[effect];"
-            "[retained][effect]join=inputs=2:channel_layout=3.0:map=1.0-FL|1.1-FR|0.0-FC,"
-            "aformat=channel_layouts=3.0[out]"
-        )
     else:
         graph += ",aformat=channel_layouts=stereo[out]"
     return graph

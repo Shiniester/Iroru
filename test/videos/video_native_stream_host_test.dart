@@ -158,6 +158,7 @@ void main() {
         if (!failed.isCompleted) failed.complete();
       });
       try {
+        await native.setProperty('ao', 'null');
         await native.setProperty('demuxer', 'lavf');
         final completed = player.stream.completed.firstWhere((done) => done);
         await session.loadStream(

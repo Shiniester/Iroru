@@ -2857,14 +2857,16 @@ class AudioPlayerService {
     final track = _trackForPlaybackIntent();
     if (track == null) return;
     final idle = _player.processingState == ProcessingState.idle;
-    if (_sourceNeedsReload || published?.id != track.id || idle) {
+    final reloadFromIdle = idle && _failedSeekPosition != null;
+    if (_sourceNeedsReload || published?.id != track.id || reloadFromIdle) {
       await _enqueueTrackLoad(
         track,
         emitCurrentTrack: published?.id != track.id,
         autoplay: true,
         direction: PlayerTrackChangeDirection.none,
         sourceToReload: idle ? null : _failedSeekSource,
-        initialPosition: idle ? _player.position : _failedSeekPosition,
+        initialPosition:
+            _failedSeekPosition ?? (idle ? _player.position : null),
       ).future;
       return;
     }
@@ -3149,6 +3151,7 @@ class AudioPlayerService {
     required bool userInitiated,
     bool sliceJump = false,
   }) async {
+    final resumeAfterSeek = _desiredPlaying;
     final coverSeekToken =
         currentTrack != null && (_player.playing || _coverSeekToken != null)
         ? Object()
@@ -3195,7 +3198,7 @@ class AudioPlayerService {
         jump: jump,
       );
       if (succeeded) _nativeEffects.resetHistory();
-      if (succeeded && _desiredPlaying && !_player.playing) {
+      if (succeeded && resumeAfterSeek && _desiredPlaying && !_player.playing) {
         _startPlaybackWithSideEffects();
       }
       return succeeded;
@@ -3468,7 +3471,7 @@ class AudioPlayerService {
         await recovery.future;
       } catch (error) {
         _log.captureOutput('[Audio] Seek recovery failed: $error');
-        return false;
+        rethrow;
       }
       final succeeded =
           isCurrentSeekLoad(recovery) &&

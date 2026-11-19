@@ -301,6 +301,10 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
     _clearPointer();
   }
 
+  @override
+  Future<bool> didPopRoute() async =>
+      _navigationController == null && _handleBack();
+
   bool _handleBack() {
     final session = _interactiveSession;
     if (session == null || session.isDisposed) return false;
