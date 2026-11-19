@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/file_explorer_tap_resolver.dart';
+import 'package:iroru/src/services/file_explorer_tap_resolver.dart';
 
 Map<String, dynamic> fileItem(String title, {String? type}) {
   return {

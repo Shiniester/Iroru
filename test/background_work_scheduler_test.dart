@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/background_work_scheduler.dart';
+import 'package:iroru/src/services/background_work_scheduler.dart';
 
 void main() {
   test('serializes jobs and prioritizes queued user work', () async {

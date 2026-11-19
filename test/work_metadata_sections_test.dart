@@ -1,14 +1,14 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/audio_source.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/widgets/circle_chip.dart';
-import 'package:kikoeru_flutter/src/widgets/metadata_search_chip.dart';
-import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
-import 'package:kikoeru_flutter/src/widgets/va_chip.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_metadata_sections.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/audio_source.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/widgets/circle_chip.dart';
+import 'package:iroru/src/widgets/metadata_search_chip.dart';
+import 'package:iroru/src/widgets/tag_chip.dart';
+import 'package:iroru/src/widgets/va_chip.dart';
+import 'package:iroru/src/widgets/work_detail/work_metadata_sections.dart';
 
 Widget _testApp(Widget child) {
   return MaterialApp(

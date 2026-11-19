@@ -3,7 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/sliver_tab_page_view.dart';
+import 'package:iroru/src/widgets/sliver_tab_page_view.dart';
 
 Widget _fixture(
   ValueNotifier<double> position, {

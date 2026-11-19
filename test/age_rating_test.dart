@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/utils/age_rating.dart';
-import 'package:kikoeru_flutter/src/widgets/age_rating_chip.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/utils/age_rating.dart';
+import 'package:iroru/src/widgets/age_rating_chip.dart';
 
 Widget _testApp(Widget child) {
   return MaterialApp(

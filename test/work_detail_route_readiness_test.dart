@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail_route_readiness.dart';
+import 'package:iroru/src/widgets/work_detail_route_readiness.dart';
 
 class _ReadinessProbe extends StatefulWidget {
   const _ReadinessProbe({

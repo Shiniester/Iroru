@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/file_name_translation_service.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
-import 'package:kikoeru_flutter/src/services/translation_service.dart';
+import 'package:iroru/src/services/file_name_translation_service.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
+import 'package:iroru/src/services/translation_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> fileItem(String title) {

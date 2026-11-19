@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:kikoeru_flutter/src/providers/works_provider.dart';
-import 'package:kikoeru_flutter/src/videos/video_browse_preferences.dart';
-import 'package:kikoeru_flutter/src/videos/video_search_history.dart';
+import 'package:iroru/src/providers/works_provider.dart';
+import 'package:iroru/src/videos/video_browse_preferences.dart';
+import 'package:iroru/src/videos/video_search_history.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

@@ -2,20 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/models/download_task_change.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart';
-import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
-import 'package:kikoeru_flutter/src/providers/download_provider.dart';
-import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/screens/works_screen.dart';
-import 'package:kikoeru_flutter/src/screens/local_downloads_screen.dart';
-import 'package:kikoeru_flutter/src/screens/search_screen.dart';
-import 'package:kikoeru_flutter/src/widgets/search_condition_chip.dart';
-import 'package:kikoeru_flutter/src/widgets/virtualized_sliver_collection.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/models/download_task_change.dart';
+import 'package:iroru/src/providers/works_provider.dart';
+import 'package:iroru/src/providers/collection_layout_provider.dart';
+import 'package:iroru/src/providers/download_provider.dart';
+import 'package:iroru/src/providers/subtitle_library_provider.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/screens/works_screen.dart';
+import 'package:iroru/src/screens/local_downloads_screen.dart';
+import 'package:iroru/src/screens/search_screen.dart';
+import 'package:iroru/src/widgets/search_condition_chip.dart';
+import 'package:iroru/src/widgets/virtualized_sliver_collection.dart';
 
 class _SubtitleLibrary extends SubtitleLibraryNotifier {
   @override

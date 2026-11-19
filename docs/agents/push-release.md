@@ -88,6 +88,16 @@ commits use `git commit` with a conventional message directly.
 
 ## Publication and queue
 
+The full-platform stable, Android-only stable, and Android Beta workflows use
+the same Android APK naming and validation script. The release job consumes
+the filename produced by the Android build job. Validation checks the package
+name, version, ABI, and the signing rules for that workflow.
+
+The first stable release and the first Beta release that change the installation
+identity must state that users of the previous identity need a fresh install.
+Existing app data stays with the old installation. See
+[ADR 0014](../adr/0014-iroru-independent-installation.md).
+
 Publication uses the built-in `GITHUB_TOKEN`, or `RELEASE_TOKEN` when configured.
 For targets changing `.github/workflows/` relative to the default branch, set
 `RELEASE_TOKEN` to a fine-grained PAT limited to this repository with **Contents:

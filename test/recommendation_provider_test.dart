@@ -5,13 +5,13 @@ import 'dart:math';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_source.dart';
-import 'package:kikoeru_flutter/src/models/history_record.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/providers/recommendation_provider.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/src/models/audio_source.dart';
+import 'package:iroru/src/models/history_record.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/providers/recommendation_provider.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:shared_preferences/shared_preferences.dart';
 

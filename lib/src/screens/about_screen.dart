@@ -24,28 +24,32 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
   static const String _author = 'Shiniester';
   static const String _upstreamAuthor = 'pa-jesusf';
   static final Uri _originRepoUri = Uri.parse(
-    'https://github.com/Shiniester/KikoFlu',
+    'https://github.com/Shiniester/Iroru',
   );
   static final Uri _upstreamRepoUri = Uri.parse(
     'https://github.com/pa-jesusf/KikoFlu',
   );
   late final Future<_AboutData> _aboutFuture;
+  late final UpdateCheckController _updateCheckController;
   UpdateChannel? _selectedUpdateChannel;
-  bool _isCheckingUpdate = false;
 
   @override
   void initState() {
     super.initState();
+    _updateCheckController = ref.read(updateCheckControllerProvider.notifier);
     _aboutFuture = _loadAboutData();
 
-    // Mark update as notified when entering this screen (hide red dot only)
+    // Entering About marks the latest check as read without hiding the badge.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final updateService = ref.read(updateServiceProvider);
-      updateService.markAsNotified();
-      // Only hide red dot, keep the "New Version" badge visible
-      ref.read(showUpdateRedDotProvider.notifier).state = false;
+      _updateCheckController.markUpdatesRead();
     });
+  }
+
+  @override
+  void dispose() {
+    _updateCheckController.cancelManualCheck();
+    super.dispose();
   }
 
   Future<_AboutData> _loadAboutData() async {
@@ -133,7 +137,9 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
               !kIsWeb && Theme.of(context).platform == TargetPlatform.android;
           final updateChannel = _selectedUpdateChannel ?? data.updateChannel;
           final updateInfo = ref.watch(updateInfoProvider);
-          final isCheckingUpdate = _isCheckingUpdate;
+          final isCheckingUpdate = ref
+              .watch(updateCheckControllerProvider)
+              .isCheckingManually;
           final updateState = ref.watch(updateControllerProvider);
 
           return ListView(
@@ -374,49 +380,30 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
   }
 
   Future<void> _manualCheckUpdate() async {
-    await _checkUpdates(allowConcurrent: false);
+    final result = await _updateCheckController.checkForUpdates(
+      force: true,
+      channel: _selectedUpdateChannel,
+    );
+    if (!mounted) return;
+    _showUpdateCheckResult(result);
   }
 
-  Future<void> _checkUpdates({required bool allowConcurrent}) async {
-    if (!allowConcurrent && _isCheckingUpdate) return;
-
-    final updateService = ref.read(updateServiceProvider);
-    final channelRevision = updateService.channelRevision;
-    setState(() => _isCheckingUpdate = true);
-
-    try {
-      final channel =
-          _selectedUpdateChannel ?? await updateService.getUpdateChannel();
-      final updateInfo = await updateService.checkForUpdates(
-        force: true,
-        channel: channel,
-      );
-
-      if (!mounted || channelRevision != updateService.channelRevision) return;
-      ref.read(updateInfoProvider.notifier).state =
-          updateInfo?.hasNewVersion == true ? updateInfo : null;
-      ref.read(hasNewVersionProvider.notifier).state =
-          updateInfo?.hasNewVersion ?? false;
-      ref.read(showUpdateRedDotProvider.notifier).state = false;
-
-      if (updateInfo != null && updateInfo.hasNewVersion) {
-        await updateService.markAsNotified(channel: channel);
-        if (!mounted || channelRevision != updateService.channelRevision) {
-          return;
-        }
-        _showUpdateDialog(updateInfo);
-      } else if (channel == UpdateChannel.beta && updateInfo == null) {
+  void _showUpdateCheckResult(UpdateCheckResult result) {
+    switch (result.outcome) {
+      case UpdateCheckOutcome.available:
+        _showUpdateDialog(result.updateInfo!);
+        break;
+      case UpdateCheckOutcome.noBetaRelease:
         SnackBarUtil.showInfo(context, S.of(context).noBetaRelease);
-      } else {
+        break;
+      case UpdateCheckOutcome.upToDate:
         SnackBarUtil.showInfo(context, S.of(context).alreadyLatestVersion);
-      }
-    } catch (error) {
-      if (!mounted || channelRevision != updateService.channelRevision) return;
-      SnackBarUtil.showError(context, S.of(context).checkUpdateFailed);
-    } finally {
-      if (mounted && channelRevision == updateService.channelRevision) {
-        setState(() => _isCheckingUpdate = false);
-      }
+        break;
+      case UpdateCheckOutcome.failed:
+        SnackBarUtil.showError(context, S.of(context).checkUpdateFailed);
+        break;
+      case UpdateCheckOutcome.stale:
+        break;
     }
   }
 
@@ -468,19 +455,14 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
     );
 
     if (channel == null || channel == selectedChannel || !mounted) return;
-    final updateService = ref.read(updateServiceProvider);
-    final updateInfo = ref.read(updateInfoProvider.notifier);
-    final hasNewVersion = ref.read(hasNewVersionProvider.notifier);
-    final showRedDot = ref.read(showUpdateRedDotProvider.notifier);
-    final updateController = ref.read(updateControllerProvider.notifier);
-    updateInfo.state = null;
-    hasNewVersion.state = false;
-    showRedDot.state = false;
-    updateController.reset();
-    await updateService.setUpdateChannel(channel);
+    final result = await _updateCheckController.selectUpdateChannel(
+      channel,
+      onSaved: () {
+        if (mounted) setState(() => _selectedUpdateChannel = channel);
+      },
+    );
     if (!mounted) return;
-    setState(() => _selectedUpdateChannel = channel);
-    await _checkUpdates(allowConcurrent: true);
+    _showUpdateCheckResult(result);
   }
 
   void _showUpdateDialog(UpdateInfo updateInfo) {

@@ -6,7 +6,7 @@ import 'package:archive/archive.dart';
 import 'package:file/local.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/comics/eh_tag_translations.dart';
+import 'package:iroru/src/comics/eh_tag_translations.dart';
 
 void main() {
   late Directory tempDirectory;

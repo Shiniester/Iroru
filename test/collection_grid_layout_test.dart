@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart';
-import 'package:kikoeru_flutter/src/utils/collection_grid_layout.dart';
+import 'package:iroru/src/providers/works_provider.dart';
+import 'package:iroru/src/utils/collection_grid_layout.dart';
 
 void main() {
   testWidgets('card metrics follow window size and preserve card insets', (

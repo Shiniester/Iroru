@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/offline_local_file_scanner.dart';
+import 'package:iroru/src/services/offline_local_file_scanner.dart';
 import 'package:path/path.dart' as p;
 
 final _posixPathContext = p.Context(style: p.Style.posix);

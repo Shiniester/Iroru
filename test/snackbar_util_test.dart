@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/utils/snackbar_util.dart';
+import 'package:iroru/src/utils/snackbar_util.dart';
 
 Widget _testApp(SnackBar snackBar) {
   return MaterialApp(

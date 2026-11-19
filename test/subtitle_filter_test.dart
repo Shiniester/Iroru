@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/utils/subtitle_filter.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/utils/subtitle_filter.dart';
 
 const _onlineSubtitleWork = Work(
   id: 1,

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/async_state_view.dart';
-import 'package:kikoeru_flutter/src/widgets/search_condition_chip.dart';
+import 'package:iroru/src/widgets/async_state_view.dart';
+import 'package:iroru/src/widgets/search_condition_chip.dart';
 
 void main() {
   testWidgets(

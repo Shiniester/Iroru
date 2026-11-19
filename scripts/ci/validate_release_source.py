@@ -7,6 +7,11 @@ from pathlib import Path
 
 
 ANDROID_SOURCE_FILES = {
+    "scripts/ci/android_release.py": (
+        "def apk_basename(",
+        "def verify_apk(",
+        "RELEASE_CERT_SHA256",
+    ),
     "scripts/native_audio/build_android.sh": (
         "--validate-output",
         "/default-$abi.jar",

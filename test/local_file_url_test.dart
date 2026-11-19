@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
+import 'package:iroru/src/utils/local_file_url.dart';
 
 void main() {
   group('LocalFileUrl', () {

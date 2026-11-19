@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/translation_toggle_button.dart';
+import 'package:iroru/src/widgets/translation_toggle_button.dart';
 
 Widget _host(Widget child) {
   return MaterialApp(

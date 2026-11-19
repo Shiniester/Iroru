@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/download_task.dart';
-import 'package:kikoeru_flutter/src/services/download_service.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/src/models/download_task.dart';
+import 'package:iroru/src/services/download_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

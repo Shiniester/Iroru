@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/videos/video_super_resolution.dart';
+import 'package:iroru/src/videos/video_super_resolution.dart';
 import 'package:media_kit/media_kit.dart';
 
 void main() {

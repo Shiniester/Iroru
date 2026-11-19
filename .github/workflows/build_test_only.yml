@@ -144,6 +144,9 @@ jobs:
       - name: Test Android signing certificate consistency
         run: python3 scripts/test_android_signing.py
 
+      - name: Test Android release APK helper
+        run: python3 scripts/ci/test_android_release.py
+
       - name: Test workflow CI helpers
         run: python3 scripts/ci/test_workflow_ci_helpers.py
 
@@ -288,82 +291,25 @@ jobs:
       - name: Verify Android Package Compatibility
         env:
           SIGNING_CONFIGURED: ${{ steps.android_signing.outputs.configured }}
-          EXPECTED_CERT_SHA256: 8d432df267b5eb175c2f806381c44d7b4bf657145af792ace223af34e340f740
         run: |
           set -euo pipefail
 
-          build_tools_dir="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
-          aapt="$build_tools_dir/aapt"
-          apksigner="$build_tools_dir/apksigner"
           arm64_apk="dist/Iroru-android-arm64-v8a-test.apk"
-
-          check_native_libraries() {
-            local apk=$1
-            shift
-            local entries
-            entries="$(unzip -Z1 "$apk" | grep '^lib/' || true)"
-            printf 'Native libraries in %s:\n%s\n' "$apk" "${entries:-<none>}"
-            for abi in "$@"; do
-              for library in libmpv.so libmediakitandroidhelper.so libc++_shared.so; do
-                if ! grep -Fxq "lib/$abi/$library" <<< "$entries"; then
-                  echo "::error::Missing lib/$abi/$library in $apk."
-                  return 1
-                fi
-              done
-            done
-          }
-
-          check_native_libraries "$arm64_apk" arm64-v8a
-
-          for tool in "$aapt" "$apksigner"; do
-            if [ ! -x "$tool" ]; then
-              echo "::error::Required Android build tool not found: $tool"
-              exit 1
-            fi
-          done
-
-          arm64_badging="$("$aapt" dump badging "$arm64_apk" | sed -n '1p')"
-          arm64_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
           base_code="$(sed -n 's/^flutter.versionCode=//p' android/local.properties | tail -n 1)"
           base_code="${base_code:-1}"
-          if [[ ! "$base_code" =~ ^[0-9]+$ || ! "$arm64_code" =~ ^[0-9]+$ ]]; then
-            echo "::error::Unable to determine the Android versionCode base or arm64 value."
+          if [[ ! "$base_code" =~ ^[0-9]+$ ]]; then
+            echo "::error::Unable to determine the Android versionCode base."
             exit 1
           fi
-
-          package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
-          if [ "$package_name" != "com.meteor.kikoeruflutter" ]; then
-            echo "::error::Unexpected Android package metadata: $arm64_badging"
-            exit 1
-          fi
-
-          if [ "$arm64_code" -ne $((base_code + 2000)) ]; then
-            echo "::error::arm64 versionCode $arm64_code does not preserve the legacy split offset from base versionCode $base_code."
-            exit 1
-          fi
-
-          if [ "$SIGNING_CONFIGURED" = "true" ]; then
-            cert_output="$("$apksigner" verify --print-certs "$arm64_apk" 2>&1)"
-            actual_cert="$(
-              printf '%s\n' "$cert_output" |
-                sed -nE '/certificate SHA-256 digest:/I {
-                  s/.*certificate SHA-256 digest:[[:space:]]*//I
-                  p
-                  q
-                }' |
-                tr -d '[:space:]:' |
-                tr '[:upper:]' '[:lower:]'
-            )"
-            if [ -z "$actual_cert" ]; then
-              echo "::error::Unable to read the Android signing certificate for $arm64_apk."
-              printf '%s\n' "$cert_output" >&2
-              exit 1
-            fi
-            if [ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]; then
-              echo "::error::Unexpected Android signing certificate for $arm64_apk: $actual_cert"
-              exit 1
-            fi
-          fi
+          python3 scripts/ci/android_release.py verify \
+            --apk "$arm64_apk" \
+            --package-id com.meteor.iroru \
+            --base-version-code "$base_code" \
+            --signing-policy optional \
+            --signing-configured "$SIGNING_CONFIGURED" \
+            --require-library libmpv.so \
+            --require-library libmediakitandroidhelper.so \
+            --require-library libc++_shared.so
 
       - name: Upload Android Artifacts
         uses: actions/upload-artifact@v6
@@ -598,9 +544,9 @@ jobs:
       - name: Capture macOS crash diagnostics
         if: failure()
         run: |
-          log show --last 10m --style compact --predicate 'process == "Iroru" OR process == "ReportCrash"' | tail -n 500 || true
+          log show --last 10m --style compact --predicate 'process == "Iroru Desktop" OR process == "ReportCrash"' | tail -n 500 || true
           if [ -d "$HOME/Library/Logs/DiagnosticReports" ]; then
-            find "$HOME/Library/Logs/DiagnosticReports" -type f \( -name 'Iroru*.ips' -o -name 'Iroru*.crash' \) -mmin -20 -print -exec cat {} \;
+            find "$HOME/Library/Logs/DiagnosticReports" -type f \( -name 'Iroru Desktop*.ips' -o -name 'Iroru Desktop*.crash' \) -mmin -20 -print -exec cat {} \;
           fi
 
       - name: Build macOS Release
@@ -609,10 +555,10 @@ jobs:
       - name: Verify macOS Release Architecture
         run: |
           set -euo pipefail
-          executable=build/macos/Build/Products/Release/Iroru.app/Contents/MacOS/Iroru
+          executable="build/macos/Build/Products/Release/Iroru Desktop.app/Contents/MacOS/Iroru Desktop"
           architectures="$(lipo -archs "$executable")"
           if [[ "$architectures" != arm64 ]]; then
-            echo "::error::Expected Iroru.app to contain only arm64, found: $architectures"
+            echo "::error::Expected Iroru Desktop.app to contain only arm64, found: $architectures"
             exit 1
           fi
 
@@ -621,7 +567,7 @@ jobs:
           set -euo pipefail
           rm -rf build/dmg dist
           mkdir -p build/dmg dist
-          cp -R build/macos/Build/Products/Release/Iroru.app build/dmg/
+          cp -R "build/macos/Build/Products/Release/Iroru Desktop.app" build/dmg/
           hdiutil create -volname "Iroru" -srcfolder build/dmg \
             -ov -format UDZO dist/Iroru-macos-test.dmg
 

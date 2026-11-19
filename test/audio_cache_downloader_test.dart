@@ -3,13 +3,13 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
-import 'package:kikoeru_flutter/src/services/audio_cache_files.dart';
-import 'package:kikoeru_flutter/src/services/cache_service.dart';
-import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
-import 'package:kikoeru_flutter/src/services/resumable_file_transfer.dart';
-import 'package:kikoeru_flutter/src/services/shared_http_client.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/src/services/audio_cache_downloader.dart';
+import 'package:iroru/src/services/audio_cache_files.dart';
+import 'package:iroru/src/services/cache_service.dart';
+import 'package:iroru/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/services/resumable_file_transfer.dart';
+import 'package:iroru/src/services/shared_http_client.dart';
+import 'package:iroru/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -282,13 +282,15 @@ void main() {
     expect(official['origin'], 'https://www.asmr.one');
     expect(official[HttpHeaders.acceptEncodingHeader], 'identity');
     expect(official.containsKey('ACCEPT-ENCODING'), isFalse);
-    final custom = mediaRequestHeaders(
-      Uri.parse('https://self-hosted.test/track.wav'),
-      {'User-Agent': 'Custom'},
-    );
+    final customUri = Uri.parse('https://self-hosted.test/track.wav');
+    final custom = mediaRequestHeaders(customUri, {'User-Agent': 'Custom'});
     expect(custom['User-Agent'], 'Custom');
     expect(custom.containsKey(HttpHeaders.userAgentHeader), isFalse);
     expect(custom.containsKey(HttpHeaders.refererHeader), isFalse);
+    expect(
+      mediaRequestHeaders(customUri, const {})[HttpHeaders.userAgentHeader],
+      'Iroru',
+    );
   });
 }
 

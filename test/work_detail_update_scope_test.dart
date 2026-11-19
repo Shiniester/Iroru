@@ -1,10 +1,10 @@
 import 'package:flutter_cache_manager/flutter_cache_manager.dart'
     show BaseCacheManager, FileResponse;
-import 'package:kikoeru_flutter/src/utils/theme.dart';
-import 'package:kikoeru_flutter/src/providers/recommendation_provider.dart';
-import 'package:kikoeru_flutter/src/services/downloaded_file_state_scanner.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/recommendation_section.dart';
-import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/utils/theme.dart';
+import 'package:iroru/src/providers/recommendation_provider.dart';
+import 'package:iroru/src/services/downloaded_file_state_scanner.dart';
+import 'package:iroru/src/widgets/work_detail/recommendation_section.dart';
+import 'package:iroru/src/services/remote_asset_cache.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -17,24 +17,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/providers/work_detail_display_provider.dart';
-import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
-import 'package:kikoeru_flutter/src/services/cache_service.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/providers/work_detail_display_provider.dart';
+import 'package:iroru/src/screens/work_detail_screen.dart';
+import 'package:iroru/src/services/cache_service.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/widgets/add_to_playlist_dialog.dart';
-import 'package:kikoeru_flutter/src/widgets/file_explorer_widget.dart';
-import 'package:kikoeru_flutter/src/widgets/tab_page_motion.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_stats_section.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_progress_action_button.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_metadata_sections.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/widgets/add_to_playlist_dialog.dart';
+import 'package:iroru/src/widgets/file_explorer_widget.dart';
+import 'package:iroru/src/widgets/tab_page_motion.dart';
+import 'package:iroru/src/widgets/work_detail/work_cover_frame.dart';
+import 'package:iroru/src/widgets/work_detail/work_stats_section.dart';
+import 'package:iroru/src/widgets/work_detail/work_title_header.dart';
+import 'package:iroru/src/widgets/work_detail/work_progress_action_button.dart';
+import 'package:iroru/src/widgets/work_detail/work_metadata_sections.dart';
 
 class _Api extends KikoeruApiService {
   _Api({this.events});

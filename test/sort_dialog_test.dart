@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/search_type.dart';
-import 'package:kikoeru_flutter/src/models/sort_options.dart';
-import 'package:kikoeru_flutter/src/utils/l10n_extensions.dart';
-import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
-import 'package:kikoeru_flutter/src/widgets/sort_dialog.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/search_type.dart';
+import 'package:iroru/src/models/sort_options.dart';
+import 'package:iroru/src/utils/l10n_extensions.dart';
+import 'package:iroru/src/widgets/responsive_dialog.dart';
+import 'package:iroru/src/widgets/sort_dialog.dart';
 
 Widget _testApp({
   required Size size,

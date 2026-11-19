@@ -5,19 +5,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/providers/player_work_details_provider.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
-import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
-import 'package:kikoeru_flutter/src/widgets/circle_chip.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_audio_details_panel.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
-import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
-import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
-import 'package:kikoeru_flutter/src/widgets/va_chip.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/providers/player_work_details_provider.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
+import 'package:iroru/src/services/player_audio_variant_classifier.dart';
+import 'package:iroru/src/widgets/circle_chip.dart';
+import 'package:iroru/src/widgets/player/player_audio_details_panel.dart';
+import 'package:iroru/src/widgets/player/player_action_icons.dart';
+import 'package:iroru/src/widgets/player/player_glass_surface.dart';
+import 'package:iroru/src/widgets/responsive_dialog.dart';
+import 'package:iroru/src/widgets/tag_chip.dart';
+import 'package:iroru/src/widgets/va_chip.dart';
 
 const _track = AudioTrack(
   id: 'detail-track',

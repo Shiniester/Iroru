@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'package:kikoeru_flutter/src/utils/desktop_window_options.dart';
+import 'package:iroru/src/utils/desktop_window_options.dart';
 
 void main() {
   group('createDesktopWindowOptions', () {

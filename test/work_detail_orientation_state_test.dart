@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_detail_responsive_layout.dart';
-import 'package:kikoeru_flutter/src/widgets/work_resource_tabs.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/services/player_audio_variant_classifier.dart';
+import 'package:iroru/src/widgets/work_detail/work_detail_responsive_layout.dart';
+import 'package:iroru/src/widgets/work_resource_tabs.dart';
 
 List<dynamic> _files({int images = 0}) => [
   {'type': 'audio', 'title': 'track.wav', 'hash': 'audio'},

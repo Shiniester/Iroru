@@ -1,7 +1,9 @@
 import 'dart:io';
+
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+
 import '../models/account.dart';
 
 class AccountDatabase {
@@ -32,13 +34,10 @@ class AccountDatabase {
   Future<Database> _initDB(String filePath) async {
     final String dbPath;
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      // For desktop platforms, use application documents directory
-      final appDocDir = await getApplicationDocumentsDirectory();
-      dbPath = join(appDocDir.path, 'KikoFlu');
-      // Create directory if it doesn't exist
+      final supportDirectory = await getApplicationSupportDirectory();
+      dbPath = supportDirectory.path;
       await Directory(dbPath).create(recursive: true);
     } else {
-      // For mobile platforms, use default path
       dbPath = await getDatabasesPath();
     }
     final path = join(dbPath, filePath);

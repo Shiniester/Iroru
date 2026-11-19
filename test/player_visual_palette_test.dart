@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_visual_palette.dart';
+import 'package:iroru/src/providers/artwork_theme_provider.dart';
+import 'package:iroru/src/widgets/player/player_visual_palette.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

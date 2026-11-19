@@ -16,23 +16,23 @@ import 'package:just_audio/just_audio.dart'
         PositionDiscontinuity,
         PositionDiscontinuityReason,
         ProcessingState;
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/audio_slice.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/lyric.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
-import 'package:kikoeru_flutter/src/providers/player_lyric_style_provider.dart';
-import 'package:kikoeru_flutter/src/providers/subtitle_search_query_provider.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/services/audio_slice_store.dart';
-import 'package:kikoeru_flutter/src/utils/string_utils.dart';
-import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_slice_controls.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_seek_preview.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/audio_slice.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/lyric.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/providers/lyric_provider.dart';
+import 'package:iroru/src/providers/player_lyric_style_provider.dart';
+import 'package:iroru/src/providers/subtitle_search_query_provider.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/services/audio_slice_store.dart';
+import 'package:iroru/src/utils/string_utils.dart';
+import 'package:iroru/src/widgets/player/lyric_display_widget.dart';
+import 'package:iroru/src/widgets/player/player_glass_surface.dart';
+import 'package:iroru/src/widgets/player/player_lyrics_surface.dart';
+import 'package:iroru/src/widgets/player/player_slice_controls.dart';
+import 'package:iroru/src/widgets/player/player_seek_preview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 ({

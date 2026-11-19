@@ -156,7 +156,7 @@ class LogService {
 
   String exportAsText() {
     final buffer = StringBuffer();
-    buffer.writeln('=== KikoFlu Logs ===');
+    buffer.writeln('=== Iroru Logs ===');
     buffer.writeln('Exported: ${DateTime.now().toIso8601String()}');
     buffer.writeln(
         'Platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
@@ -171,7 +171,7 @@ class LogService {
   Future<String> exportToFile([String? outputPath]) async {
     final timestamp =
         DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
-    final fileName = 'kikoflu_log_$timestamp.txt';
+    final fileName = 'iroru_log_$timestamp.txt';
 
     if (outputPath != null) {
       final file = File(outputPath);
@@ -189,7 +189,7 @@ class LogService {
   String get exportFileName {
     final timestamp =
         DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
-    return 'kikoflu_log_$timestamp.txt';
+    return 'iroru_log_$timestamp.txt';
   }
 }
 

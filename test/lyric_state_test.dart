@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/lyric.dart';
-import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
+import 'package:iroru/src/models/lyric.dart';
+import 'package:iroru/src/providers/lyric_provider.dart';
 
 void main() {
   group('LyricState.displayLyrics', () {

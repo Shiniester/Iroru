@@ -4,9 +4,9 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
-import 'package:kikoeru_flutter/src/videos/jable_client.dart';
-import 'package:kikoeru_flutter/src/videos/jable_verification.dart';
-import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
+import 'package:iroru/src/videos/jable_client.dart';
+import 'package:iroru/src/videos/jable_verification.dart';
+import 'package:iroru/src/videos/missav_browser_adapter.dart';
 
 void main() {
   test(

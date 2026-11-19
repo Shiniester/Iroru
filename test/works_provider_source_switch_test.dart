@@ -3,19 +3,19 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_source.dart';
-import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
-import 'package:kikoeru_flutter/src/models/search_query.dart';
-import 'package:kikoeru_flutter/src/models/search_type.dart';
-import 'package:kikoeru_flutter/src/models/sort_options.dart';
-import 'package:kikoeru_flutter/src/models/user.dart';
-import 'package:kikoeru_flutter/src/providers/audio_source_provider.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/src/models/audio_source.dart';
+import 'package:iroru/src/models/japanese_asmr_browse.dart';
+import 'package:iroru/src/models/search_query.dart';
+import 'package:iroru/src/models/search_type.dart';
+import 'package:iroru/src/models/sort_options.dart';
+import 'package:iroru/src/models/user.dart';
+import 'package:iroru/src/providers/audio_source_provider.dart';
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/providers/subtitle_library_provider.dart';
+import 'package:iroru/src/providers/works_provider.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _Request {

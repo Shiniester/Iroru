@@ -1,22 +1,22 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:kikoeru_flutter/src/models/download_task_change.dart';
-import 'package:kikoeru_flutter/src/providers/download_provider.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
-import 'package:kikoeru_flutter/src/providers/recommendation_provider.dart';
-import 'package:kikoeru_flutter/src/services/downloaded_file_state_scanner.dart';
+import 'package:iroru/src/models/download_task_change.dart';
+import 'package:iroru/src/providers/download_provider.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
+import 'package:iroru/src/providers/recommendation_provider.dart';
+import 'package:iroru/src/services/downloaded_file_state_scanner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
-import 'package:kikoeru_flutter/src/widgets/file_explorer_widget.dart';
-import 'package:kikoeru_flutter/src/widgets/offline_file_explorer_widget.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/recommendation_section.dart';
+import 'package:iroru/src/widgets/file_explorer_widget.dart';
+import 'package:iroru/src/widgets/offline_file_explorer_widget.dart';
+import 'package:iroru/src/widgets/work_detail/recommendation_section.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 

@@ -4,14 +4,14 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/lyric.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/providers/floating_lyric_provider.dart';
-import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
-import 'package:kikoeru_flutter/src/services/floating_lyric_service.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/lyric.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/providers/floating_lyric_provider.dart';
+import 'package:iroru/src/providers/lyric_provider.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/floating_lyric_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'audio_player_latest_request_test.dart'

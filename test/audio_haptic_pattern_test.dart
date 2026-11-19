@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/audio_haptic_pattern.dart';
+import 'package:iroru/src/services/audio_haptic_pattern.dart';
 
 void main() {
   group('AudioHapticPatternGenerator', () {

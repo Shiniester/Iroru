@@ -3,6 +3,7 @@ import 'package:archive/archive.dart';
 class SubtitleLibraryRules {
   static const int maxPathLength = 240;
 
+  static const String libraryFolderName = 'subtitle_library';
   static const String parsedFolderName = '已解析';
   static const String unknownFolderName = '未知作品';
   static const String savedFolderName = '已保存';

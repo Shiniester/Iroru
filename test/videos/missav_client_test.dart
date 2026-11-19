@@ -8,12 +8,12 @@ import 'package:dio/dio.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/videos/missav_client.dart';
-import 'package:kikoeru_flutter/src/services/proxy_config.dart';
-import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
-import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
-import 'package:kikoeru_flutter/src/videos/missav_mirrors.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:iroru/src/videos/missav_client.dart';
+import 'package:iroru/src/services/proxy_config.dart';
+import 'package:iroru/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/videos/missav_browser_adapter.dart';
+import 'package:iroru/src/videos/missav_mirrors.dart';
+import 'package:iroru/src/videos/video_models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _Adapter implements HttpClientAdapter {
@@ -102,7 +102,7 @@ class _BlockingRequestTransformer implements Transformer {
 }
 
 class _MemorySecureStorage implements FlutterSecureStorage {
-  static const cookieKey = 'missav_session_cookie';
+  static const cookieKey = 'iroru.missav_session_cookie';
 
   final values = <String, String>{};
   Future<void> Function()? beforeWrite;
@@ -150,7 +150,7 @@ class _MemorySecureStorage implements FlutterSecureStorage {
 
 _MemorySecureStorage _storedBrowserSession() {
   final storage = _MemorySecureStorage()..cookie = 'session=saved';
-  storage.values['missav_verified_session'] = jsonEncode({
+  storage.values['iroru.missav_verified_session'] = jsonEncode({
     'cookie': 'session=saved',
     'userAgent': 'Saved Browser UA',
   });
@@ -4346,7 +4346,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       final mirror = missavMirrors.first.baseUrl;
       const account = 'https://missav.ws';
       final storage = _MemorySecureStorage()
-        ..values['missav_verified_session'] = jsonEncode({
+        ..values['iroru.missav_verified_session'] = jsonEncode({
           'cookie': 'session=saved',
           'userAgent': 'Saved Browser UA',
           'host': account,
@@ -4758,6 +4758,26 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     },
   );
 
+  test('does not restore or alter previous app credentials', () async {
+    final legacyValues = {
+      'missav_session_cookie': 'session=legacy',
+      'missav_verified_session':
+          '{"cookie":"session=legacy","userAgent":"Old app"}',
+    };
+    final storage = _MemorySecureStorage()..values.addAll(legacyValues);
+    final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
+      dio: Dio()..httpClientAdapter = _Adapter((_) => _response('{}')),
+      secureStorage: storage,
+    );
+    addTearDown(client.dispose);
+
+    await client.initialize();
+
+    expect(client.hasRestorableSession, isFalse);
+    expect(storage.values, legacyValues);
+  });
+
   test(
     'restores an imported browser session without treating it as logged in',
     () async {
@@ -4849,7 +4869,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     expect(adapter.requests, hasLength(1));
     expect(storage.cookie, 'session=rotated');
     final record =
-        jsonDecode(storage.values['missav_verified_session']!) as Map;
+        jsonDecode(storage.values['iroru.missav_verified_session']!) as Map;
     expect(record['expires'], contains('session'));
     client.dispose();
 
@@ -4880,7 +4900,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
 
   test('does not recover an expired cookie from the legacy copy', () async {
     final storage = _MemorySecureStorage()..cookie = 'session=expired';
-    storage.values['missav_verified_session'] = jsonEncode({
+    storage.values['iroru.missav_verified_session'] = jsonEncode({
       'cookie': storage.cookie,
       'host': 'https://missav.ai',
       'userAgent': 'MissAV WebView/1.0',
@@ -6974,7 +6994,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
   group('bound account origin', () {
     test('a failed login on another host keeps the saved session', () async {
       final storage = _MemorySecureStorage()
-        ..values['missav_verified_session'] = jsonEncode({
+        ..values['iroru.missav_verified_session'] = jsonEncode({
           'cookie': 'session=saved',
           'userAgent': 'Saved Browser UA',
           'host': MissavClient.origin,
@@ -7012,7 +7032,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       expect(adapter.requests.last.uri.origin, MissavClient.origin);
       expect(_cookieHeader(adapter.requests.last), 'session=saved');
       final record =
-          jsonDecode(storage.values['missav_verified_session']!) as Map;
+          jsonDecode(storage.values['iroru.missav_verified_session']!) as Map;
       expect(record['host'], MissavClient.origin);
       expect(record['cookie'], 'session=saved');
     });
@@ -7058,7 +7078,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
 
         expect(client.accountHostUrl, 'https://missav.ws');
         final record =
-            jsonDecode(storage.values['missav_verified_session']!) as Map;
+            jsonDecode(storage.values['iroru.missav_verified_session']!) as Map;
         expect(record['host'], 'https://missav.ws');
         client.dispose();
 
@@ -7133,7 +7153,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
         );
 
         final record =
-            jsonDecode(storage.values['missav_verified_session']!) as Map;
+            jsonDecode(storage.values['iroru.missav_verified_session']!) as Map;
         expect(record['host'], 'https://missav.ai');
         await importing.browse('https://missav.ws/cn/saved');
         expect(requests.single.uri.origin, 'https://missav.ai');

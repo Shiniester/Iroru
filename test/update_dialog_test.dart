@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/update_provider.dart';
-import 'package:kikoeru_flutter/src/widgets/update_dialog.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/update_provider.dart';
+import 'package:iroru/src/widgets/update_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -16,7 +16,7 @@ void main() {
   const sampleUpdateInfo = UpdateInfo(
     latestVersion: '4.19.2',
     currentVersion: '4.4.0',
-    releaseUrl: 'https://github.com/Shiniester/KikoFlu/releases/tag/v4.19.2',
+    releaseUrl: 'https://github.com/Shiniester/Iroru/releases/tag/v4.19.2',
     hasNewVersion: true,
     releaseNotes: '1. 支持应用内直接更新\n2. 修复已知问题',
     downloadUrl: 'https://example.com/KikoFlu-windows-setup_4192.exe',
@@ -65,7 +65,7 @@ void main() {
         latestVersion: '4.3.0-beta.2',
         currentVersion: '4.4.0',
         releaseUrl:
-            'https://github.com/Shiniester/KikoFlu/releases/tag/v4.3.0-beta.2',
+            'https://github.com/Shiniester/Iroru/releases/tag/v4.3.0-beta.2',
         hasNewVersion: true,
         isCrossChannel: true,
       );

@@ -21,7 +21,7 @@ fail() {
 [[ -d "$bundle_dir" ]] || fail "bundle directory does not exist: $bundle_dir"
 bundle_dir=$(cd -- "$bundle_dir" && pwd -P)
 lib_dir="$bundle_dir/lib"
-app="$bundle_dir/KikoFlu"
+app="$bundle_dir/Iroru"
 plugin="$lib_dir/libmedia_kit_video_plugin.so"
 [[ -f "$app" ]] || fail "bundle executable is missing: $app"
 [[ -f "$plugin" ]] || fail "media_kit_video plugin is missing: $plugin"

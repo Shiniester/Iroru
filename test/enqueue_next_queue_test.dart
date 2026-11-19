@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
 
 void main() {
   const current = AudioTrack(id: 'current', title: 'Current', url: 'current');

@@ -4,11 +4,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/widgets/privacy_blur_cover.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/widgets/privacy_blur_cover.dart';
+import 'package:iroru/src/widgets/player/player_cover_widget.dart';
 import 'package:octo_image/octo_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

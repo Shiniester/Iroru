@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_library_service.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_matching.dart';
+import 'package:iroru/src/services/subtitle_library_service.dart';
+import 'package:iroru/src/services/subtitle_matching.dart';
 
 void main() {
   group('SubtitleMatcher', () {

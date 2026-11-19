@@ -1,9 +1,9 @@
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/locale_provider.dart';
-import 'package:kikoeru_flutter/src/utils/tag_translations.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/locale_provider.dart';
+import 'package:iroru/src/utils/tag_translations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

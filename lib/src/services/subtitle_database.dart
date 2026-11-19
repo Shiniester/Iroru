@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -70,8 +71,8 @@ class SubtitleDatabase {
   Future<Database> _initDB(String filePath) async {
     final String dbPath;
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      final appDocDir = await getApplicationDocumentsDirectory();
-      dbPath = p.join(appDocDir.path, 'KikoFlu');
+      final supportDirectory = await getApplicationSupportDirectory();
+      dbPath = supportDirectory.path;
       await Directory(dbPath).create(recursive: true);
     } else {
       dbPath = await getDatabasesPath();

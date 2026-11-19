@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/android_subtitle_directory_picker.dart';
+import 'package:iroru/src/services/android_subtitle_directory_picker.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

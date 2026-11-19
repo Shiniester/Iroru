@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_database.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_library_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/services/subtitle_database.dart';
+import 'package:iroru/src/services/subtitle_library_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -272,9 +272,7 @@ void main() {
     final source = await writeArchive({
       'track.lrc': [1, 2, 3],
     });
-    final target = Directory(
-      p.join(root.path, 'downloads', 'subtitle_library'),
-    );
+    final target = await SubtitleLibraryService.getSubtitleLibraryDirectory();
 
     try {
       final result = await SubtitleLibraryService.importArchiveFromPath(

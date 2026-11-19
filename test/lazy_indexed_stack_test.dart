@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/lazy_indexed_stack.dart';
+import 'package:iroru/src/widgets/lazy_indexed_stack.dart';
 
 void main() {
   testWidgets('builds only visited tabs and keeps them mounted', (tester) async {

@@ -6,13 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/main.dart' as kikoflu_app;
-import 'package:kikoeru_flutter/src/models/download_task.dart';
-import 'package:kikoeru_flutter/src/performance/performance_fixture_manifest.dart';
-import 'package:kikoeru_flutter/src/performance/performance_recorder.dart';
-import 'package:kikoeru_flutter/src/performance/performance_scenario_adapter.dart';
-import 'package:kikoeru_flutter/src/widgets/virtualized_sliver_collection.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/main.dart' as kikoflu_app;
+import 'package:iroru/src/models/download_task.dart';
+import 'package:iroru/src/performance/performance_fixture_manifest.dart';
+import 'package:iroru/src/performance/performance_recorder.dart';
+import 'package:iroru/src/performance/performance_scenario_adapter.dart';
+import 'package:iroru/src/widgets/virtualized_sliver_collection.dart';
 
 final Stopwatch _processStartupStopwatch = Stopwatch();
 
@@ -25,7 +25,7 @@ void main() {
     const controlPath = String.fromEnvironment(
       'KIKOFLU_PERF_CONTROL_PATH',
       defaultValue:
-          '/sdcard/Android/data/com.meteor.kikoeruflutter/files/'
+          '/sdcard/Android/data/com.meteor.iroru/files/'
           'performance_fixtures/control.json',
     );
     final control = await _readObject(controlPath);

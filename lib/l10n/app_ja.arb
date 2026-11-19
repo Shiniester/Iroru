@@ -1238,7 +1238,6 @@
   "translationCacheCleared": "翻訳キャッシュをクリアしました",
 
   "platformHintAndroid": "Android: システムのファイルピッカーを使用します。ストレージ権限が必要な場合があります",
-  "platformHintIOS": "iOS: システム制限によりデフォルトパスを使用します。システムのファイルマネージャーで確認できます",
   "platformHintWindows": "Windows: 任意のアクセス可能なディレクトリを選択できます",
   "platformHintMacOS": "macOS: 任意のアクセス可能なディレクトリを選択できます",
   "platformHintLinux": "Linux: 任意のアクセス可能なディレクトリを選択できます",

@@ -2,10 +2,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/videos/missav_mirrors.dart';
-import 'package:kikoeru_flutter/src/videos/ui/missav_mirror_settings_screen.dart';
-import 'package:kikoeru_flutter/src/videos/video_providers.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/videos/missav_mirrors.dart';
+import 'package:iroru/src/videos/ui/missav_mirror_settings_screen.dart';
+import 'package:iroru/src/videos/video_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _Prober extends MissavMirrorProber {

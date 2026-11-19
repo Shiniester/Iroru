@@ -5,9 +5,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/comics/ui/comic_page_preview.dart';
-import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/comics/ui/comic_page_preview.dart';
+import 'package:iroru/src/widgets/responsive_dialog.dart';
 
 final _png = Uint8List.fromList(
   img.encodePng(img.Image(width: 512, height: 768)),

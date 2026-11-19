@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
+import 'package:iroru/src/widgets/app_bottom_dock_transition.dart';
 
 void main() {
   testWidgets('automatic detail replacement retains the original return step', (

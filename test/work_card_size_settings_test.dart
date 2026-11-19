@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/providers/work_card_display_provider.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart';
-import 'package:kikoeru_flutter/src/screens/work_card_display_settings_screen.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/widgets/works_grid_view.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/providers/work_card_display_provider.dart';
+import 'package:iroru/src/providers/works_provider.dart';
+import 'package:iroru/src/screens/work_card_display_settings_screen.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/widgets/works_grid_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _work = Work(

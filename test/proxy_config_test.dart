@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/providers/proxy_provider.dart';
-import 'package:kikoeru_flutter/src/services/proxy_config.dart';
+import 'package:iroru/src/providers/proxy_provider.dart';
+import 'package:iroru/src/services/proxy_config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

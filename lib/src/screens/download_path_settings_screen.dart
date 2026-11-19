@@ -27,7 +27,6 @@ class _DownloadPathSettingsScreenState
   String _getPlatformHint(BuildContext context) {
     final s = S.of(context);
     if (Platform.isAndroid) return s.platformHintAndroid;
-    if (Platform.isIOS) return s.platformHintIOS;
     if (Platform.isWindows) return s.platformHintWindows;
     if (Platform.isMacOS) return s.platformHintMacOS;
     if (Platform.isLinux) return s.platformHintLinux;
@@ -313,15 +312,16 @@ class _DownloadPathSettingsScreenState
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                // 平台提示
-                SettingsInfoCard(
-                  icon: Icons.info_outline,
-                  child: Text(
-                    _getPlatformHint(context),
-                    style: const TextStyle(fontSize: 13),
+                if (!Platform.isIOS) ...[
+                  SettingsInfoCard(
+                    icon: Icons.info_outline,
+                    child: Text(
+                      _getPlatformHint(context),
+                      style: const TextStyle(fontSize: 13),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 24),
+                  const SizedBox(height: 24),
+                ],
 
                 // 当前路径
                 Text(

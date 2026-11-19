@@ -1,6 +1,7 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <glib/gstdio.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -68,13 +69,13 @@ static void apply_application_icon(GtkWindow* window) {
   g_autofree gchar* icon_path = application_icon_path();
   if (icon_path == nullptr ||
       !g_file_test(icon_path, G_FILE_TEST_IS_REGULAR)) {
-    g_warning("KikoFlu application icon is not available in the bundle");
+    g_warning("Iroru application icon is not available in the bundle");
     return;
   }
 
   g_autoptr(GError) error = nullptr;
   if (!gtk_window_set_icon_from_file(window, icon_path, &error)) {
-    g_warning("Unable to set KikoFlu application icon: %s",
+    g_warning("Unable to set Iroru application icon: %s",
               error == nullptr ? "unknown error" : error->message);
     return;
   }
@@ -193,6 +194,14 @@ static void my_application_activate(GApplication* application) {
 static gboolean my_application_local_command_line(GApplication* application,
                                                   gchar*** arguments,
                                                   int* exit_status) {
+  g_autofree gchar* data_dir =
+      g_build_filename(g_get_user_data_dir(), APPLICATION_ID, nullptr);
+  if (g_mkdir_with_parents(data_dir, 0700) != 0) {
+    g_warning("Unable to create application data directory: %s", data_dir);
+    *exit_status = 1;
+    return TRUE;
+  }
+
   MyApplication* self = MY_APPLICATION(application);
   // Strip out the first argument as it is the binary name.
   self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);

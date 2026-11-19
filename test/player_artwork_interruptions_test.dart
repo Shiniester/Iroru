@@ -6,8 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/widgets/player/player_cover_widget.dart';
 
 class _PendingImage extends ImageProvider<_PendingImage> {
   final ready = Completer<ImageInfo>();

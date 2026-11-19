@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqlite3/open.dart' as sqlite;
-import 'package:kikoeru_flutter/src/comics/comic_library.dart';
-import 'package:kikoeru_flutter/src/comics/comic_models.dart';
-import 'package:kikoeru_flutter/src/comics/comic_downloads.dart';
+import 'package:iroru/src/comics/comic_library.dart';
+import 'package:iroru/src/comics/comic_models.dart';
+import 'package:iroru/src/comics/comic_downloads.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

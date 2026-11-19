@@ -6,19 +6,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/lyric.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
-import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
-import 'package:kikoeru_flutter/src/utils/theme.dart';
-import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/lyric.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/providers/lyric_provider.dart';
+import 'package:iroru/src/screens/audio_player_screen.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/utils/theme.dart';
+import 'package:iroru/src/widgets/mini_player.dart';
+import 'package:iroru/src/widgets/player/player_route.dart';
+import 'package:iroru/src/widgets/player/player_vertical_gestures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
 
 void main() {
   setUp(() async {

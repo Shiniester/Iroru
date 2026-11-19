@@ -84,32 +84,28 @@
 
 ## ダウンロード
 
-最新バージョンは [Releases](https://github.com/pa-jesusf/KikoFlu/releases/latest) からダウンロードできます。
+最新バージョンは [GitHub Releases](https://github.com/Shiniester/Iroru/releases/latest) からダウンロードできます。
 
 対応プラットフォーム：Android（arm64-v8a）、iOS（未署名 IPA）、Windows（インストーラー / ポータブル）、macOS（Apple Silicon、DMG）、Linux（x64）
 
-**macOS のアップデート：** Iroru.app と旧版 KikoFlu.app は名前が異なります。Iroru.app をコピーした後も、KikoFlu.app は残ります。Iroru が既存データを読み込めることを確認してから、KikoFlu.app を削除できます。
+### アプリ ID 変更後のインストール
 
-### AltStore / SideStore
+アプリ ID の変更後は、新規インストールが必要です。新版はローカルデータが空の状態で起動します。旧版とそのデータは元の場所に残ります。旧版に更新通知が表示されることがあります。
 
-iOS ユーザーは AltStore または SideStore に Iroru のソースを追加すると、アプリをインストール・更新できます：
-
-**ソース URL：** `https://raw.githubusercontent.com/pa-jesusf/KikoFlu/main/altstore-source.json`
+- macOS では `Iroru Desktop.app` を「アプリケーション」にドラッグします。旧版の `Iroru.app` は残せます。
+- Linux と Windows のポータブル版では、旧版を残すために別のディレクトリに展開してください。
 
 ---
 
 ## ソースからビルド
 
 ### 必要環境
-- Flutter SDK 3.0+
-- Dart SDK 3.0+
 
-Linux のビルドには固定バージョンのネイティブライブラリとパッケージ作成ツールが必要です。
-[Linux ネイティブ音声ライブラリのビルド手順](docs/development/linux-native-audio.md)を参照してください。
+[`.fvmrc`](.fvmrc) で指定された Flutter SDK を使用してください。Dart SDK は Flutter に含まれます。Dart の最低バージョンは [`pubspec.yaml`](pubspec.yaml) で確認できます。
 
 ```bash
-git clone https://github.com/pa-jesusf/KikoFlu.git
-cd KikoFlu
+git clone https://github.com/Shiniester/Iroru.git
+cd Iroru
 flutter pub get
 ```
 
@@ -146,5 +142,5 @@ flutter pub get
 
 ## お問い合わせ
 
-- **バグ報告**：[Issues](https://github.com/pa-jesusf/KikoFlu/issues)
+- **バグ報告**：[Issues](https://github.com/Shiniester/Iroru/issues)
 - **コミュニティ**：[Telegram](https://t.me/+PrkiN-pZrXs4ZTU1)

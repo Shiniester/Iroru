@@ -7,8 +7,8 @@ import 'package:archive/archive.dart';
 import 'package:archive/archive_io.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbk_codec/gbk_codec.dart';
-import 'package:kikoeru_flutter/src/services/streaming_zip_extractor.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_library_rules.dart';
+import 'package:iroru/src/services/streaming_zip_extractor.dart';
+import 'package:iroru/src/services/subtitle_library_rules.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

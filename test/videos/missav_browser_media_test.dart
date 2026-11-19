@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
-import 'package:kikoeru_flutter/src/videos/missav_browser_media.dart';
+import 'package:iroru/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/videos/missav_browser_media.dart';
 
 void main() {
   test('whenClosed waits until the browser is disposed', () async {

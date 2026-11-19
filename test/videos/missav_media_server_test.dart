@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
-import 'package:kikoeru_flutter/src/videos/missav_media_server.dart';
+import 'package:iroru/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/videos/missav_media_server.dart';
 
 void main() {
   late HttpClient client;

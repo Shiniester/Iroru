@@ -1,5 +1,7 @@
 # Android 浏览器媒体转发确认等待实验
 
+状态：历史实验记录（2026-10-27）。包名和版本为当时测试环境。
+
 Android 真机完成了 9 次受控传输和 9 次播放。
 附加确认等待增加了完整传输耗时。
 3 组首帧中位数没有呈现递增趋势。
@@ -216,7 +218,7 @@ MissAV browser navigation failed (receiveTimeout).
    flutter --suppress-analytics build apk --debug --no-pub `
      --target=integration_test/video_relay_profile_test.dart `
      --target-platform=android-arm64 `
-     --dart-define=KIKOFLU_TEST_VIDEO=/data/user/0/com.meteor.kikoeruflutter.debug/files/video-relay-fixture.mp4
+     --dart-define=KIKOFLU_TEST_VIDEO=/data/user/0/com.meteor.iroru.debug/files/video-relay-fixture.mp4
    ```
 
    设备编号来自 `adb devices -l`。
@@ -231,7 +233,7 @@ MissAV browser navigation failed (receiveTimeout).
    $aapt = Join-Path $env:ANDROID_HOME 'build-tools/36.0.0/aapt.exe'
    $badging = & $aapt dump badging $apk
    if ($LASTEXITCODE -ne 0 -or
-       -not ($badging -match "^package: name='com\.meteor\.kikoeruflutter\.debug'") -or
+       -not ($badging -match "^package: name='com\.meteor\.iroru\.debug'") -or
        -not ($badging -match '^application-debuggable')) {
      throw 'APK 不是独立 Debug 包'
    }
@@ -245,11 +247,11 @@ MissAV browser navigation failed (receiveTimeout).
    ```powershell
    adb -s $deviceId push build/video-player-fixture.mp4 /data/local/tmp/kikoflu-relay-fixture.mp4
    if ($LASTEXITCODE -ne 0) { throw '素材上传失败' }
-   adb -s $deviceId shell run-as com.meteor.kikoeruflutter.debug mkdir -p files
-   adb -s $deviceId shell run-as com.meteor.kikoeruflutter.debug cp `
+   adb -s $deviceId shell run-as com.meteor.iroru.debug mkdir -p files
+   adb -s $deviceId shell run-as com.meteor.iroru.debug cp `
      /data/local/tmp/kikoflu-relay-fixture.mp4 files/video-relay-fixture.mp4
    if ($LASTEXITCODE -ne 0) { throw '素材复制失败' }
-   $size = adb -s $deviceId shell run-as com.meteor.kikoeruflutter.debug `
+   $size = adb -s $deviceId shell run-as com.meteor.iroru.debug `
      wc -c files/video-relay-fixture.mp4
    if ([long]($size -split '\s+')[0] -ne
        (Get-Item build/video-player-fixture.mp4).Length) {
@@ -283,7 +285,7 @@ flutter --suppress-analytics build apk --debug --no-pub `
   --target-platform=android-arm64
 ```
 
-按前文核验并安装 Debug APK，然后从手机启动 KikoFlu Debug。
+按前文核验并安装 Debug APK，然后从手机启动 Iroru Debug。
 打开视频页，选择实际出现卡顿的视频并播放。
 需要源站验证时，在网页完成验证后点“检查访问”。
 

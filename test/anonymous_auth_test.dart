@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
 
 class _Api extends KikoeruApiService {
   String activeHost = '', activeToken = '';

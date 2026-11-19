@@ -2,9 +2,9 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/src/comics/comic_http.dart';
-import 'package:kikoeru_flutter/src/comics/sources/hitomi_source.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/src/comics/comic_http.dart';
+import 'package:iroru/src/comics/sources/hitomi_source.dart';
+import 'package:iroru/src/services/storage_service.dart';
 
 class _Adapter implements HttpClientAdapter {
   final requests = <RequestOptions>[];

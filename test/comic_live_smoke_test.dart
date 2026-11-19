@@ -3,11 +3,11 @@ import 'dart:ui' as ui;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/src/comics/comic_providers.dart';
-import 'package:kikoeru_flutter/src/comics/comic_models.dart';
-import 'package:kikoeru_flutter/src/comics/comic_images.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/services/proxy_config.dart';
+import 'package:iroru/src/comics/comic_providers.dart';
+import 'package:iroru/src/comics/comic_models.dart';
+import 'package:iroru/src/comics/comic_images.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/services/proxy_config.dart';
 
 // Explicit opt-in: these checks contact real sources without account credentials.
 void main() {

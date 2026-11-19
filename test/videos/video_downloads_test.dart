@@ -8,12 +8,12 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
-import 'package:kikoeru_flutter/src/videos/missav_client.dart';
-import 'package:kikoeru_flutter/src/videos/video_download_task.dart';
-import 'package:kikoeru_flutter/src/videos/video_downloads.dart';
-import 'package:kikoeru_flutter/src/videos/video_library.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:iroru/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/videos/missav_client.dart';
+import 'package:iroru/src/videos/video_download_task.dart';
+import 'package:iroru/src/videos/video_downloads.dart';
+import 'package:iroru/src/videos/video_library.dart';
+import 'package:iroru/src/videos/video_models.dart';
 
 void main() {
   late Directory root;

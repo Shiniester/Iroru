@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/performance/performance_recorder.dart';
+import 'package:iroru/src/performance/performance_recorder.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

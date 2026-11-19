@@ -1,17 +1,17 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
-import 'package:kikoeru_flutter/src/providers/my_reviews_provider.dart';
-import 'package:kikoeru_flutter/src/providers/search_result_provider.dart';
-import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart'
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/providers/collection_layout_provider.dart';
+import 'package:iroru/src/providers/my_reviews_provider.dart';
+import 'package:iroru/src/providers/search_result_provider.dart';
+import 'package:iroru/src/providers/subtitle_library_provider.dart';
+import 'package:iroru/src/providers/works_provider.dart'
     show LayoutType;
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/utils/persistent_enum_preference.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/utils/persistent_enum_preference.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum _TestLayout { bigGrid, smallGrid, list }

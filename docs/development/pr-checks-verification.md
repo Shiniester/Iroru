@@ -1,5 +1,7 @@
 # PR #4 检查修复验证
 
+状态：历史记录（2026-10-05）。不作为当前检查清单。
+
 2026-10-05，Windows，Flutter 3.44.7 / Dart 3.12.2。
 对应 [Build test 运行](https://github.com/Shiniester/KikoFlu/actions/runs/37296067270)。
 

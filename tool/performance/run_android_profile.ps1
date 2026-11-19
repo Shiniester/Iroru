@@ -72,7 +72,7 @@ $adbExecutable = if (Test-Path -LiteralPath (Join-Path $localAndroidSdk 'platfor
 } else {
   'adb'
 }
-$packageName = 'com.meteor.kikoeruflutter'
+$packageName = 'com.meteor.iroru'
 $deviceFixtureRoot = "/data/user/0/$packageName/files/performance_fixtures"
 $deviceStagingRoot = '/data/local/tmp/kikoflu-performance-fixtures'
 $deviceManifestPath = "$deviceFixtureRoot/manifest.json"
@@ -150,7 +150,7 @@ function Start-AppForDrive {
     'am',
     'start',
     '-n',
-    "$packageName/.MainActivity"
+    "$packageName/com.meteor.kikoeruflutter.MainActivity"
   ) | Out-Null
 
   for ($attempt = 1; $attempt -le 120; $attempt++) {

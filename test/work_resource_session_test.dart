@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/work_resource_tabs.dart';
+import 'package:iroru/src/widgets/work_resource_tabs.dart';
 
 void main() {
   test('session keeps resource tab state across widget lifetimes', () {

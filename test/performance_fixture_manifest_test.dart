@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/playback_diagnostic_event.dart';
-import 'package:kikoeru_flutter/src/performance/performance_fixture_manifest.dart';
+import 'package:iroru/src/models/playback_diagnostic_event.dart';
+import 'package:iroru/src/performance/performance_fixture_manifest.dart';
 
 void main() {
   const hash =

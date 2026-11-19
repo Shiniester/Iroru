@@ -8,21 +8,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
-import 'package:kikoeru_flutter/src/providers/work_detail_display_provider.dart';
-import 'package:kikoeru_flutter/src/services/cache_service.dart';
-import 'package:kikoeru_flutter/src/services/file_preview_resolver.dart';
-import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/utils/file_tree_utils.dart';
-import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
-import 'package:kikoeru_flutter/src/utils/string_utils.dart';
-import 'package:kikoeru_flutter/src/widgets/cached_image_widget.dart';
-import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
-import 'package:kikoeru_flutter/src/widgets/work_resource_tabs.dart';
-import 'package:kikoeru_flutter/src/widgets/file_tree_view.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
+import 'package:iroru/src/providers/work_detail_display_provider.dart';
+import 'package:iroru/src/services/cache_service.dart';
+import 'package:iroru/src/services/file_preview_resolver.dart';
+import 'package:iroru/src/services/player_audio_variant_classifier.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/utils/file_tree_utils.dart';
+import 'package:iroru/src/utils/local_file_url.dart';
+import 'package:iroru/src/utils/string_utils.dart';
+import 'package:iroru/src/widgets/cached_image_widget.dart';
+import 'package:iroru/src/widgets/pagination_bar.dart';
+import 'package:iroru/src/widgets/work_resource_tabs.dart';
+import 'package:iroru/src/widgets/file_tree_view.dart';
+import 'package:iroru/src/widgets/work_detail/work_cover_frame.dart';
 
 List<dynamic> _files({bool images = false}) => [
   {

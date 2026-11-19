@@ -13,14 +13,14 @@ import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:kikoeru_flutter/src/videos/missav_client.dart';
-import 'package:kikoeru_flutter/src/videos/missav_media_server.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
-import 'package:kikoeru_flutter/src/videos/video_download_task.dart';
-import 'package:kikoeru_flutter/src/videos/video_downloads.dart';
-import 'package:kikoeru_flutter/src/videos/video_library.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
-import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/videos/missav_client.dart';
+import 'package:iroru/src/videos/missav_media_server.dart';
+import 'package:iroru/src/videos/ui/video_playback_panel.dart';
+import 'package:iroru/src/videos/video_download_task.dart';
+import 'package:iroru/src/videos/video_downloads.dart';
+import 'package:iroru/src/videos/video_library.dart';
+import 'package:iroru/src/videos/video_models.dart';
+import 'package:iroru/src/services/remote_asset_cache.dart';
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();

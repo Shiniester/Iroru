@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart';
-import 'package:kikoeru_flutter/src/screens/settings_screen.dart';
-import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
-import 'package:kikoeru_flutter/src/utils/collection_grid_layout.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_settings_screen.dart';
-import 'package:kikoeru_flutter/src/videos/video_card_display_provider.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/works_provider.dart';
+import 'package:iroru/src/screens/settings_screen.dart';
+import 'package:iroru/src/widgets/settings_section.dart';
+import 'package:iroru/src/utils/collection_grid_layout.dart';
+import 'package:iroru/src/videos/ui/video_collection_view.dart';
+import 'package:iroru/src/videos/ui/video_settings_screen.dart';
+import 'package:iroru/src/videos/video_card_display_provider.dart';
+import 'package:iroru/src/videos/video_models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/playback_session_store.dart';
+import 'package:iroru/src/services/playback_session_store.dart';
 
 void main() {
   test(

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
-import 'package:kikoeru_flutter/src/utils/file_tree_utils.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
+import 'package:iroru/src/utils/file_tree_utils.dart';
 
 Map<String, dynamic> fileItem(
   String title, {

@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
-import 'package:kikoeru_flutter/src/services/translation_service.dart';
-import 'package:kikoeru_flutter/src/utils/string_utils.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
+import 'package:iroru/src/services/translation_service.dart';
+import 'package:iroru/src/utils/string_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

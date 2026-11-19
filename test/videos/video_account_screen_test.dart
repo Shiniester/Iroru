@@ -7,13 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/videos/missav_client.dart';
-import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_account_screen.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
-import 'package:kikoeru_flutter/src/videos/video_providers.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/videos/missav_client.dart';
+import 'package:iroru/src/videos/missav_verification.dart';
+import 'package:iroru/src/videos/ui/video_account_screen.dart';
+import 'package:iroru/src/videos/video_models.dart';
+import 'package:iroru/src/videos/video_providers.dart';
 
 typedef _MissavAccountVerifier =
     Future<MissavVerificationResult> Function(

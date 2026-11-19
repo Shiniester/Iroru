@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:kikoeru_flutter/src/services/video_file_opener.dart';
+import 'package:iroru/src/services/video_file_opener.dart';
 
 void main() {
   group('VideoFileOpener', () {

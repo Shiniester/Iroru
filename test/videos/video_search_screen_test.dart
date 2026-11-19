@@ -9,16 +9,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart';
-import 'package:kikoeru_flutter/src/videos/video_browse_preferences.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_search_screen.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
-import 'package:kikoeru_flutter/src/videos/jable_client.dart';
-import 'package:kikoeru_flutter/src/videos/missav_client.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
-import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/unified_search_history_provider.dart';
+import 'package:iroru/src/providers/works_provider.dart';
+import 'package:iroru/src/videos/video_browse_preferences.dart';
+import 'package:iroru/src/videos/ui/video_search_screen.dart';
+import 'package:iroru/src/videos/ui/video_collection_view.dart';
+import 'package:iroru/src/videos/jable_client.dart';
+import 'package:iroru/src/videos/missav_client.dart';
+import 'package:iroru/src/videos/video_models.dart';
+import 'package:iroru/src/widgets/pagination_bar.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

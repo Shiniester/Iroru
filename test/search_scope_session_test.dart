@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/search_query.dart';
-import 'package:kikoeru_flutter/src/models/search_scope_session.dart';
-import 'package:kikoeru_flutter/src/models/search_type.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:iroru/src/models/search_query.dart';
+import 'package:iroru/src/models/search_scope_session.dart';
+import 'package:iroru/src/models/search_type.dart';
+import 'package:iroru/src/models/work.dart';
 
 void main() {
   final query = SearchQuery(

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
+import 'package:iroru/src/widgets/app_bottom_dock.dart';
 
 const _destinations = [
   NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),

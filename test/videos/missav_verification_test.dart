@@ -7,15 +7,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/utils/global_keys.dart';
-import 'package:kikoeru_flutter/src/videos/jable_client.dart';
-import 'package:kikoeru_flutter/src/videos/jable_verification.dart';
-import 'package:kikoeru_flutter/src/videos/missav_client.dart';
-import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
-import 'package:kikoeru_flutter/src/videos/missav_browser_media.dart';
-import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/utils/global_keys.dart';
+import 'package:iroru/src/videos/jable_client.dart';
+import 'package:iroru/src/videos/jable_verification.dart';
+import 'package:iroru/src/videos/missav_client.dart';
+import 'package:iroru/src/videos/missav_browser_adapter.dart';
+import 'package:iroru/src/videos/missav_browser_media.dart';
+import 'package:iroru/src/videos/missav_verification.dart';
+import 'package:iroru/src/videos/video_models.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 // This mock extends the transitive platform API used by webview_flutter.
 // ignore: depend_on_referenced_packages

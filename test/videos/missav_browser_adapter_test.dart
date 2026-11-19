@@ -4,8 +4,8 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:iroru/src/videos/missav_browser_adapter.dart';
+import 'package:iroru/src/videos/video_models.dart';
 
 void main() {
   test(

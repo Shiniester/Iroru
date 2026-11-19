@@ -7,10 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/services/cache_service.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/utils/work_cover_prefetch.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/services/cache_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/utils/work_cover_prefetch.dart';
 
 void main() {
   testWidgets('production prefetch warms the displayed cover decode', (

@@ -4,8 +4,8 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/widgets/image_save_service.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/widgets/image_save_service.dart';
 
 class _SavePicker extends FilePicker {
   String? outputPath;

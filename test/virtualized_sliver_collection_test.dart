@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/widgets/virtualized_sliver_collection.dart';
-import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/widgets/virtualized_sliver_collection.dart';
+import 'package:iroru/src/widgets/pagination_bar.dart';
 
 Widget _app(Widget child, {Size size = const Size(400, 800)}) {
   return MaterialApp(

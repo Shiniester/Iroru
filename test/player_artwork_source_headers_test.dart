@@ -7,14 +7,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
-import 'package:kikoeru_flutter/src/services/cache_service.dart';
-import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/utils/image_blur_util.dart';
-import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/providers/artwork_theme_provider.dart';
+import 'package:iroru/src/services/cache_service.dart';
+import 'package:iroru/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/utils/image_blur_util.dart';
+import 'package:iroru/src/utils/local_file_url.dart';
+import 'package:iroru/src/widgets/player/player_cover_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _Network extends HttpOverrides {}

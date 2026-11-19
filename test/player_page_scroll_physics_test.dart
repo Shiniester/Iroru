@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_page_scroll_physics.dart';
+import 'package:iroru/src/widgets/player/player_page_scroll_physics.dart';
 
 void main() {
   test(

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/download_task.dart';
+import 'package:iroru/src/models/download_task.dart';
 
 void main() {
   test('download task identity scopes the same hash to its work', () {

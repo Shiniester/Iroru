@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/floating_feed_toolbar.dart';
+import 'package:iroru/src/widgets/floating_feed_toolbar.dart';
 
 Widget _testApp(Widget child, {double width = 390}) {
   return MaterialApp(

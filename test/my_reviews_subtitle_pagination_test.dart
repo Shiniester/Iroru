@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/providers/my_reviews_provider.dart';
-import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/src/providers/my_reviews_provider.dart';
+import 'package:iroru/src/providers/subtitle_library_provider.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/utils/subtitle_filter.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/utils/subtitle_filter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _ReviewApi extends KikoeruApiService {

@@ -7,10 +7,10 @@ import 'package:integration_test/integration_test.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
-import 'package:kikoeru_flutter/src/videos/video_library.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/videos/ui/video_playback_panel.dart';
+import 'package:iroru/src/videos/video_library.dart';
+import 'package:iroru/src/videos/video_models.dart';
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();

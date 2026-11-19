@@ -6778,12 +6778,6 @@ abstract class S {
   /// **'Android: System file picker will be used, storage permission may be required'**
   String get platformHintAndroid;
 
-  /// No description provided for @platformHintIOS.
-  ///
-  /// In en, this message translates to:
-  /// **'iOS: Due to system restrictions, the default path is used. Files can be accessed via the system file manager'**
-  String get platformHintIOS;
-
   /// No description provided for @platformHintWindows.
   ///
   /// In en, this message translates to:

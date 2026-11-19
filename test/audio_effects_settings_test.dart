@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_effects_settings.dart';
-import 'package:kikoeru_flutter/src/providers/audio_effects_provider.dart';
+import 'package:iroru/src/models/audio_effects_settings.dart';
+import 'package:iroru/src/providers/audio_effects_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

@@ -8,7 +8,7 @@ import re
 import subprocess
 import time
 
-DEFAULT_PACKAGE = 'com.meteor.kikoeruflutter'
+DEFAULT_PACKAGE = 'com.meteor.iroru'
 ACTIVITY_CLASS = 'com.meteor.kikoeruflutter.MainActivity'
 
 

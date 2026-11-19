@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_progress_action_button.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/widgets/work_detail/work_progress_action_button.dart';
 
 Widget _testApp(Widget child) {
   return MaterialApp(

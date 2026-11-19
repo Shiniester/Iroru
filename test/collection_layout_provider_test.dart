@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart'
+import 'package:iroru/src/providers/collection_layout_provider.dart';
+import 'package:iroru/src/providers/works_provider.dart'
     show LayoutType;
 import 'package:shared_preferences/shared_preferences.dart';
 

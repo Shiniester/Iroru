@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
-import 'package:kikoeru_flutter/src/providers/player_subtitle_candidates_provider.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_subtitle_picker_sheet.dart';
-import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/lyric_provider.dart';
+import 'package:iroru/src/providers/player_subtitle_candidates_provider.dart';
+import 'package:iroru/src/widgets/player/player_subtitle_picker_sheet.dart';
+import 'package:iroru/src/widgets/responsive_dialog.dart';
 
 void main() {
   testWidgets('responsive subtitle picker keeps options without blur', (

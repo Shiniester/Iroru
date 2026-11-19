@@ -3,11 +3,11 @@ import 'dart:ui';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
-import 'package:kikoeru_flutter/src/providers/player_subtitle_candidates_provider.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/providers/lyric_provider.dart';
+import 'package:iroru/src/providers/player_subtitle_candidates_provider.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _Priority extends SubtitleLibraryPriorityNotifier {

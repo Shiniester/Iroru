@@ -1,5 +1,7 @@
 # Bottom Dock SlideTransition 验证
 
+状态：历史验证记录。
+
 2026-10-02，Flutter 3.44.7，Windows 主机。承载与运动决策见
 [ADR 0001](../adr/0001-work-detail-bottom-dock-handoff.md)。
 

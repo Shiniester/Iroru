@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/speculative_transfer_coordinator.dart';
+import 'package:iroru/src/services/speculative_transfer_coordinator.dart';
 
 void main() {
   final coordinator = SpeculativeTransferCoordinator.instance;

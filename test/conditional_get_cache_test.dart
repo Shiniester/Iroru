@@ -5,7 +5,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/conditional_get_cache.dart';
+import 'package:iroru/src/services/conditional_get_cache.dart';
 
 void main() {
   late Directory tempDirectory;

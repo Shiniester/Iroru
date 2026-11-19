@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:kikoeru_flutter/src/models/audio_effects_settings.dart';
-import 'package:kikoeru_flutter/src/services/native_audio_effects.dart';
+import 'package:iroru/src/models/audio_effects_settings.dart';
+import 'package:iroru/src/services/native_audio_effects.dart';
 import '../integration_test/audio_effects_native_helpers.dart';
 
 void main() {

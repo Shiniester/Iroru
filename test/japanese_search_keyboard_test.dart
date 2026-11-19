@@ -6,19 +6,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/audio_source.dart';
-import 'package:kikoeru_flutter/src/models/download_task_change.dart';
-import 'package:kikoeru_flutter/src/models/search_query.dart';
-import 'package:kikoeru_flutter/src/models/search_type.dart';
-import 'package:kikoeru_flutter/src/providers/audio_source_provider.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/providers/download_provider.dart';
-import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
-import 'package:kikoeru_flutter/src/screens/search_screen.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/audio_source.dart';
+import 'package:iroru/src/models/download_task_change.dart';
+import 'package:iroru/src/models/search_query.dart';
+import 'package:iroru/src/models/search_type.dart';
+import 'package:iroru/src/providers/audio_source_provider.dart';
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/providers/download_provider.dart';
+import 'package:iroru/src/providers/unified_search_history_provider.dart';
+import 'package:iroru/src/screens/search_screen.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
 
 class _JapaneseSourceNotifier extends AudioSourceNotifier {
   _JapaneseSourceNotifier() {

@@ -494,24 +494,9 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
 
   /// Silently check for updates on startup
   Future<void> _checkForUpdates() async {
-    try {
-      final updateService = ref.read(updateServiceProvider);
-      final channelRevision = updateService.channelRevision;
-      final channel = await updateService.getUpdateChannel();
-      final updateInfo = await updateService.checkForUpdates(channel: channel);
-      if (!mounted || channelRevision != updateService.channelRevision) return;
-
-      final shouldShow = updateInfo?.hasNewVersion == true
-          ? await updateService.shouldShowRedDot(channel: channel)
-          : false;
-      if (!mounted || channelRevision != updateService.channelRevision) return;
-      ref.read(updateInfoProvider.notifier).state = updateInfo;
-      ref.read(hasNewVersionProvider.notifier).state =
-          updateInfo?.hasNewVersion ?? false;
-      ref.read(showUpdateRedDotProvider.notifier).state = shouldShow;
-    } catch (e) {
-      // Silent failure - no user notification
-    }
+    await ref
+        .read(updateCheckControllerProvider.notifier)
+        .checkForUpdates(autoCheck: true);
   }
 
   @override

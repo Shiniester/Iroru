@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/videos/missav_mirrors.dart';
+import 'package:iroru/src/videos/missav_mirrors.dart';
 
 class _Adapter implements HttpClientAdapter {
   _Adapter(this.respond);

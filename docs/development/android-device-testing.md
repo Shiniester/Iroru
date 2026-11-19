@@ -1,7 +1,7 @@
 # Android 真机 Debug 回归
 
-需要保留手机上的正式版时，使用独立的 `com.meteor.kikoeruflutter.debug`
-包。显示名称为 **KikoFlu Debug**，使用 debug 签名；账号、设置和应用私有
+需要保留手机上的正式版时，使用独立的 `com.meteor.iroru.debug`
+包。显示名称为 **Iroru Debug**，使用 debug 签名；账号、设置和应用私有
 数据与正式版分开。当前隔离配置只针对 Debug，不能推断 Profile 也已隔离。
 
 以下 PowerShell 命令在仓库根目录、同一终端内依次执行。工具链准备见
@@ -15,11 +15,11 @@
 ```powershell
 adb devices -l
 $deviceId = '<adb devices 显示的设备序列号>'
-$releasePackage = 'com.meteor.kikoeruflutter'
-$debugPackage = 'com.meteor.kikoeruflutter.debug'
+$releasePackage = 'com.meteor.iroru'
+$debugPackage = 'com.meteor.iroru.debug'
 New-Item -ItemType Directory -Force build | Out-Null
 
-adb -s $deviceId shell pm list packages com.meteor.kikoeruflutter
+adb -s $deviceId shell pm list packages com.meteor.iroru
 adb -s $deviceId shell dumpsys package $releasePackage |
   Select-String 'versionCode=|versionName=|firstInstallTime=|lastUpdateTime=' |
   Set-Content build/release-package-before.txt
@@ -51,7 +51,7 @@ $aapt = Join-Path $androidSdk 'build-tools/36.0.0/aapt.exe'
 function Assert-DebugApk([string]$path) {
   $badging = & $aapt dump badging $path
   if ($LASTEXITCODE -ne 0 -or
-      -not ($badging -match "^package: name='com\.meteor\.kikoeruflutter\.debug'") -or
+      -not ($badging -match "^package: name='com\.meteor\.iroru\.debug'") -or
       -not ($badging -match '^application-debuggable')) {
     throw 'APK 包名或构建模式不符合独立 Debug 测试要求'
   }
@@ -116,7 +116,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Debug APK 安装失败' }
 adb -s $deviceId shell am start -n `
   "$debugPackage/com.meteor.kikoeruflutter.MainActivity"
 
-adb -s $deviceId shell pm list packages com.meteor.kikoeruflutter
+adb -s $deviceId shell pm list packages com.meteor.iroru
 adb -s $deviceId shell dumpsys package $releasePackage |
   Select-String 'versionCode=|versionName=|firstInstallTime=|lastUpdateTime=' |
   Set-Content build/release-package-after.txt

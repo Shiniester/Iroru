@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/widgets/file_explorer_tree_panel.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/widgets/file_explorer_tree_panel.dart';
 
 Widget _testApp(Widget child) {
   return MaterialApp(

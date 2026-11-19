@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/download_task.dart';
-import 'package:kikoeru_flutter/src/models/download_task_change.dart';
-import 'package:kikoeru_flutter/src/providers/download_provider.dart';
-import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart'
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/download_task.dart';
+import 'package:iroru/src/models/download_task_change.dart';
+import 'package:iroru/src/providers/download_provider.dart';
+import 'package:iroru/src/providers/collection_layout_provider.dart';
+import 'package:iroru/src/providers/works_provider.dart'
     show LayoutType;
-import 'package:kikoeru_flutter/src/screens/local_downloads_screen.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/src/screens/local_downloads_screen.dart';
+import 'package:iroru/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _CompletedDownload implements DownloadTaskRepository {

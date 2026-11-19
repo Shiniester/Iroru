@@ -38,7 +38,7 @@ Map<String, String> mediaRequestHeaders(
         ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
               'AppleWebKit/537.36 (KHTML, like Gecko) '
               'Chrome/142.0.0.0 Safari/537.36'
-        : 'KikoFlu';
+        : 'Iroru';
   }
   if (official && !normalizedNames.contains(HttpHeaders.refererHeader)) {
     headers[HttpHeaders.refererHeader] = 'https://www.asmr.one/';

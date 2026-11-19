@@ -1,9 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/player_lyric_style_provider.dart';
-import 'package:kikoeru_flutter/src/screens/player_lyric_style_screen.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/player_lyric_style_provider.dart';
+import 'package:iroru/src/screens/player_lyric_style_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_tap_playlist_mode.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/services/audio_playback_plan_builder.dart';
+import 'package:iroru/src/models/audio_tap_playlist_mode.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/services/audio_playback_plan_builder.dart';
 
 Map<String, dynamic> audioItem(String title, {String? hash}) {
   return {'type': 'audio', 'title': title, if (hash != null) 'hash': hash};

@@ -10,17 +10,17 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/services/proxy_config.dart';
-import 'package:kikoeru_flutter/src/utils/global_keys.dart';
-import 'package:kikoeru_flutter/src/videos/jable_client.dart';
-import 'package:kikoeru_flutter/src/videos/jable_verification.dart';
-import 'package:kikoeru_flutter/src/videos/missav_client.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
-import 'package:kikoeru_flutter/src/videos/video_download_task.dart';
-import 'package:kikoeru_flutter/src/videos/video_downloads.dart';
-import 'package:kikoeru_flutter/src/videos/video_library.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/services/proxy_config.dart';
+import 'package:iroru/src/utils/global_keys.dart';
+import 'package:iroru/src/videos/jable_client.dart';
+import 'package:iroru/src/videos/jable_verification.dart';
+import 'package:iroru/src/videos/missav_client.dart';
+import 'package:iroru/src/videos/ui/video_playback_panel.dart';
+import 'package:iroru/src/videos/video_download_task.dart';
+import 'package:iroru/src/videos/video_downloads.dart';
+import 'package:iroru/src/videos/video_library.dart';
+import 'package:iroru/src/videos/video_models.dart';
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();

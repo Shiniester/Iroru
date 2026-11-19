@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
+import 'package:iroru/src/services/player_audio_variant_classifier.dart';
 
 void main() {
   test('player audio variant scan and filtering benchmark', () {

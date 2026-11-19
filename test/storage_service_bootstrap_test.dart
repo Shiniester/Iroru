@@ -4,16 +4,18 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:kikoeru_flutter/src/performance/performance_recorder.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/src/performance/performance_recorder.dart';
+import 'package:iroru/src/services/download_path_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('secondary storage initializes Hive lazily and can retry', () async {
-    final appDocuments = await Directory.systemTemp.createTemp(
-      'kikoflu-storage-bootstrap-',
+  test('secondary storage retries and opens the support Hive box', () async {
+    final appSupport = await Directory.systemTemp.createTemp(
+      'iroru-storage-bootstrap-',
     );
     const pathProvider = MethodChannel('plugins.flutter.io/path_provider');
     final messenger =
@@ -25,8 +27,8 @@ void main() {
       if (!allowPathLookup.isCompleted) allowPathLookup.complete();
       messenger.setMockMethodCallHandler(pathProvider, null);
       await Hive.close();
-      if (await appDocuments.exists()) {
-        await appDocuments.delete(recursive: true);
+      if (await appSupport.exists()) {
+        await appSupport.delete(recursive: true);
       }
     });
 
@@ -37,7 +39,7 @@ void main() {
       }
       if (!pathLookupStarted.isCompleted) pathLookupStarted.complete();
       await allowPathLookup.future;
-      return appDocuments.path;
+      return appSupport.path;
     });
     SharedPreferences.setMockInitialValues({'critical': 'ready'});
     final preferences = await SharedPreferences.getInstance();
@@ -82,7 +84,14 @@ void main() {
     expect(StorageService.getAllUserKeys(), contains('account'));
     expect(
       Hive.box('users').path,
-      '${appDocuments.path}${Platform.pathSeparator}KikoFlu${Platform.pathSeparator}users.hive',
+      p.join(appSupport.path, 'users.hive'),
+    );
+    expect(
+      p.equals(
+        (await DownloadPathService.getDownloadDirectory()).path,
+        p.join(appSupport.path, 'downloads'),
+      ),
+      isTrue,
     );
     expect(recorder.metric('bootstrapHiveBackendMs'), isNotNull);
 

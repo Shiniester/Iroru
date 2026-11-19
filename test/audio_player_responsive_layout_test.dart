@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
+import 'package:iroru/src/screens/audio_player_screen.dart';
 
 void main() {
   test('taller windows switch to the dual-pane stage at 840 pixels', () {

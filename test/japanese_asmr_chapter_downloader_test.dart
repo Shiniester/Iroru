@@ -4,10 +4,10 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/japanese_asmr_chapter_downloader.dart';
-import 'package:kikoeru_flutter/src/services/japanese_asmr_service.dart';
-import 'package:kikoeru_flutter/src/services/resumable_file_transfer.dart';
-import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/services/japanese_asmr_chapter_downloader.dart';
+import 'package:iroru/src/services/japanese_asmr_service.dart';
+import 'package:iroru/src/services/resumable_file_transfer.dart';
+import 'package:iroru/src/services/remote_asset_cache.dart';
 
 void main() {
   late Directory tempDirectory;

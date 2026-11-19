@@ -3,12 +3,12 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/comics/comic_downloads.dart';
-import 'package:kikoeru_flutter/src/comics/comic_http.dart';
-import 'package:kikoeru_flutter/src/comics/comic_library.dart';
-import 'package:kikoeru_flutter/src/comics/comic_models.dart';
-import 'package:kikoeru_flutter/src/comics/comic_source.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/comics/comic_downloads.dart';
+import 'package:iroru/src/comics/comic_http.dart';
+import 'package:iroru/src/comics/comic_library.dart';
+import 'package:iroru/src/comics/comic_models.dart';
+import 'package:iroru/src/comics/comic_source.dart';
 
 class _Library extends ComicLibrary {
   final saved = <String, Map<String, dynamic>>{};

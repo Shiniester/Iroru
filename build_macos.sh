@@ -40,7 +40,7 @@ echo "🔨 构建 macOS Release 版本..."
 flutter build macos --release
 
 # 检查构建结果
-if [ ! -d "build/macos/Build/Products/Release/Iroru.app" ]; then
+if [ ! -d "build/macos/Build/Products/Release/Iroru Desktop.app" ]; then
     echo "❌ 构建失败"
     exit 1
 fi
@@ -50,7 +50,7 @@ echo ""
 
 # 显示应用信息
 echo "📱 macOS 应用程序信息："
-ls -lh build/macos/Build/Products/Release/Iroru.app
+ls -lh "build/macos/Build/Products/Release/Iroru Desktop.app"
 echo ""
 
 # 创建 DMG（可选）
@@ -67,7 +67,7 @@ if [ "$create_dmg" = "y" ] || [ "$create_dmg" = "Y" ]; then
     mkdir -p build/dmg
     
     # 复制应用到临时目录
-    cp -R build/macos/Build/Products/Release/Iroru.app build/dmg/
+    cp -R "build/macos/Build/Products/Release/Iroru Desktop.app" build/dmg/
     
     # 创建 DMG
     hdiutil create -volname "Iroru" \
@@ -93,7 +93,7 @@ fi
 
 echo ""
 echo "📍 应用程序位置:"
-echo "$(pwd)/build/macos/Build/Products/Release/Iroru.app"
+echo "$(pwd)/build/macos/Build/Products/Release/Iroru Desktop.app"
 echo ""
 echo "📝 可以直接运行应用程序或将其拖到应用程序文件夹"
 echo "   对于分发，建议创建 DMG 或进行代码签名"

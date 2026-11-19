@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_library_service.dart';
-import 'package:kikoeru_flutter/src/widgets/subtitle_library_file_list.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/services/subtitle_library_service.dart';
+import 'package:iroru/src/widgets/subtitle_library_file_list.dart';
 
 Map<String, dynamic> _folder(
   String title,

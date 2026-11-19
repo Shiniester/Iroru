@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
-import 'package:kikoeru_flutter/src/widgets/search_history_section.dart';
-import 'package:kikoeru_flutter/src/widgets/search_options_button.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/unified_search_history_provider.dart';
+import 'package:iroru/src/widgets/search_history_section.dart';
+import 'package:iroru/src/widgets/search_options_button.dart';
 
 Widget _app(Widget child, {double textScale = 1}) => MaterialApp(
   locale: const Locale('en'),

@@ -3811,10 +3811,6 @@ class SEn extends S {
       'Android: System file picker will be used, storage permission may be required';
 
   @override
-  String get platformHintIOS =>
-      'iOS: Due to system restrictions, the default path is used. Files can be accessed via the system file manager';
-
-  @override
   String get platformHintWindows =>
       'Windows: Any accessible directory can be selected';
 

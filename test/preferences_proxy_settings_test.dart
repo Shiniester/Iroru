@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/screens/preferences_screen.dart';
-import 'package:kikoeru_flutter/src/screens/settings_screen.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
-import 'package:kikoeru_flutter/src/services/proxy_config.dart';
-import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
-import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/screens/preferences_screen.dart';
+import 'package:iroru/src/screens/settings_screen.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
+import 'package:iroru/src/services/proxy_config.dart';
+import 'package:iroru/src/widgets/responsive_dialog.dart';
+import 'package:iroru/src/widgets/settings_section.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Widget _testApp({

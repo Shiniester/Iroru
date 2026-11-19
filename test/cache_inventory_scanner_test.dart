@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/cache_inventory.dart';
-import 'package:kikoeru_flutter/src/models/scan_models.dart';
-import 'package:kikoeru_flutter/src/services/cache_inventory_scanner.dart';
+import 'package:iroru/src/models/cache_inventory.dart';
+import 'package:iroru/src/models/scan_models.dart';
+import 'package:iroru/src/services/cache_inventory_scanner.dart';
 
 void main() {
   test('deduplicates simultaneous scans for the same cache roots', () async {

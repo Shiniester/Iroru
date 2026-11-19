@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/audio_track_queue_builder.dart';
+import 'package:iroru/src/services/audio_track_queue_builder.dart';
 
 Map<String, dynamic> audioItem(
   String title, {

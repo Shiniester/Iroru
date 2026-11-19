@@ -7,12 +7,12 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
-import 'package:kikoeru_flutter/src/widgets/cover_preview_dialog.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_palette_background.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_visual_palette.dart';
-import 'package:kikoeru_flutter/src/widgets/privacy_blur_cover.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/widgets/app_navigation_scope.dart';
+import 'package:iroru/src/widgets/cover_preview_dialog.dart';
+import 'package:iroru/src/widgets/player/player_palette_background.dart';
+import 'package:iroru/src/widgets/player/player_visual_palette.dart';
+import 'package:iroru/src/widgets/privacy_blur_cover.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

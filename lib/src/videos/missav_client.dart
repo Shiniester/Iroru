@@ -76,8 +76,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     for (final mirror in missavMirrors) missavMirrorDomain(mirror.host),
   };
   static const _officialHosts = missavOfficialHosts;
-  static const _cookieKey = 'missav_session_cookie';
-  static const _sessionRecordKey = 'missav_verified_session';
+  static const _cookieKey = 'iroru.missav_session_cookie';
+  static const _sessionRecordKey = 'iroru.missav_verified_session';
   static String get _defaultUserAgent {
     if (Platform.isAndroid) {
       return 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '

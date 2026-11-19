@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/tab_page_motion.dart';
-import 'package:kikoeru_flutter/src/widgets/virtualized_sliver_collection.dart';
+import 'package:iroru/src/widgets/tab_page_motion.dart';
+import 'package:iroru/src/widgets/virtualized_sliver_collection.dart';
 
 void main() {
   for (final layout in VirtualizedCollectionLayout.values) {

@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:kikoeru_flutter/src/services/subtitle_availability_scanner.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_library_service.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_long_path.dart';
+import 'package:iroru/src/services/subtitle_availability_scanner.dart';
+import 'package:iroru/src/services/subtitle_library_service.dart';
+import 'package:iroru/src/services/subtitle_long_path.dart';
 
 Map<String, dynamic> fileItem(String title, {String type = 'file'}) {
   return {'type': type, 'title': title};

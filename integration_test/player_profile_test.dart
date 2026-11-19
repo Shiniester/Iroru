@@ -8,27 +8,27 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/main.dart' as app;
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/lyric.dart';
-import 'package:kikoeru_flutter/src/performance/performance_fixture_manifest.dart';
-import 'package:kikoeru_flutter/src/performance/performance_recorder.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
-import 'package:kikoeru_flutter/src/providers/player_lyric_style_provider.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
-import 'package:kikoeru_flutter/src/services/background_work_scheduler.dart';
-import 'package:kikoeru_flutter/src/services/cache_service.dart';
-import 'package:kikoeru_flutter/src/services/screen_awake_service.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
-import 'package:kikoeru_flutter/src/widgets/work_image_reader.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/main.dart' as app;
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/lyric.dart';
+import 'package:iroru/src/performance/performance_fixture_manifest.dart';
+import 'package:iroru/src/performance/performance_recorder.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/providers/lyric_provider.dart';
+import 'package:iroru/src/providers/player_lyric_style_provider.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/background_work_scheduler.dart';
+import 'package:iroru/src/services/cache_service.dart';
+import 'package:iroru/src/services/screen_awake_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/widgets/mini_player.dart';
+import 'package:iroru/src/widgets/work_image_reader.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _profilePackage = String.fromEnvironment(
   'KIKOFLU_PROFILE_PACKAGE',
-  defaultValue: 'com.meteor.kikoeruflutter',
+  defaultValue: 'com.meteor.iroru',
 );
 
 class _ProfileTestBinding extends IntegrationTestWidgetsFlutterBinding {

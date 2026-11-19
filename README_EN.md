@@ -84,32 +84,28 @@
 
 ## Download
 
-Go to [Releases](https://github.com/pa-jesusf/KikoFlu/releases/latest) for the latest version.
+Download the latest version from [GitHub Releases](https://github.com/Shiniester/Iroru/releases/latest).
 
 Platforms: Android (arm64-v8a), iOS (unsigned IPA), Windows (installer / portable), macOS (Apple Silicon, DMG), Linux (x64)
 
-**macOS upgrade:** Iroru.app has a different name from the old KikoFlu.app. Copying Iroru.app does not remove KikoFlu.app. After confirming that Iroru can read your existing data, you can remove KikoFlu.app.
+### Installing after the app ID change
 
-### AltStore / SideStore
+Iroru requires a fresh installation after the app ID change. The new installation starts with empty local data. The previous app and its data stay in place. Older versions may still show an update notification.
 
-iOS users can add the Iroru source to AltStore or SideStore to install and update the app:
-
-**Source URL:** `https://raw.githubusercontent.com/pa-jesusf/KikoFlu/main/altstore-source.json`
+- On macOS, drag `Iroru Desktop.app` to Applications. You can keep the previous `Iroru.app`.
+- On Linux and for the portable Windows build, extract the archive into a new directory to keep the previous installation.
 
 ---
 
 ## Build from Source
 
 ### Requirements
-- Flutter SDK 3.0+
-- Dart SDK 3.0+
 
-Linux builds require pinned native libraries and packaging tools. Follow the
-[Linux native audio build guide](docs/development/linux-native-audio.md).
+Use the Flutter SDK pinned in [`.fvmrc`](.fvmrc). Flutter includes the Dart SDK. See [`pubspec.yaml`](pubspec.yaml) for the minimum Dart version.
 
 ```bash
-git clone https://github.com/pa-jesusf/KikoFlu.git
-cd KikoFlu
+git clone https://github.com/Shiniester/Iroru.git
+cd Iroru
 flutter pub get
 ```
 
@@ -146,5 +142,5 @@ This directory is ignored by Git. Prepare the artifacts before building:
 
 ## Contact
 
-- **Bug Reports**: [Issues](https://github.com/pa-jesusf/KikoFlu/issues)
+- **Bug Reports**: [Issues](https://github.com/Shiniester/Iroru/issues)
 - **Community**: [Telegram](https://t.me/+PrkiN-pZrXs4ZTU1)

@@ -1,7 +1,7 @@
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_library_rules.dart';
+import 'package:iroru/src/services/subtitle_library_rules.dart';
 
 Archive archiveWithPaths(List<String> paths) {
   final archive = Archive();

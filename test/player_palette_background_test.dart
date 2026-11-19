@@ -3,7 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_palette_background.dart';
+import 'package:iroru/src/widgets/player/player_palette_background.dart';
 
 const _boundaryKey = ValueKey('background-test-boundary');
 

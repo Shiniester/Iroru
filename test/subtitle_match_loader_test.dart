@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:kikoeru_flutter/src/services/subtitle_library_service.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_match_loader.dart';
+import 'package:iroru/src/services/subtitle_library_service.dart';
+import 'package:iroru/src/services/subtitle_match_loader.dart';
 
 void main() {
   test('loads subtitle matches through injected directory and finder',

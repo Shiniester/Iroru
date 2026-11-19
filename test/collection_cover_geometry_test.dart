@@ -1,22 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/audio_source.dart';
-import 'package:kikoeru_flutter/src/models/history_record.dart';
-import 'package:kikoeru_flutter/src/models/playlist.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/providers/work_card_display_provider.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart'
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/audio_source.dart';
+import 'package:iroru/src/models/history_record.dart';
+import 'package:iroru/src/models/playlist.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/providers/work_card_display_provider.dart';
+import 'package:iroru/src/providers/works_provider.dart'
     show LayoutType;
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/utils/collection_grid_layout.dart';
-import 'package:kikoeru_flutter/src/widgets/age_rating_chip.dart';
-import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
-import 'package:kikoeru_flutter/src/widgets/history_work_card.dart';
-import 'package:kikoeru_flutter/src/widgets/playlist_card.dart';
-import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
-import 'package:kikoeru_flutter/src/widgets/va_chip.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/utils/collection_grid_layout.dart';
+import 'package:iroru/src/widgets/age_rating_chip.dart';
+import 'package:iroru/src/widgets/enhanced_work_card.dart';
+import 'package:iroru/src/widgets/history_work_card.dart';
+import 'package:iroru/src/widgets/playlist_card.dart';
+import 'package:iroru/src/widgets/tag_chip.dart';
+import 'package:iroru/src/widgets/va_chip.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _work = Work(

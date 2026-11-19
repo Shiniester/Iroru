@@ -13,7 +13,7 @@ Android 的 Media3 固定为 1.8.0，包含空 FLAC seek table 的上游修复�
 测试包名，避免替换设备上的正式安装。
 
 构建前确认 USB 设备、可用空间和原始素材。默认包名为
-`com.meteor.kikoeruflutter`。报告目录中的包名可通过 Dart define 覆盖；运行脚本的
+`com.meteor.iroru`。报告目录中的包名可通过 Dart define 覆盖；运行脚本的
 `--package` 必须传入同一个 application id。入口 Activity 使用完整类名
 `com.meteor.kikoeruflutter.MainActivity`。
 
@@ -44,7 +44,7 @@ gradle.beforeProject { project ->
 '@ | Set-Content -LiteralPath $profileInit -Encoding utf8
 $profileDefines = @(
   'KIKOFLU_PERFORMANCE=true',
-  'KIKOFLU_PROFILE_PACKAGE=com.meteor.kikoeruflutter.profile'
+  'KIKOFLU_PROFILE_PACKAGE=com.meteor.iroru.profile'
 ) | ForEach-Object { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($_)) }
 Push-Location android
 try {
@@ -55,7 +55,7 @@ try {
 } finally { Pop-Location }
 adb -s <device> install -r build/app/outputs/flutter-apk/app-profile.apk
 python tool/performance/run_player_profile.py baseline `
-  --device <device> --package com.meteor.kikoeruflutter.profile --no-audio
+  --device <device> --package com.meteor.iroru.profile --no-audio
 ```
 
 设备素材目录为
@@ -112,7 +112,7 @@ python tool/performance/summarize_player_profile.py baseline candidate baseline_
   --output build/player_performance/summary.json
 ```
 
-独立包的运行命令均传入 `--package com.meteor.kikoeruflutter.profile`，与构建时的
+独立包的运行命令均传入 `--package com.meteor.iroru.profile`，与构建时的
 `KIKOFLU_PROFILE_PACKAGE` 一致。内部分页使用固定 40 项可滚动假队列，
 `--no-audio` 无需外部素材。快速切歌使用无在线作品 ID 的本地轨道，避免作品详情
 缓存或网络加载与随后分页场景重叠。`queuePageSwitch` 测量队列按钮进入及 Escape 返回；
@@ -148,7 +148,7 @@ A/B/C，校验最终曲目、发布事件、错误和完整缓存是否保留。
 
 ```powershell
 python tool/performance/run_player_profile.py baseline_lyrics `
-  --device <device> --package com.meteor.kikoeruflutter.profile `
+  --device <device> --package com.meteor.iroru.profile `
   --no-audio --lyrics-only --rounds 5 --output <共同报告根目录>
 ```
 
@@ -156,7 +156,7 @@ python tool/performance/run_player_profile.py baseline_lyrics `
 
 ```powershell
 python tool/performance/run_player_profile.py candidate_lyrics `
-  --device <device> --package com.meteor.kikoeruflutter.profile `
+  --device <device> --package com.meteor.iroru.profile `
   --no-audio --lyrics-only --rounds 5 --output <共同报告根目录>
 python tool/performance/summarize_player_profile.py baseline_lyrics candidate_lyrics `
   --lyrics-only --reports <共同报告根目录>/reports `

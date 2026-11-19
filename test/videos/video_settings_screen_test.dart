@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart'
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/unified_search_history_provider.dart';
+import 'package:iroru/src/providers/works_provider.dart'
     show LayoutType;
-import 'package:kikoeru_flutter/src/videos/ui/video_settings_screen.dart';
-import 'package:kikoeru_flutter/src/videos/video_browse_preferences.dart';
+import 'package:iroru/src/videos/ui/video_settings_screen.dart';
+import 'package:iroru/src/videos/video_browse_preferences.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

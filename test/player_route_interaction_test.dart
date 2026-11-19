@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
+import 'package:iroru/src/widgets/player/player_route.dart';
+import 'package:iroru/src/widgets/player/player_vertical_gestures.dart';
 
 void main() {
   for (final buildFirst in [false, true]) {

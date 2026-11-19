@@ -4,9 +4,9 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/videos/jable_client.dart';
-import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:iroru/src/videos/jable_client.dart';
+import 'package:iroru/src/videos/missav_browser_adapter.dart';
+import 'package:iroru/src/videos/video_models.dart';
 
 void main() {
   test(
@@ -1054,7 +1054,7 @@ void main() {
     'restored browser access can browse before session restoration returns',
     () async {
       final storage = _MemorySecureStorage()
-        ..values['jable_verified_session'] =
+        ..values['iroru.jable_verified_session'] =
             '{"cookie":"cf_clearance=saved","userAgent":"Saved UA"}';
       final dio = Dio()
         ..httpClientAdapter = _Adapter(

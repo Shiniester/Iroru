@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/file_explorer_header.dart';
+import 'package:iroru/src/widgets/file_explorer_header.dart';
 
 Widget _testApp(Widget child) {
   return MaterialApp(

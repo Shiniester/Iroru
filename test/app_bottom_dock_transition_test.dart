@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/utils/theme.dart';
-import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
-import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
+import 'package:iroru/src/utils/theme.dart';
+import 'package:iroru/src/widgets/app_bottom_dock.dart';
+import 'package:iroru/src/widgets/app_bottom_dock_transition.dart';
 
 const _sourceMini = ValueKey('source-mini');
 const _targetMini = ValueKey('target-mini');

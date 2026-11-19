@@ -75,14 +75,28 @@ jobs:
         with:
           ref: ${{ inputs.commit_sha || github.sha }}
 
+      - uses: actions/checkout@v6
+        if: ${{ inputs.commit_sha && inputs.commit_sha != github.sha }}
+        with:
+          ref: ${{ github.sha }}
+          path: .release-gate
+
       - name: Verify selected Android native interface
         run: |
           set -euo pipefail
-          if [[ ! -f scripts/ci/validate_release_source.py ]]; then
+          gate="scripts/ci/validate_release_source.py"
+          if [[ -d .release-gate ]]; then
+            gate=".release-gate/$gate"
+          fi
+          if [[ ! -f "$gate" ]]; then
             echo '::error::Selected commit predates the required release configuration. Choose a commit that includes the new release configuration.'
             exit 1
           fi
-          python3 scripts/ci/validate_release_source.py android
+          if [[ ! -f scripts/ci/android_release.py ]]; then
+            echo '::error::Selected commit predates the Android release APK helper. Choose a commit that includes the new release configuration.'
+            exit 1
+          fi
+          python3 "$gate" android --root .
 
   build-windows:
     name: Build Windows libmpv

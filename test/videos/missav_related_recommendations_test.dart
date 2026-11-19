@@ -6,8 +6,8 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/videos/missav_client.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:iroru/src/videos/missav_client.dart';
+import 'package:iroru/src/videos/video_models.dart';
 
 class _Adapter implements HttpClientAdapter {
   _Adapter(this.respond);

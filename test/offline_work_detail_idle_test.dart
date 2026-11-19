@@ -8,19 +8,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
-import 'package:kikoeru_flutter/src/screens/offline_work_detail_screen.dart';
-import 'package:kikoeru_flutter/src/screens/main_screen.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/utils/theme.dart';
-import 'package:kikoeru_flutter/src/widgets/offline_file_explorer_widget.dart';
-import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
-import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/providers/lyric_provider.dart';
+import 'package:iroru/src/screens/offline_work_detail_screen.dart';
+import 'package:iroru/src/screens/main_screen.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/utils/theme.dart';
+import 'package:iroru/src/widgets/offline_file_explorer_widget.dart';
+import 'package:iroru/src/widgets/app_navigation_scope.dart';
+import 'package:iroru/src/widgets/app_navigation_shell.dart';
 
 class _NoImageCache extends Fake implements BaseCacheManager {
   @override

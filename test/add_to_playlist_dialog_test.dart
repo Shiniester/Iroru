@@ -4,14 +4,14 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart'
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/auth_provider.dart'
     show kikoeruApiServiceProvider;
-import 'package:kikoeru_flutter/src/providers/automatic_work_marking_provider.dart';
-import 'package:kikoeru_flutter/src/services/automatic_work_marking_service.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/src/providers/automatic_work_marking_provider.dart';
+import 'package:iroru/src/services/automatic_work_marking_service.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
-import 'package:kikoeru_flutter/src/widgets/add_to_playlist_dialog.dart';
+import 'package:iroru/src/widgets/add_to_playlist_dialog.dart';
 
 class _PlaylistApi extends KikoeruApiService {
   final addResult = Completer<Map<String, dynamic>>();

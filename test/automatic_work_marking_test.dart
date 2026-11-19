@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/automatic_marking_event.dart';
-import 'package:kikoeru_flutter/src/services/automatic_work_marking_service.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/automatic_marking_event.dart';
+import 'package:iroru/src/services/automatic_work_marking_service.dart';
 
 const a = AudioTrack(
   id: 'a',

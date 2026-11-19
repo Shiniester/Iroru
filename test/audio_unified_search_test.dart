@@ -10,23 +10,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/audio_source.dart';
-import 'package:kikoeru_flutter/src/models/download_task_change.dart';
-import 'package:kikoeru_flutter/src/models/search_query.dart';
-import 'package:kikoeru_flutter/src/models/search_type.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
-import 'package:kikoeru_flutter/src/providers/download_provider.dart';
-import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart'
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/audio_source.dart';
+import 'package:iroru/src/models/download_task_change.dart';
+import 'package:iroru/src/models/search_query.dart';
+import 'package:iroru/src/models/search_type.dart';
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/providers/collection_layout_provider.dart';
+import 'package:iroru/src/providers/download_provider.dart';
+import 'package:iroru/src/providers/unified_search_history_provider.dart';
+import 'package:iroru/src/providers/works_provider.dart'
     show LayoutType;
-import 'package:kikoeru_flutter/src/screens/search_screen.dart';
-import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/src/screens/search_screen.dart';
+import 'package:iroru/src/screens/work_detail_screen.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/widgets/works_grid_view.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/widgets/works_grid_view.dart';
 
 class _SearchCall {
   const _SearchCall(this.keyword, this.order, this.sort, this.subtitle);

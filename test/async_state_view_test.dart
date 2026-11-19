@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/async_state_view.dart';
+import 'package:iroru/src/widgets/async_state_view.dart';
 
 void main() {
   testWidgets('scrollable state view keeps full-page errors reachable', (

@@ -42,7 +42,7 @@ class JableClient implements VideoSourceClient {
   }
 
   static const origin = 'https://jable.tv';
-  static const _sessionKey = 'jable_verified_session';
+  static const _sessionKey = 'iroru.jable_verified_session';
   static const _defaultUserAgent = 'Mozilla/5.0';
 
   late final JableAccount account = JableAccount._(this);

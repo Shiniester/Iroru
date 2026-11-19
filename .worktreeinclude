@@ -12,7 +12,6 @@ analysis_options.yaml
 devtools_options.yaml
 dart_test.yaml
 l10n.yaml
-altstore-source.json
 .flutter-plugins-dependencies
 README.md
 README_EN.md

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/widgets/file_selection_dialog.dart';
-import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/widgets/file_selection_dialog.dart';
+import 'package:iroru/src/widgets/responsive_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _surfaceKey = ValueKey('responsive-sheet-surface');

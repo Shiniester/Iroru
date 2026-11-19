@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/youdao_translator.dart';
-import 'package:kikoeru_flutter/src/services/microsoft_translator.dart';
+import 'package:iroru/src/services/youdao_translator.dart';
+import 'package:iroru/src/services/microsoft_translator.dart';
 import 'package:translator/translator.dart';
 
 void main() {

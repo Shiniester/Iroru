@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/providers/playlist_display_provider.dart';
+import 'package:iroru/src/providers/playlist_display_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> _pumpAsyncPreferenceLoad() async {

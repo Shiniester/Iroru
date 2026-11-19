@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
-import 'package:kikoeru_flutter/src/widgets/review_progress_dialog.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/widgets/responsive_dialog.dart';
+import 'package:iroru/src/widgets/review_progress_dialog.dart';
 
 class _Auth extends AuthNotifier {
   _Auth() : super(KikoeruApiService()) {

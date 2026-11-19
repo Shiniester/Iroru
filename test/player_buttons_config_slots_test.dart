@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/providers/player_buttons_provider.dart';
+import 'package:iroru/src/providers/player_buttons_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

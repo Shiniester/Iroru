@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_effects_settings.dart';
-import 'package:kikoeru_flutter/src/services/native_audio_effects.dart';
+import 'package:iroru/src/models/audio_effects_settings.dart';
+import 'package:iroru/src/services/native_audio_effects.dart';
 
 void main() {
   test('runtime updates send only targets present in the active graph', () {

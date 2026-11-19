@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/utils/string_utils.dart';
+import 'package:iroru/src/utils/string_utils.dart';
 
 void main() {
   group('string utils', () {

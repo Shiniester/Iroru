@@ -83,7 +83,7 @@ Future<void> saveReaderImage(
         filePath: temporaryFile.path,
         fileName: fileName,
         skipIfExists: false,
-        androidRelativePath: 'Pictures/KikoFlu',
+        androidRelativePath: 'Pictures/Iroru',
       );
     } finally {
       if (await temporaryFile.exists()) await temporaryFile.delete();

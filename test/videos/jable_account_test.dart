@@ -6,8 +6,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
-import 'package:kikoeru_flutter/src/videos/jable_client.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:iroru/src/videos/jable_client.dart';
+import 'package:iroru/src/videos/video_models.dart';
 
 void main() {
   test('recognizes only the exact same-origin favorites paths', () {
@@ -99,6 +99,20 @@ void main() {
       noSession.dispose();
     },
   );
+
+  test('does not restore or alter the previous app session', () async {
+    final testClient = _createClient(
+      _Adapter((_) => _html(_favoritesPage())),
+      savedSession: false,
+    );
+    addTearDown(testClient.dispose);
+    const legacySession = '{"cookie":"session=legacy","userAgent":"Old app"}';
+    testClient.storage.values['jable_verified_session'] = legacySession;
+
+    expect(await testClient.client.account.checkLogin(), isFalse);
+    expect(testClient.adapter.requests, isEmpty);
+    expect(testClient.storage.values['jable_verified_session'], legacySession);
+  });
 
   test(
     'uses only same-origin login launchers to recognize a redirected guest',
@@ -468,7 +482,7 @@ void main() {
       );
 
       expect(adapter.requests, hasLength(1));
-      expect(testClient.storage.values, contains('jable_verified_session'));
+      expect(testClient.storage.values, contains('iroru.jable_verified_session'));
       expect(testClient.client.sessionGeneration, generation);
       testClient.dispose();
     },
@@ -506,7 +520,7 @@ _TestClient _createClient(_Adapter adapter, {bool savedSession = true}) {
   final dio = Dio()..httpClientAdapter = adapter;
   final storage = _MemorySecureStorage();
   if (savedSession) {
-    storage.values['jable_verified_session'] = jsonEncode({
+    storage.values['iroru.jable_verified_session'] = jsonEncode({
       'cookie': 'session=verified',
       'userAgent': 'Jable account test',
     });

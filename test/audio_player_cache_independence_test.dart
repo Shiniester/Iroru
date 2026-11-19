@@ -6,14 +6,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/download_task.dart';
-import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
-import 'package:kikoeru_flutter/src/services/cache_service.dart';
-import 'package:kikoeru_flutter/src/services/download_service.dart';
-import 'package:kikoeru_flutter/src/services/speculative_transfer_coordinator.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/download_task.dart';
+import 'package:iroru/src/services/audio_cache_downloader.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/cache_service.dart';
+import 'package:iroru/src/services/download_service.dart';
+import 'package:iroru/src/services/speculative_transfer_coordinator.dart';
+import 'package:iroru/src/services/storage_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -501,7 +501,7 @@ void main() {
       expect(player.source, downloadedPath);
     } else {
       expect(player.source, isNot(downloadedPath));
-      expect(player.source, contains('kikoflu_audio_temp'));
+      expect(player.source, contains('iroru_audio_temp'));
       expect(await File(player.source!).readAsBytes(), bytes);
     }
   });

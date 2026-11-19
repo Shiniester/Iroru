@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/file_delete_request_builder.dart';
+import 'package:iroru/src/services/file_delete_request_builder.dart';
 
 void main() {
   group('FileDeleteRequestBuilder', () {

@@ -1,9 +1,9 @@
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_language.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_matching.dart';
-import 'package:kikoeru_flutter/src/services/work_subtitle_candidate_selector.dart';
+import 'package:iroru/src/services/subtitle_language.dart';
+import 'package:iroru/src/services/subtitle_matching.dart';
+import 'package:iroru/src/services/work_subtitle_candidate_selector.dart';
 
 void main() {
   for (final (locale, tags) in [

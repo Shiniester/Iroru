@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+
 import '../models/history_record.dart';
 import '../models/work.dart';
 import 'log_service.dart';
@@ -22,8 +24,8 @@ class HistoryDatabase {
   Future<Database> _initDB(String filePath) async {
     final String dbPath;
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      final appDocDir = await getApplicationDocumentsDirectory();
-      dbPath = join(appDocDir.path, 'KikoFlu');
+      final supportDirectory = await getApplicationSupportDirectory();
+      dbPath = supportDirectory.path;
       await Directory(dbPath).create(recursive: true);
     } else {
       dbPath = await getDatabasesPath();

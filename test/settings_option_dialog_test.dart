@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/radio_option_group.dart';
-import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
-import 'package:kikoeru_flutter/src/widgets/settings_option_dialog.dart';
+import 'package:iroru/src/widgets/radio_option_group.dart';
+import 'package:iroru/src/widgets/responsive_dialog.dart';
+import 'package:iroru/src/widgets/settings_option_dialog.dart';
 
 void main() {
   testWidgets('renders compact options and closes after selection', (

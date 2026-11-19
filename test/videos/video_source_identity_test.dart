@@ -2,9 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/src/videos/video_library.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_details_screen.dart';
+import 'package:iroru/src/videos/video_library.dart';
+import 'package:iroru/src/videos/video_models.dart';
+import 'package:iroru/src/videos/ui/video_details_screen.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

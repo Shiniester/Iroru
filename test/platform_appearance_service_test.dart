@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/platform_appearance_service.dart';
+import 'package:iroru/src/services/platform_appearance_service.dart';
 
 void main() {
   test('macOS system theme resolves from native effective appearance', () {

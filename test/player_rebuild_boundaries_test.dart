@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_seek_preview.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/widgets/player/player_controls_widget.dart';
+import 'package:iroru/src/widgets/player/player_seek_preview.dart';
 
 void main() {
   testWidgets('seek preview stays local and resets to provider position', (

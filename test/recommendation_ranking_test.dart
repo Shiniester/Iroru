@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/providers/recommendation_ranking.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/providers/recommendation_ranking.dart';
 
 final _now = DateTime.utc(2026, 10, 8);
 

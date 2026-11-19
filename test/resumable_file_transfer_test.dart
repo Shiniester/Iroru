@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
-import 'package:kikoeru_flutter/src/services/resumable_file_transfer.dart';
+import 'package:iroru/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/services/resumable_file_transfer.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

@@ -85,36 +85,30 @@
 
 ## 下载
 
-前往 [Releases](https://github.com/pa-jesusf/KikoFlu/releases/latest) 下载最新版本。
+前往 [GitHub Releases](https://github.com/Shiniester/Iroru/releases/latest) 下载最新版本。
 
 支持平台：Android（arm64-v8a）、iOS（未签名 IPA）、Windows（安装包 / 便携版）、macOS（Apple Silicon，DMG）、Linux（x64）
 
-**macOS 升级：** Iroru.app 和旧版 KikoFlu.app 的名称不同。复制 Iroru.app 后，KikoFlu.app 仍会保留。确认 Iroru 能读取原有数据后，可移除 KikoFlu.app。
+### 从旧版换装
 
-### AltStore / SideStore
+更换安装标识后的 Iroru 需要全新安装。新版从空数据开始，旧应用和旧数据留在原处。旧版可能仍会显示新版本提示。
 
-iOS 用户可通过 AltStore 或 SideStore 添加 Iroru 软件源，以安装和更新应用：
-
-**源地址：** `https://raw.githubusercontent.com/pa-jesusf/KikoFlu/main/altstore-source.json`
+- macOS 请将 `Iroru Desktop.app` 拖到“应用程序”。旧版的 `Iroru.app` 可以保留。
+- Linux 和 Windows 便携版请解压到新目录，保留旧版所在目录。
 
 ---
 
 ## 源码构建
 
 ### 环境要求
-- Flutter SDK 3.44.1+
-- Dart SDK 3.12.1+
 
-Linux 构建需要锁定的原生库和打包工具。
-Ubuntu 22.04 环境按 [Linux 原生播放库构建](docs/development/linux-native-audio.md)准备。
+使用 [`.fvmrc`](.fvmrc) 锁定的 Flutter SDK。Dart 随 Flutter 安装。Dart 的最低版本见 [`pubspec.yaml`](pubspec.yaml)。
 
-Windows 上进行 Android 开发时，请按
-[Windows Android 开发环境](docs/development/windows-android.md)配置项目锁定的
-Flutter 3.44.7、Android SDK、JDK、模拟器与真机调试。
+在 Windows 上开发 Android 应用时，请按 [Windows Android 开发环境](docs/development/windows-android.md)配置工具链。
 
 ```bash
-git clone https://github.com/pa-jesusf/KikoFlu.git
-cd KikoFlu
+git clone https://github.com/Shiniester/Iroru.git
+cd Iroru
 flutter pub get
 ```
 
@@ -157,7 +151,7 @@ ExHentai 中文标签使用 [EhTagTranslation 译文数据库](https://github.co
 
 ## 联系方式
 
-- **问题反馈**：[Issues](https://github.com/pa-jesusf/KikoFlu/issues)
+- **问题反馈**：[Issues](https://github.com/Shiniester/Iroru/issues)
 - **交流群组**：[Telegram](https://t.me/+PrkiN-pZrXs4ZTU1)
 
 ---

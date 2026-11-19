@@ -7,8 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart';
 
-import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:iroru/src/videos/ui/video_playback_panel.dart';
+import 'package:iroru/src/videos/video_models.dart';
 
 import '../../integration_test/audio_effects_native_hls.dart';
 import '../../integration_test/native_tls_fixture.dart';

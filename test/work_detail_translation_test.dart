@@ -9,28 +9,28 @@ import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/audio_tap_playlist_mode.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
-import 'package:kikoeru_flutter/src/screens/offline_work_detail_screen.dart';
-import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/audio_tap_playlist_mode.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/providers/lyric_provider.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
+import 'package:iroru/src/screens/offline_work_detail_screen.dart';
+import 'package:iroru/src/screens/work_detail_screen.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/utils/chinese_script_converter.dart';
-import 'package:kikoeru_flutter/src/utils/theme.dart';
-import 'package:kikoeru_flutter/src/widgets/offline_file_explorer_widget.dart';
-import 'package:kikoeru_flutter/src/widgets/file_explorer_widget.dart';
-import 'package:kikoeru_flutter/src/widgets/tab_page_motion.dart';
-import 'package:kikoeru_flutter/src/widgets/text_preview_screen.dart';
-import 'package:kikoeru_flutter/src/widgets/translation_toggle_button.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/utils/chinese_script_converter.dart';
+import 'package:iroru/src/utils/theme.dart';
+import 'package:iroru/src/widgets/offline_file_explorer_widget.dart';
+import 'package:iroru/src/widgets/file_explorer_widget.dart';
+import 'package:iroru/src/widgets/tab_page_motion.dart';
+import 'package:iroru/src/widgets/text_preview_screen.dart';
+import 'package:iroru/src/widgets/translation_toggle_button.dart';
+import 'package:iroru/src/widgets/work_detail/work_title_header.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -144,25 +144,28 @@ Future<void> _pumpUntil(WidgetTester tester, bool Function() ready) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late BaseCacheManager previousCacheManager;
+  late Directory appDocuments;
   const channel = MethodChannel('plugins.flutter.io/path_provider');
   setUpAll(() async {
     // Load assets outside widget tests so their cached futures use the real clock.
     await convertChineseScript('', toTraditional: false);
     await convertChineseScript('', toTraditional: true);
   });
-  setUp(() {
+  setUp(() async {
+    appDocuments = await Directory.systemTemp.createTemp('work-translation-');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           channel,
-          (_) async => Directory.systemTemp.path,
+          (_) async => appDocuments.path,
         );
     previousCacheManager = CachedNetworkImageProvider.defaultCacheManager;
     CachedNetworkImageProvider.defaultCacheManager = _NoImageCache();
   });
-  tearDown(() {
+  tearDown(() async {
     CachedNetworkImageProvider.defaultCacheManager = previousCacheManager;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
+    await appDocuments.delete(recursive: true);
   });
 
   const scenarios =

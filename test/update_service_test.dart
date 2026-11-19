@@ -7,11 +7,13 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/providers/update_provider.dart';
+import 'package:iroru/src/providers/update_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+// ignore: depend_on_referenced_packages
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -22,7 +24,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     PackageInfo.setMockInitialValues(
       appName: 'KikoFlu',
-      packageName: 'com.example.kikoflu',
+      packageName: 'com.meteor.iroru',
       version: '4.4.0',
       buildNumber: '1',
       buildSignature: '',
@@ -114,7 +116,7 @@ void main() {
       }
     });
 
-    test('matches Android arm64-v8a APK preferentially', () {
+    test('matches only the Android arm64-v8a APK', () {
       final service = UpdateService();
       final matched = service.findPlatformAsset(
         assets,
@@ -126,22 +128,18 @@ void main() {
       expect(matched['browser_download_url'], 'https://example.com/arm64.apk');
     });
 
-    test('uses a legacy universal APK for supported Android ABIs', () {
+    test('does not select a legacy universal APK', () {
       final service = UpdateService();
-      for (final abi in [Abi.androidArm64, Abi.androidArm, Abi.androidX64]) {
-        expect(
-          service.findPlatformAsset(
-            assets
-                .where(
-                  (asset) => !(asset['name']! as String).contains('arm64-v8a'),
-                )
-                .toList(),
-            targetPlatform: 'android',
-            targetAbi: abi,
-          )?['name'],
-          'KikoFlu-android-universe_4192.apk',
-        );
-      }
+      expect(
+        service.findPlatformAsset(
+          assets
+              .where((asset) => (asset['name']! as String).contains('universe'))
+              .toList(),
+          targetPlatform: 'android',
+          targetAbi: Abi.androidArm64,
+        ),
+        isNull,
+      );
     });
 
     test('does not offer an arm64 APK to other Android architectures', () {
@@ -271,6 +269,90 @@ void main() {
 
   group('UpdateService Checking and Installation', () {
     test(
+      'a rejected channel save leaves the previous channel selected',
+      () async {
+        SharedPreferencesStorePlatform.instance = _RejectingChannelStore();
+        final service = UpdateService();
+
+        await expectLater(
+          service.setUpdateChannel(UpdateChannel.beta),
+          throwsStateError,
+        );
+
+        expect(await service.getUpdateChannel(), UpdateChannel.stable);
+      },
+    );
+
+    test('Android Beta skips APKs for the old and stable installs', () async {
+      const compatible =
+          'Iroru-android-arm64-v8a_7.0.1-beta.1_'
+          'com.meteor.iroru.beta.apk';
+      final adapter = _MockHttpClientAdapter(
+        (_) => _jsonResponse([
+          for (final (version, name) in [
+            ('7.0.1-beta.3', 'Iroru-android-arm64-v8a_7.0.1-beta.3.apk'),
+            (
+              '7.0.1-beta.2',
+              'Iroru-android-arm64-v8a_7.0.1-beta.2_com.meteor.iroru.apk',
+            ),
+            ('7.0.1-beta.1', compatible),
+          ])
+            {
+              'tag_name': 'v$version',
+              'prerelease': true,
+              'assets': [
+                {
+                  'name': name,
+                  'browser_download_url': 'https://example.com/$name',
+                },
+              ],
+            },
+        ]),
+      );
+      final service = UpdateService(
+        dio: Dio()..httpClientAdapter = adapter,
+        androidAbi: Abi.androidArm64,
+      );
+      final update = await service.checkForUpdates(
+        force: true,
+        channel: UpdateChannel.beta,
+      );
+
+      expect(update?.latestVersion, '7.0.1-beta.1');
+      expect(update?.downloadUrl, 'https://example.com/$compatible');
+      expect(update?.isCrossChannel, isTrue);
+    });
+
+    test(
+      'Android stable ignores legacy releases and accepts its own APK',
+      () async {
+        var asset = 'Iroru-android-arm64-v8a_620.apk';
+        final adapter = _MockHttpClientAdapter(
+          (_) => _jsonResponse({
+            'tag_name': 'v7.0.0',
+            'assets': [
+              {
+                'name': asset,
+                'browser_download_url': 'https://example.com/$asset',
+              },
+            ],
+          }),
+        );
+        final service = UpdateService(
+          dio: Dio()..httpClientAdapter = adapter,
+          androidAbi: Abi.androidArm64,
+        );
+
+        expect(await service.checkForUpdates(force: true), isNull);
+        expect(await service.checkForUpdates(), isNull);
+
+        asset = 'Iroru-android-arm64-v8a_700_com.meteor.iroru.apk';
+        final update = await service.checkForUpdates(force: true);
+        expect(update?.downloadUrl, 'https://example.com/$asset');
+      },
+    );
+
+    test(
       'checkForUpdates queries origin repo and ignores prerelease',
       () async {
         final requests = <RequestOptions>[];
@@ -283,7 +365,7 @@ void main() {
               'draft': false,
               'body': 'Test prerelease notes',
               'html_url':
-                  'https://github.com/Shiniester/KikoFlu/releases/tag/v4.19.2',
+                  'https://github.com/Shiniester/Iroru/releases/tag/v4.19.2',
               'assets': [],
             }),
             HttpStatus.ok,
@@ -301,7 +383,7 @@ void main() {
         expect(requests, hasLength(1));
         expect(
           requests.first.path,
-          'https://api.github.com/repos/Shiniester/KikoFlu/releases/latest',
+          'https://api.github.com/repos/Shiniester/Iroru/releases/latest',
         );
       },
     );
@@ -317,7 +399,7 @@ void main() {
               'draft': false,
               'body': 'Official release improvements',
               'html_url':
-                  'https://github.com/Shiniester/KikoFlu/releases/tag/v4.19.2',
+                  'https://github.com/Shiniester/Iroru/releases/tag/v4.19.2',
               'assets': [
                 {
                   'name': 'KikoFlu-windows-setup_4192.exe',
@@ -345,7 +427,7 @@ void main() {
         expect(updateInfo.releaseNotes, 'Official release improvements');
         expect(
           updateInfo.releaseUrl,
-          'https://github.com/Shiniester/KikoFlu/releases/tag/v4.19.2',
+          'https://github.com/Shiniester/Iroru/releases/tag/v4.19.2',
         );
       },
     );
@@ -355,7 +437,7 @@ void main() {
       () async {
         PackageInfo.setMockInitialValues(
           appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.kikoeruflutter.beta',
+          packageName: 'com.meteor.iroru.beta',
           version: '4.5.3-beta.1',
           buildNumber: '1',
           buildSignature: '',
@@ -373,7 +455,7 @@ void main() {
       () async {
         PackageInfo.setMockInitialValues(
           appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.kikoeruflutter.beta',
+          packageName: 'com.meteor.iroru.beta',
           version: '4.5.3-beta.9',
           buildNumber: '1',
           buildSignature: '',
@@ -399,7 +481,7 @@ void main() {
                         'prerelease': true,
                         'body': 'Beta improvements',
                         'html_url':
-                            'https://github.com/Shiniester/KikoFlu/releases/tag/v4.5.3-beta.10',
+                            'https://github.com/Shiniester/Iroru/releases/tag/v4.5.3-beta.10',
                         'assets': [],
                       },
                     ],
@@ -424,7 +506,11 @@ void main() {
         ]);
         expect(requests.first.queryParameters['per_page'], 100);
         expect(
-          requests.every((request) => request.path.endsWith('/releases')),
+          requests.every(
+            (request) =>
+                request.path ==
+                'https://api.github.com/repos/Shiniester/Iroru/releases',
+          ),
           isTrue,
         );
       },
@@ -435,7 +521,7 @@ void main() {
       () async {
         PackageInfo.setMockInitialValues(
           appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.kikoeruflutter.beta',
+          packageName: 'com.meteor.iroru.beta',
           version: '4.5.3-beta.1',
           buildNumber: '1',
           buildSignature: '',
@@ -474,7 +560,7 @@ void main() {
       () async {
         PackageInfo.setMockInitialValues(
           appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.kikoeruflutter.beta',
+          packageName: 'com.meteor.iroru.beta',
           version: '4.5.3-beta.1',
           buildNumber: '1',
           buildSignature: '',
@@ -628,6 +714,57 @@ void main() {
       );
     }
 
+    test(
+      'an older same-channel response cannot replace a newer cache',
+      () async {
+        final oldResponse = Completer<ResponseBody>();
+        final oldRequestStarted = Completer<void>();
+        var requests = 0;
+        final adapter = _MockHttpClientAdapter((_) {
+          requests++;
+          if (requests == 1) {
+            oldRequestStarted.complete();
+            return oldResponse.future;
+          }
+          return _jsonResponse({
+            'tag_name': 'v4.6.0',
+            'draft': false,
+            'prerelease': false,
+            'body': 'Current notes',
+            'html_url': 'https://example.com/current',
+            'assets': [],
+          });
+        });
+        final service = UpdateService(dio: Dio()..httpClientAdapter = adapter);
+
+        final oldCheck = service.checkForUpdates(force: true);
+        await oldRequestStarted.future;
+        final current = await service.checkForUpdates(force: true);
+
+        oldResponse.complete(
+          _jsonResponse({
+            'tag_name': 'v4.5.0',
+            'draft': false,
+            'prerelease': false,
+            'body': 'Old notes',
+            'html_url': 'https://example.com/old',
+            'assets': [],
+          }),
+        );
+
+        expect(await oldCheck, isNull);
+        expect(current?.latestVersion, '4.6.0');
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('last_checked_version_stable'), '4.6.0');
+        expect(prefs.getString('last_release_notes_stable'), 'Current notes');
+        expect(
+          prefs.getString('last_release_url_stable'),
+          'https://example.com/current',
+        );
+        expect(requests, 2);
+      },
+    );
+
     test('notifications and red dots are isolated by channel', () async {
       final adapter = _MockHttpClientAdapter((options) {
         return _jsonResponse(
@@ -673,7 +810,7 @@ void main() {
       () async {
         PackageInfo.setMockInitialValues(
           appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.kikoeruflutter.beta',
+          packageName: 'com.meteor.iroru.beta',
           version: '4.5.3-beta.9',
           buildNumber: '1',
           buildSignature: '',
@@ -695,7 +832,7 @@ void main() {
 
         PackageInfo.setMockInitialValues(
           appName: 'KikoFlu',
-          packageName: 'com.example.kikoflu',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.10',
           buildNumber: '1',
           buildSignature: '',
@@ -720,7 +857,7 @@ void main() {
       () async {
         PackageInfo.setMockInitialValues(
           appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.kikoeruflutter.beta',
+          packageName: 'com.meteor.iroru.beta',
           version: '4.5.3-beta.2',
           buildNumber: '1',
           buildSignature: '',
@@ -743,7 +880,7 @@ void main() {
 
         PackageInfo.setMockInitialValues(
           appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.kikoeruflutter.beta',
+          packageName: 'com.meteor.iroru.beta',
           version: '4.5.3-beta.10',
           buildNumber: '1',
           buildSignature: '',
@@ -961,7 +1098,7 @@ void main() {
             latestVersion: '4.19.2',
             currentVersion: '4.4.0',
             releaseUrl:
-                'https://github.com/Shiniester/KikoFlu/releases/tag/v4.19.2',
+                'https://github.com/Shiniester/Iroru/releases/tag/v4.19.2',
             hasNewVersion: true,
             downloadUrl: 'https://example.com/setup.exe',
             assetName: 'setup.exe',
@@ -1011,6 +1148,15 @@ ResponseBody _jsonResponse(Object? data) {
       Headers.contentTypeHeader: [Headers.jsonContentType],
     },
   );
+}
+
+class _RejectingChannelStore extends InMemorySharedPreferencesStore {
+  _RejectingChannelStore()
+    : super.withData({'flutter.update_channel': 'stable'});
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async =>
+      false;
 }
 
 class _DeferredDownloadService extends UpdateService {

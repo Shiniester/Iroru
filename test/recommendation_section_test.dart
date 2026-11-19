@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/providers/recommendation_provider.dart';
-import 'package:kikoeru_flutter/src/providers/work_detail_display_provider.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/recommendation_section.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/providers/recommendation_provider.dart';
+import 'package:iroru/src/providers/work_detail_display_provider.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/widgets/enhanced_work_card.dart';
+import 'package:iroru/src/widgets/work_detail/recommendation_section.dart';
 
 class _Recommendations extends RecommendationNotifier {
   _Recommendations(super.ref, super.accessId);

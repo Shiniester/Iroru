@@ -11,6 +11,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 sys.path.insert(0, str(ROOT / "scripts/ci"))
+from android_release import VERSION_CODE_SPLIT_OFFSET, apk_basename
 from validate_release_source import required_source_files
 
 
@@ -36,16 +37,74 @@ assert "android_all_abis: false" in job(android, "native-audio")
 assert "android_all_abis: false" in job(beta, "native-audio")
 
 for workflow in (build, android):
-    assert 'base_code="${base_code:-1}"' in job(workflow, "android")
-    assert "ANDROID_BASE_VERSION_CODE + 2000" in workflow
-    assert "com.meteor.kikoeruflutter" in workflow
-    assert "EXPECTED_CERT_SHA256" in workflow
-    assert 'apksigner" verify --print-certs' in workflow
+    android_job = job(workflow, "android")
+    assert 'base_code="${base_code:-1}"' in android_job
+    assert "com.meteor.iroru" in workflow
+    assert "com.meteor.kikoeruflutter" not in workflow
+    assert "python3 scripts/ci/android_release.py name" in android_job
+    assert "python3 scripts/ci/android_release.py verify" in android_job
+    assert "--signing-policy release" in android_job
+    assert '--base-version-code "$ANDROID_BASE_VERSION_CODE"' in android_job
+    assert "APK_NAME: ${{ steps.package.outputs.apk_name }}" in android_job
+    assert "EXPECTED_CERT_SHA256" not in workflow
+    assert 'apksigner" verify' not in workflow
+    assert "_com.meteor.iroru.apk" not in workflow
+    assert (
+        "APK_NAME: ${{ needs.android.outputs.apk_name }}"
+        in job(workflow, "release")
+    )
 
-assert "EXPECTED_BUILD_NUMBER + 2000" in beta
-assert "com.meteor.kikoeruflutter.beta" in beta
-assert 'apksigner" verify "$apk"' in beta
+assert VERSION_CODE_SPLIT_OFFSET == 2000
+assert apk_basename("381", "com.meteor.iroru") == (
+    "Iroru-android-arm64-v8a_381_com.meteor.iroru.apk"
+)
+beta_job = job(beta, "android")
+assert "python3 scripts/ci/android_release.py name" in beta_job
+assert "python3 scripts/ci/android_release.py verify" in beta_job
+assert "--signing-policy signed" in beta_job
+assert "--forbid-debuggable" in beta_job
+assert '--base-version-code "$EXPECTED_BUILD_NUMBER"' in beta_job
+assert "APK_NAME: ${{ steps.package.outputs.apk_name }}" in beta_job
+assert "com.meteor.iroru.beta" in beta
+assert "com.meteor.kikoeruflutter" not in beta
+assert "_com.meteor.iroru.beta.apk" not in beta
+assert "EXPECTED_CERT_SHA256" not in beta
+assert 'apksigner" verify' not in beta
 assert "length == 1 and all" in beta
+assert (
+    "APK_NAME: ${{ needs.android.outputs.apk_name }}"
+    in job(beta, "release")
+)
+
+installer = (ROOT / "installer_script.iss").read_text(encoding="utf-8")
+assert "AppId={{F6844AAE-393D-450F-BC48-3965B0B6628C}" in installer
+assert "[InstallDelete]" not in installer
+assert 'Name: "{autoprograms}\\Iroru\\{#MyAppName}"' in installer
+assert 'Name: "{autodesktop}\\Iroru Desktop"' in installer
+assert "Iroru Desktop.app" in build
+assert "Iroru Desktop.app" in (
+    WORKFLOWS / "build_test_only.yml"
+).read_text(encoding="utf-8")
+macos_app_info = (ROOT / "macos/Runner/Configs/AppInfo.xcconfig").read_text(encoding="utf-8")
+assert "PRODUCT_NAME = Iroru Desktop" in macos_app_info
+assert re.search(r"(?m)^PRODUCT_BUNDLE_IDENTIFIER = com\.meteor\.iroru$", macos_app_info)
+ios_project = (ROOT / "ios/Runner.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+assert set(re.findall(r"PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);", ios_project)) == {
+    "com.meteor.iroru",
+    "com.meteor.iroru.RunnerTests",
+}
+assert 'VALUE "ProductName", "Iroru"' in (
+    ROOT / "windows/runner/Runner.rc"
+).read_text(encoding="utf-8")
+assert 'applicationId = "com.meteor.iroru"' in (
+    ROOT / "android/app/build.gradle.kts"
+).read_text(encoding="utf-8")
+assert 'set(APPLICATION_ID "com.meteor.iroru")' in (
+    ROOT / "linux/CMakeLists.txt"
+).read_text(encoding="utf-8")
+assert "g_get_user_data_dir(), APPLICATION_ID" in (
+    ROOT / "linux/runner/my_application.cc"
+).read_text(encoding="utf-8")
 
 android_job = job(build, "android")
 windows_job = job(build, "windows")
@@ -93,8 +152,18 @@ for workflow in (build, android, beta):
 linux_cache = (ROOT / ".github/actions/linux-native-audio-cache/action.yml").read_text(encoding="utf-8")
 test_only = (WORKFLOWS / "build_test_only.yml").read_text(encoding="utf-8")
 test_only_ios = job(test_only, "ios-verify")
+test_only_android = job(test_only, "android-build")
 assert "TimeoutException after 0:00:30.000000" in test_only_ios
 assert "native HTTPS rejects an untrusted certificate (failed)" not in test_only_ios
+assert "python3 scripts/ci/android_release.py verify" in test_only_android
+assert "--signing-policy optional" in test_only_android
+assert '--signing-configured "$SIGNING_CONFIGURED"' in test_only_android
+assert 'apksigner" verify' not in test_only_android
+assert "EXPECTED_CERT_SHA256" not in test_only
+assert "python3 scripts/ci/test_android_release.py" in job(
+    test_only,
+    "quality-analysis",
+)
 assert "uses: ./.github/actions/linux-native-audio-cache" in build
 assert "uses: ./.github/actions/linux-native-audio-cache" in test_only
 assert "ImageOS" in linux_cache and "ImageVersion" in linux_cache
@@ -137,13 +206,17 @@ for workflow, profile in (
     (android, "android"),
     ((WORKFLOWS / "native_audio.yml").read_text(encoding="utf-8"), "android"),
 ):
-    assert "if [[ ! -f scripts/ci/validate_release_source.py ]]" in workflow
-    assert f"validate_release_source.py {profile}" in workflow
+    assert "path: .release-gate" in workflow
+    assert "if: ${{ inputs.commit_sha && inputs.commit_sha != github.sha }}" in workflow
+    assert "ref: ${{ github.sha }}" in workflow
+    assert f'python3 "$gate" {profile} --root .' in workflow
+    assert "if [[ ! -f scripts/ci/android_release.py ]]" in workflow
     assert "Choose a commit that includes the new release configuration." in workflow
 
 assert "needs: prepare" in job(build, "native-audio-android")
 assert "needs: prepare" in job(build, "native-audio-windows")
 assert "needs: native-audio" in job(beta, "android")
+assert "scripts/ci/android_release.py" in required_source_files("android")
 
 
 def make_source_fixture(destination: Path, profile: str) -> None:
@@ -190,6 +263,7 @@ with tempfile.TemporaryDirectory() as temporary:
     )
     (legacy / ".github/actions/linux-native-audio-cache/action.yml").unlink()
     (legacy / "scripts/ci/run_android_emulator_test.sh").unlink()
+    (legacy / "scripts/ci/android_release.py").unlink()
     (legacy / "scripts/native_audio/build_darwin.sh").write_text(
         'python3 "$script_dir/rewrite_darwin_sdk_paths.py"\n'
         'python3 "$script_dir/test_darwin_native.py"\n',
@@ -200,6 +274,7 @@ with tempfile.TemporaryDirectory() as temporary:
     assert "Selected commit lacks required release configuration" in result.stdout
     assert "--validate-output" in result.stdout
     assert "target-platform" in result.stdout
+    assert "scripts/ci/android_release.py is missing" in result.stdout
     assert "linux-native-audio-cache/action.yml is missing" in result.stdout
     assert "native source checks before rewriting SDK paths" in result.stdout
 

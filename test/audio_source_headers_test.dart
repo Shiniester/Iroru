@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/utils/audio_source_headers.dart';
+import 'package:iroru/src/utils/audio_source_headers.dart';
 
 void main() {
   test('Japanese media headers do not include account cookies or tokens', () {

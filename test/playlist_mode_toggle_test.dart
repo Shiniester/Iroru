@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/audio_tap_playlist_mode.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/widgets/animated_menu_anchor.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
-import 'package:kikoeru_flutter/src/widgets/player/playlist_dialog.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/audio_tap_playlist_mode.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/widgets/animated_menu_anchor.dart';
+import 'package:iroru/src/widgets/player/player_glass_surface.dart';
+import 'package:iroru/src/widgets/player/playlist_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

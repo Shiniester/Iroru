@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/services/download_file_path_service.dart';
-import 'package:kikoeru_flutter/src/services/work_track_file_builder.dart';
-import 'package:kikoeru_flutter/src/utils/file_tree_utils.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/services/download_file_path_service.dart';
+import 'package:iroru/src/services/work_track_file_builder.dart';
+import 'package:iroru/src/utils/file_tree_utils.dart';
 
 void main() {
   test('keeps the Japanese ASMR download URL for bulk downloads', () {

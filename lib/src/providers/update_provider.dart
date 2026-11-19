@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -19,6 +21,206 @@ final showUpdateRedDotProvider = StateProvider<bool>((ref) => false);
 
 /// Provider to track if there's a new version available (regardless of notification status)
 final hasNewVersionProvider = StateProvider<bool>((ref) => false);
+
+enum UpdateCheckOutcome { available, upToDate, noBetaRelease, failed, stale }
+
+class UpdateCheckResult {
+  const UpdateCheckResult(this.outcome, [this.updateInfo]);
+
+  final UpdateCheckOutcome outcome;
+  final UpdateInfo? updateInfo;
+}
+
+enum UpdateCheckState {
+  idle,
+  automatic,
+  manual;
+
+  bool get isChecking => this != idle;
+  bool get isCheckingManually => this == manual;
+}
+
+/// Coordinates update checks and owns all writes to the app-wide update state.
+class UpdateCheckController extends StateNotifier<UpdateCheckState> {
+  UpdateCheckController(this._updateService, this._ref)
+    : super(UpdateCheckState.idle);
+
+  final UpdateService _updateService;
+  final Ref _ref;
+
+  int _requestId = 0;
+  int _selectionId = 0;
+  UpdateChannel? _activeChannel;
+  UpdateChannel? _selectedChannel;
+  bool _channelSelectionPending = false;
+  int? _readRequestId;
+
+  UpdateChannel? get selectedChannel => _selectedChannel;
+
+  Future<UpdateCheckResult> checkForUpdates({
+    bool force = false,
+    bool autoCheck = false,
+    UpdateChannel? channel,
+  }) async {
+    if (!mounted ||
+        (autoCheck && (state.isCheckingManually || _channelSelectionPending))) {
+      return const UpdateCheckResult(UpdateCheckOutcome.stale);
+    }
+    final requestId = ++_requestId;
+    _activeChannel = channel;
+    state = autoCheck ? UpdateCheckState.automatic : UpdateCheckState.manual;
+
+    var channelRevision = _updateService.channelRevision;
+    try {
+      final selectedChannel =
+          channel ?? await _updateService.getUpdateChannel();
+      if (!_isCurrent(requestId, channelRevision)) {
+        return const UpdateCheckResult(UpdateCheckOutcome.stale);
+      }
+      if (_selectedChannel != null && selectedChannel != _selectedChannel) {
+        return const UpdateCheckResult(UpdateCheckOutcome.stale);
+      }
+      _selectedChannel ??= selectedChannel;
+      _activeChannel = selectedChannel;
+      channelRevision = _updateService.channelRevision;
+
+      final updateInfo = await _updateService.checkForUpdates(
+        force: force,
+        channel: selectedChannel,
+      );
+      if (!_isCurrent(requestId, channelRevision)) {
+        return const UpdateCheckResult(UpdateCheckOutcome.stale);
+      }
+
+      final available = updateInfo?.hasNewVersion == true;
+      final shouldShowRedDot = autoCheck && available
+          ? await _updateService.shouldShowRedDot(channel: selectedChannel)
+          : false;
+      if (!_isCurrent(requestId, channelRevision)) {
+        return const UpdateCheckResult(UpdateCheckOutcome.stale);
+      }
+
+      final alreadyRead = _readRequestId == requestId;
+      _publish(updateInfo, available, shouldShowRedDot && !alreadyRead);
+      if (available && (!autoCheck || alreadyRead)) {
+        await _markAsNotified(selectedChannel);
+        if (!_isCurrent(requestId, channelRevision)) {
+          return const UpdateCheckResult(UpdateCheckOutcome.stale);
+        }
+      }
+
+      if (available) {
+        return UpdateCheckResult(UpdateCheckOutcome.available, updateInfo);
+      }
+      return UpdateCheckResult(
+        selectedChannel == UpdateChannel.beta && updateInfo == null
+            ? UpdateCheckOutcome.noBetaRelease
+            : UpdateCheckOutcome.upToDate,
+      );
+    } catch (_) {
+      if (!_isCurrent(requestId, channelRevision)) {
+        return const UpdateCheckResult(UpdateCheckOutcome.stale);
+      }
+      return const UpdateCheckResult(UpdateCheckOutcome.failed);
+    } finally {
+      if (_isCurrent(requestId, channelRevision)) {
+        state = UpdateCheckState.idle;
+        _activeChannel = null;
+        if (_readRequestId == requestId) _readRequestId = null;
+      }
+    }
+  }
+
+  Future<UpdateCheckResult> selectUpdateChannel(
+    UpdateChannel channel, {
+    void Function()? onSaved,
+  }) async {
+    final selectionId = ++_selectionId;
+    final previousChannel = _selectedChannel;
+    ++_requestId;
+    _readRequestId = null;
+    _selectedChannel = channel;
+    _channelSelectionPending = true;
+    state = UpdateCheckState.idle;
+    _publish(null, false, false);
+    _ref.read(updateControllerProvider.notifier).reset();
+
+    try {
+      await _updateService.setUpdateChannel(channel);
+    } catch (_) {
+      if (!mounted) return const UpdateCheckResult(UpdateCheckOutcome.stale);
+      final isCurrentSelection = selectionId == _selectionId;
+      final wasCancelled =
+          !_channelSelectionPending && _selectedChannel == channel;
+      if (!isCurrentSelection && !wasCancelled) {
+        return const UpdateCheckResult(UpdateCheckOutcome.stale);
+      }
+      _selectedChannel = previousChannel;
+      _channelSelectionPending = false;
+      return isCurrentSelection
+          ? const UpdateCheckResult(UpdateCheckOutcome.failed)
+          : const UpdateCheckResult(UpdateCheckOutcome.stale);
+    }
+    if (!mounted || selectionId != _selectionId) {
+      return const UpdateCheckResult(UpdateCheckOutcome.stale);
+    }
+    _channelSelectionPending = false;
+    onSaved?.call();
+    return checkForUpdates(force: true, channel: channel);
+  }
+
+  void cancelManualCheck() {
+    if (!mounted) return;
+    if (_channelSelectionPending) {
+      ++_selectionId;
+      _channelSelectionPending = false;
+    }
+    if (state.isCheckingManually) {
+      final cancelledRequest = ++_requestId;
+      _activeChannel = null;
+      _readRequestId = null;
+      scheduleMicrotask(() {
+        if (mounted && _requestId == cancelledRequest) {
+          state = UpdateCheckState.idle;
+        }
+      });
+    }
+  }
+
+  void markUpdatesRead() {
+    _setRedDot(false);
+    if (state.isChecking) {
+      _readRequestId = _requestId;
+      return;
+    }
+    unawaited(_markAsNotified(_activeChannel));
+  }
+
+  void _publish(UpdateInfo? updateInfo, bool hasNewVersion, bool showRedDot) {
+    _ref.read(updateInfoProvider.notifier).state = hasNewVersion
+        ? updateInfo
+        : null;
+    _ref.read(hasNewVersionProvider.notifier).state = hasNewVersion;
+    _setRedDot(showRedDot);
+  }
+
+  void _setRedDot(bool visible) {
+    _ref.read(showUpdateRedDotProvider.notifier).state = visible;
+  }
+
+  Future<void> _markAsNotified(UpdateChannel? channel) async {
+    try {
+      await _updateService.markAsNotified(channel: channel);
+    } catch (_) {
+      // Notification persistence must not fail an update check.
+    }
+  }
+
+  bool _isCurrent(int requestId, int channelRevision) =>
+      mounted &&
+      requestId == _requestId &&
+      channelRevision == _updateService.channelRevision;
+}
 
 /// Status of update download and installation
 enum UpdateStatus { idle, downloading, readyToInstall, installing, failed }
@@ -90,7 +292,7 @@ class UpdateController extends StateNotifier<UpdateState> {
     );
 
     try {
-      final fileName = info.assetName ?? 'KikoFlu_update';
+      final fileName = info.assetName ?? 'Iroru_update';
       final file = await _updateService.downloadUpdate(
         downloadUrl: downloadUrl,
         fileName: fileName,
@@ -185,4 +387,10 @@ final updateControllerProvider =
     StateNotifierProvider<UpdateController, UpdateState>((ref) {
       final updateService = ref.watch(updateServiceProvider);
       return UpdateController(updateService);
+    });
+
+final updateCheckControllerProvider =
+    StateNotifierProvider<UpdateCheckController, UpdateCheckState>((ref) {
+      final updateService = ref.watch(updateServiceProvider);
+      return UpdateCheckController(updateService, ref);
     });

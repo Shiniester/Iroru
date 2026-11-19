@@ -49,14 +49,28 @@ jobs:
         with:
           ref: ${{ inputs.commit_sha || github.sha }}
 
+      - uses: actions/checkout@v6
+        if: ${{ inputs.commit_sha && inputs.commit_sha != github.sha }}
+        with:
+          ref: ${{ github.sha }}
+          path: .release-gate
+
       - name: Verify selected release source configuration
         run: |
           set -euo pipefail
-          if [[ ! -f scripts/ci/validate_release_source.py ]]; then
+          gate="scripts/ci/validate_release_source.py"
+          if [[ -d .release-gate ]]; then
+            gate=".release-gate/$gate"
+          fi
+          if [[ ! -f "$gate" ]]; then
             echo '::error::Selected commit predates the required release configuration. Choose a commit that includes the new release configuration.'
             exit 1
           fi
-          python3 scripts/ci/validate_release_source.py android
+          if [[ ! -f scripts/ci/android_release.py ]]; then
+            echo '::error::Selected commit predates the Android release APK helper. Choose a commit that includes the new release configuration.'
+            exit 1
+          fi
+          python3 "$gate" android --root .
 
       - name: Resolve selected release commit
         id: resolve_commit
@@ -111,6 +125,8 @@ jobs:
     name: Android Build
     needs: [prepare, native-audio]
     runs-on: ubuntu-latest
+    outputs:
+      apk_name: ${{ steps.package.outputs.apk_name }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -200,79 +216,32 @@ jobs:
           echo "ANDROID_BASE_VERSION_CODE=$base_code" >> "$GITHUB_ENV"
 
       - name: Build Android APKs
+        id: package
         run: |
           set -euo pipefail
           mkdir -p dist
           flutter build apk --release --target-platform android-arm64 --split-per-abi
+          apk_name="$(python3 scripts/ci/android_release.py name \
+            --version "${{ needs.prepare.outputs.suffix }}" \
+            --package-id com.meteor.iroru)"
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-            "dist/Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
+            "dist/$apk_name"
+          echo "apk_name=$apk_name" >> "$GITHUB_OUTPUT"
 
       - name: Verify Android Package Compatibility
         env:
+          APK_NAME: ${{ steps.package.outputs.apk_name }}
           EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
           SIGNING_CONFIGURED: ${{ steps.android_signing.outputs.configured }}
-          EXPECTED_CERT_SHA256: 8d432df267b5eb175c2f806381c44d7b4bf657145af792ace223af34e340f740
         run: |
           set -euo pipefail
-
-          build_tools_dir="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
-          aapt="$build_tools_dir/aapt"
-          apksigner="$build_tools_dir/apksigner"
-          arm64_apk="dist/Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
-          test -s "$arm64_apk"
-          abi_entries="$(unzip -Z1 "$arm64_apk" | sed -nE 's#^lib/([^/]+)/.*#\1#p' | sort -u)"
-          if [ "$abi_entries" != 'arm64-v8a' ]; then
-            echo "::error::Expected an arm64-only APK, found ABI entries: $abi_entries"
-            exit 1
-          fi
-
-          for tool in "$aapt" "$apksigner"; do
-            if [ ! -x "$tool" ]; then
-              echo "::error::Required Android build tool not found: $tool"
-              exit 1
-            fi
-          done
-
-          arm64_badging="$("$aapt" dump badging "$arm64_apk" | sed -n '1p')"
-          arm64_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
-
-          package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
-          version_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
-          if [ "$package_name" != "com.meteor.kikoeruflutter" ] || [ "$version_name" != "$EXPECTED_VERSION" ]; then
-            echo "::error::Unexpected Android package metadata: $arm64_badging"
-            exit 1
-          fi
-
-          if [ "$arm64_code" -ne $((ANDROID_BASE_VERSION_CODE + 2000)) ]; then
-            echo "::error::arm64 versionCode $arm64_code does not preserve the legacy split offset from $ANDROID_BASE_VERSION_CODE."
-            exit 1
-          fi
-
-          if [ "$SIGNING_CONFIGURED" != "true" ]; then
-            echo "::error::Android release signing was not configured."
-            exit 1
-          fi
-
-          cert_output="$("$apksigner" verify --print-certs "$arm64_apk" 2>&1)"
-          actual_cert="$(
-            printf '%s\n' "$cert_output" |
-              sed -nE '/certificate SHA-256 digest:/I {
-                s/.*certificate SHA-256 digest:[[:space:]]*//I
-                p
-                q
-              }' |
-              tr -d '[:space:]:' |
-              tr '[:upper:]' '[:lower:]'
-          )"
-          if [ -z "$actual_cert" ]; then
-            echo "::error::Unable to read the Android signing certificate for $arm64_apk."
-            printf '%s\n' "$cert_output" >&2
-            exit 1
-          fi
-          if [ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]; then
-            echo "::error::Unexpected Android signing certificate for $arm64_apk: $actual_cert"
-            exit 1
-          fi
+          python3 scripts/ci/android_release.py verify \
+            --apk "dist/$APK_NAME" \
+            --package-id com.meteor.iroru \
+            --expected-version "$EXPECTED_VERSION" \
+            --base-version-code "$ANDROID_BASE_VERSION_CODE" \
+            --signing-policy release \
+            --signing-configured "$SIGNING_CONFIGURED"
 
       - name: Upload Android Artifacts
         uses: actions/upload-artifact@v6
@@ -301,13 +270,14 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.prepare.outputs.tag }}
+          APK_NAME: ${{ needs.android.outputs.apk_name }}
           RELEASE_NOTES: ${{ inputs.release_notes }}
           RELEASE_COMMIT: ${{ needs.prepare.outputs.commit_sha }}
         run: |
           set -euo pipefail
 
           expected=(
-            "Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
+            "$APK_NAME"
           )
 
           for asset in "${expected[@]}"; do

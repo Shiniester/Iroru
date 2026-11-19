@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_gain_settings.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
+import 'package:iroru/src/models/audio_gain_settings.dart';
+import 'package:iroru/src/providers/settings_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> _pumpAsyncPreferenceLoad() async {

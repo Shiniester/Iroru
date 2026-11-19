@@ -19,7 +19,6 @@ import '../utils/file_icon_utils.dart';
 /// 字幕库管理服务
 class SubtitleLibraryService {
   static final _log = LogService.instance;
-  static const String _libraryFolderName = 'subtitle_library';
   static const String _cacheFileName = 'library_cache.json';
   static const List<String> _supportedSubtitleExtensions = [
     'vtt',
@@ -446,7 +445,9 @@ class SubtitleLibraryService {
   /// 获取字幕库目录
   static Future<Directory> getSubtitleLibraryDirectory() async {
     final downloadDir = await DownloadPathService.getDownloadDirectory();
-    final libraryDir = Directory(p.join(downloadDir.path, _libraryFolderName));
+    final libraryDir = Directory(
+      p.join(downloadDir.path, SubtitleLibraryRules.libraryFolderName),
+    );
 
     // 如果不存在则自动创建
     if (!await libraryDir.exists()) {

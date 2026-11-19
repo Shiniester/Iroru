@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/work_cover_image.dart';
+import 'package:iroru/src/widgets/work_cover_image.dart';
 
 class _PendingImage extends ImageProvider<_PendingImage> {
   final frame = Completer<ImageInfo>();

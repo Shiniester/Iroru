@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/download_task.dart';
-import 'package:kikoeru_flutter/src/models/download_task_change.dart';
-import 'package:kikoeru_flutter/src/providers/download_provider.dart';
+import 'package:iroru/src/models/download_task.dart';
+import 'package:iroru/src/models/download_task_change.dart';
+import 'package:iroru/src/providers/download_provider.dart';
 
 void main() {
   testWidgets('a progress event rebuilds only its matching task row',

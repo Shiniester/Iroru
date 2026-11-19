@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/utils/paged_collection.dart';
+import 'package:iroru/src/utils/paged_collection.dart';
 
 void main() {
   test(

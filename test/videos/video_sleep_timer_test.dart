@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_sleep_timer_sheet.dart';
-import 'package:kikoeru_flutter/src/videos/video_sleep_timer.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/videos/ui/video_sleep_timer_sheet.dart';
+import 'package:iroru/src/videos/video_sleep_timer.dart';
 
 void main() {
   testWidgets('finish-current keeps its action active until pause completes', (

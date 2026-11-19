@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_track_layers.dart';
+import 'package:iroru/src/widgets/player/player_track_layers.dart';
 
 class _Host extends StatefulWidget {
   const _Host({super.key, required this.kind});

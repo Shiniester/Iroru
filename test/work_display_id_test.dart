@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_source.dart';
-import 'package:kikoeru_flutter/src/models/history_record.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:iroru/src/models/audio_source.dart';
+import 'package:iroru/src/models/history_record.dart';
+import 'package:iroru/src/models/work.dart';
 
 void main() {
   test('ASMR.ONE remains the default audio source', () {

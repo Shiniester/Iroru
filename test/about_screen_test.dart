@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/providers/update_provider.dart';
-import 'package:kikoeru_flutter/src/screens/about_screen.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/update_provider.dart';
+import 'package:iroru/src/screens/about_screen.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -20,7 +20,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     PackageInfo.setMockInitialValues(
       appName: 'KikoFlu',
-      packageName: 'com.example.kikoflu',
+      packageName: 'com.meteor.iroru',
       version: '3.8.2',
       buildNumber: '1',
       buildSignature: '',
@@ -49,7 +49,7 @@ void main() {
 
     expect(find.text('作者'), findsOneWidget);
     expect(find.text('Shiniester'), findsOneWidget);
-    expect(find.text('https://github.com/Shiniester/KikoFlu'), findsOneWidget);
+    expect(find.text('https://github.com/Shiniester/Iroru'), findsOneWidget);
     expect(find.text('上游作者'), findsOneWidget);
     expect(find.text('pa-jesusf'), findsOneWidget);
     expect(find.text('上游仓库'), findsOneWidget);
@@ -170,6 +170,53 @@ void main() {
       expect(controller.state.downloadedFilePath, isNull);
     },
   );
+
+  testWidgets('can switch back while the selected channel is still checking', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 1920);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pendingCheck = Completer<UpdateInfo?>();
+    final service = _FakeUpdateService(pendingCheck: pendingCheck);
+    final channelSetting = find.byKey(const ValueKey('update-channel-setting'));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [updateServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
+          locale: const Locale('zh'),
+          theme: ThemeData(platform: TargetPlatform.android),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: const AboutScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(channelSetting);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('beta-update-channel')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(service.channel, UpdateChannel.beta);
+    expect(service.checks, 1);
+    expect(find.text('测试版'), findsOneWidget);
+    await tester.tap(channelSetting);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const ValueKey('stable-update-channel')));
+    await tester.pump();
+
+    expect(service.channel, UpdateChannel.stable);
+    expect(service.checks, 2);
+    pendingCheck.complete(null);
+    await tester.pumpAndSettle();
+    expect(find.text('正式版'), findsOneWidget);
+    expect(find.text('暂无测试版'), findsNothing);
+  });
 
   testWidgets('beta is disabled outside Android with an explanation', (
     tester,

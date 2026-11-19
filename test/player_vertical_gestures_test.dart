@@ -1,8 +1,8 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_scroll_drag_handoff.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
+import 'package:iroru/src/widgets/player/player_scroll_drag_handoff.dart';
+import 'package:iroru/src/widgets/player/player_vertical_gestures.dart';
 
 void main() {
   testWidgets('directional player region ignores horizontal page gestures', (

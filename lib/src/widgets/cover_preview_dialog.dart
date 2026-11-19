@@ -419,7 +419,7 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
     final result = await SaverGallery.saveImage(
       bytes,
       fileName: fileName,
-      androidRelativePath: 'Pictures/KikoFlu',
+      androidRelativePath: 'Pictures/Iroru',
       skipIfExists: false,
     );
 

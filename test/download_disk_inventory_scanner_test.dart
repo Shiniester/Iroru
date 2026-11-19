@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/scan_models.dart';
-import 'package:kikoeru_flutter/src/services/download_disk_inventory_scanner.dart';
+import 'package:iroru/src/models/scan_models.dart';
+import 'package:iroru/src/services/download_disk_inventory_scanner.dart';
 
 void main() {
   late Directory root;

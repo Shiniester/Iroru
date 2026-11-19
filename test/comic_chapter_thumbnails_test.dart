@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/comics/ui/comic_chapter_thumbnails.dart';
+import 'package:iroru/src/comics/ui/comic_chapter_thumbnails.dart';
 
 void main() {
   test(

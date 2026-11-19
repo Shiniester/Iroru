@@ -3686,9 +3686,6 @@ class SZh extends S {
   String get platformHintAndroid => 'Android: 将使用系统文件选择器，可能需要存储权限';
 
   @override
-  String get platformHintIOS => 'iOS: 受系统限制，使用默认路径，可使用系统默认文件浏览器查看';
-
-  @override
   String get platformHintWindows => 'Windows: 可选择任意可访问的目录';
 
   @override
@@ -8688,9 +8685,6 @@ class SZhHant extends SZh {
 
   @override
   String get platformHintAndroid => 'Android: 將使用系統檔案選擇器，可能需要儲存權限';
-
-  @override
-  String get platformHintIOS => 'iOS: 受系統限制，使用預設路徑，可使用系統預設檔案瀏覽器查看';
 
   @override
   String get platformHintWindows => 'Windows: 可選擇任意可存取的目錄';

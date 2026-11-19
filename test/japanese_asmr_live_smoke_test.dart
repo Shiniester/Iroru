@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/services/japanese_asmr_service.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/services/japanese_asmr_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

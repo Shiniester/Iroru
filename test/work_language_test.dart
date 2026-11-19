@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:iroru/src/models/work.dart';
 
 Map<String, dynamic> _otherEdition(int id, String language) => {
   'id': id,

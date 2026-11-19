@@ -15,40 +15,40 @@ import 'package:just_audio/just_audio.dart' show PlayerState, ProcessingState;
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
-import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/utils/theme.dart';
-import 'package:kikoeru_flutter/src/videos/jable_client.dart';
-import 'package:kikoeru_flutter/src/videos/missav_client.dart';
-import 'package:kikoeru_flutter/src/videos/ui/jable_account_screen.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_account_screen.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_details_screen.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_playback_settings_screen.dart';
-import 'package:kikoeru_flutter/src/videos/video_download_task.dart';
-import 'package:kikoeru_flutter/src/videos/video_downloads.dart';
-import 'package:kikoeru_flutter/src/videos/video_library.dart';
-import 'package:kikoeru_flutter/src/videos/video_models.dart';
-import 'package:kikoeru_flutter/src/videos/video_playback_settings.dart';
-import 'package:kikoeru_flutter/src/videos/video_player_platform.dart';
-import 'package:kikoeru_flutter/src/videos/video_super_resolution.dart';
-import 'package:kikoeru_flutter/src/videos/video_sleep_timer.dart';
-import 'package:kikoeru_flutter/src/videos/video_providers.dart';
-import 'package:kikoeru_flutter/src/screens/main_screen.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_screen.dart';
-import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
-import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
-import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
-import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_metadata_sections.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/providers/lyric_provider.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/utils/theme.dart';
+import 'package:iroru/src/videos/jable_client.dart';
+import 'package:iroru/src/videos/missav_client.dart';
+import 'package:iroru/src/videos/ui/jable_account_screen.dart';
+import 'package:iroru/src/videos/ui/video_account_screen.dart';
+import 'package:iroru/src/videos/ui/video_details_screen.dart';
+import 'package:iroru/src/videos/ui/video_playback_panel.dart';
+import 'package:iroru/src/videos/ui/video_playback_settings_screen.dart';
+import 'package:iroru/src/videos/video_download_task.dart';
+import 'package:iroru/src/videos/video_downloads.dart';
+import 'package:iroru/src/videos/video_library.dart';
+import 'package:iroru/src/videos/video_models.dart';
+import 'package:iroru/src/videos/video_playback_settings.dart';
+import 'package:iroru/src/videos/video_player_platform.dart';
+import 'package:iroru/src/videos/video_super_resolution.dart';
+import 'package:iroru/src/videos/video_sleep_timer.dart';
+import 'package:iroru/src/videos/video_providers.dart';
+import 'package:iroru/src/screens/main_screen.dart';
+import 'package:iroru/src/videos/ui/video_screen.dart';
+import 'package:iroru/src/widgets/app_bottom_dock_transition.dart';
+import 'package:iroru/src/widgets/app_navigation_scope.dart';
+import 'package:iroru/src/widgets/app_navigation_shell.dart';
+import 'package:iroru/src/widgets/responsive_dialog.dart';
+import 'package:iroru/src/widgets/work_detail/work_title_header.dart';
+import 'package:iroru/src/widgets/work_detail/work_metadata_sections.dart';
 
 import '../support/linux_golden_file_comparator.dart';
 
@@ -6658,7 +6658,8 @@ void main() {
 
   _testPlayerWidget('Jable detail login retries after sign-in', (tester) async {
     FlutterSecureStorage.setMockInitialValues({
-      'jable_verified_session': '{"cookie":"member=test","userAgent":"Test"}',
+      'iroru.jable_verified_session':
+          '{"cookie":"member=test","userAgent":"Test"}',
     });
     addTearDown(() => FlutterSecureStorage.setMockInitialValues({}));
     var signedIn = false;
@@ -6790,7 +6791,8 @@ void main() {
     'Jable details add and remove a source favorite without moving playback',
     (tester) async {
       FlutterSecureStorage.setMockInitialValues({
-        'jable_verified_session': '{"cookie":"member=test","userAgent":"Test"}',
+        'iroru.jable_verified_session':
+            '{"cookie":"member=test","userAgent":"Test"}',
       });
       addTearDown(() => FlutterSecureStorage.setMockInitialValues({}));
       final actions = <String>[];
@@ -6859,7 +6861,7 @@ void main() {
       'Jable detail favorite after verification succeeds=$verificationSucceeds',
       (tester) async {
         FlutterSecureStorage.setMockInitialValues({
-          'jable_verified_session':
+          'iroru.jable_verified_session':
               '{"cookie":"member=test","userAgent":"Test"}',
         });
         addTearDown(() => FlutterSecureStorage.setMockInitialValues({}));

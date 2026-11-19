@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
+import 'package:iroru/src/widgets/mini_player.dart';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
@@ -8,22 +8,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:just_audio/just_audio.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/automatic_marking_event.dart';
-import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
-import 'package:kikoeru_flutter/src/services/cache_service.dart';
-import 'package:kikoeru_flutter/src/services/playback_session_store.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/providers/automatic_work_marking_provider.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/automatic_marking_event.dart';
+import 'package:iroru/src/services/audio_cache_downloader.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/cache_service.dart';
+import 'package:iroru/src/services/playback_session_store.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/providers/automatic_work_marking_provider.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
-import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
-import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
-import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
+import 'package:iroru/src/widgets/player/player_controls_widget.dart';
+import 'package:iroru/src/providers/lyric_provider.dart';
+import 'package:iroru/src/screens/audio_player_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'automatic_work_marking_test.dart' as marking_fixture;
 

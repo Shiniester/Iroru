@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:kikoeru_flutter/src/services/streaming_zip_extractor.dart';
+import 'package:iroru/src/services/streaming_zip_extractor.dart';
 
 Future<void> main() async {
   await _test(

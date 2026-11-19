@@ -92,10 +92,10 @@ BEGIN
             VALUE "CompanyName", "com.meteor" "\0"
             VALUE "FileDescription", "Iroru" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "KikoFlu" "\0"
+            VALUE "InternalName", "Iroru" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2025 com.meteor. All rights reserved." "\0"
-            VALUE "OriginalFilename", "KikoFlu.exe" "\0"
-            VALUE "ProductName", "KikoFlu" "\0"
+            VALUE "OriginalFilename", "Iroru.exe" "\0"
+            VALUE "ProductName", "Iroru" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

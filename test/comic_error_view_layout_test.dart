@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/comics/comic_models.dart';
-import 'package:kikoeru_flutter/src/comics/ui/comic_settings_screen.dart';
-import 'package:kikoeru_flutter/src/comics/ui/comic_widgets.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/comics/comic_models.dart';
+import 'package:iroru/src/comics/ui/comic_settings_screen.dart';
+import 'package:iroru/src/comics/ui/comic_widgets.dart';
+import 'package:iroru/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

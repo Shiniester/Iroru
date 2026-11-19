@@ -76,8 +76,8 @@ EOF
 "$patchelf_bin" --add-needed libgcc_s.so.1 "$host/libmpv.so.1"
 "$patchelf_bin" --add-needed libglib-2.0.so.0 "$host/libmpv.so.1"
 "$compiler" -shared -fPIC -Wl,-soname,libmedia_kit_video_plugin.so -Wl,-rpath,"$host" -L"$host" -Wl,--no-as-needed -l:libmpv.so.1 -o "$bundle/lib/libmedia_kit_video_plugin.so" "$test_dir/plugin.c"
-"$compiler" -L"$bundle/lib" -Wl,--no-as-needed -l:libmedia_kit_video_plugin.so -o "$bundle/KikoFlu" "$test_dir/app.c"
-"$patchelf_bin" --set-rpath '$ORIGIN/lib' "$bundle/KikoFlu"
+"$compiler" -L"$bundle/lib" -Wl,--no-as-needed -l:libmedia_kit_video_plugin.so -o "$bundle/Iroru" "$test_dir/app.c"
+"$patchelf_bin" --set-rpath '$ORIGIN/lib' "$bundle/Iroru"
 cp -- "$bundle/lib/libmedia_kit_video_plugin.so" "$test_dir/original-plugin.so"
 
 expect_failure() {
@@ -141,25 +141,25 @@ desktop_host="$test_dir/desktop-host"
 mkdir -p "$desktop_host"
 "$compiler" -shared -fPIC -Wl,-soname,libcodec.so.1 -o "$desktop_host/libcodec.so.1" "$test_dir/host_codec.c"
 "$compiler" -shared -fPIC -Wl,-soname,libhost_stack.so -Wl,-rpath,"$desktop_host" -L"$desktop_host" -Wl,--no-as-needed -l:libcodec.so.1 -o "$bundle/lib/libhost_stack.so" "$test_dir/host_stack.c"
-mv "$bundle/KikoFlu" "$test_dir/KikoFlu"
-"$compiler" -L"$bundle/lib" -Wl,--no-as-needed -l:libhost_stack.so -l:libmedia_kit_video_plugin.so -o "$bundle/KikoFlu" "$test_dir/app_with_host_stack.c"
-"$patchelf_bin" --set-rpath '$ORIGIN/lib' "$bundle/KikoFlu"
+mv "$bundle/Iroru" "$test_dir/Iroru"
+"$compiler" -L"$bundle/lib" -Wl,--no-as-needed -l:libhost_stack.so -l:libmedia_kit_video_plugin.so -o "$bundle/Iroru" "$test_dir/app_with_host_stack.c"
+"$patchelf_bin" --set-rpath '$ORIGIN/lib' "$bundle/Iroru"
 status=0
-env -u LD_LIBRARY_PATH "$bundle/KikoFlu" || status=$?
+env -u LD_LIBRARY_PATH "$bundle/Iroru" || status=$?
 [[ "$status" == 7 ]] || {
   echo "expected the application to reuse the host's loaded codec, got exit $status" >&2
   exit 1
 }
 bash "$checker" "$bundle" "$lddtree_bin" "$patchelf_bin" "$readelf_bin" >/dev/null
-mv "$test_dir/KikoFlu" "$bundle/KikoFlu"
+mv "$test_dir/Iroru" "$bundle/Iroru"
 rm -- "$bundle/lib/libhost_stack.so"
 echo "PASS: a host-loaded library is reused while a bundled fallback remains available"
 
-"$compiler" -o "$bundle/KikoFlu" "$test_dir/app_without_plugin.c"
-"$patchelf_bin" --set-rpath '$ORIGIN/lib' "$bundle/KikoFlu"
+"$compiler" -o "$bundle/Iroru" "$test_dir/app_without_plugin.c"
+"$patchelf_bin" --set-rpath '$ORIGIN/lib' "$bundle/Iroru"
 expect_failure "application does not declare DT_NEEDED libmedia_kit_video_plugin.so" bash "$checker" "$bundle" "$lddtree_bin" "$patchelf_bin" "$readelf_bin"
-"$compiler" -L"$bundle/lib" -Wl,--no-as-needed -l:libmedia_kit_video_plugin.so -o "$bundle/KikoFlu" "$test_dir/app.c"
-"$patchelf_bin" --set-rpath '$ORIGIN/lib' "$bundle/KikoFlu"
+"$compiler" -L"$bundle/lib" -Wl,--no-as-needed -l:libmedia_kit_video_plugin.so -o "$bundle/Iroru" "$test_dir/app.c"
+"$patchelf_bin" --set-rpath '$ORIGIN/lib' "$bundle/Iroru"
 echo "PASS: an application without the media player plugin is rejected"
 
 mv "$bundle/lib/libmpv.so.1" "$test_dir/libmpv.so.1"
@@ -202,8 +202,8 @@ mkdir -p "$bundle_v2/lib"
 "$patchelf_bin" --add-needed libgcc_s.so.1 "$host/libmpv.so.2"
 "$patchelf_bin" --add-needed libglib-2.0.so.0 "$host/libmpv.so.2"
 "$compiler" -shared -fPIC -Wl,-soname,libmedia_kit_video_plugin.so -Wl,-rpath,"$host" -L"$host" -Wl,--no-as-needed -l:libmpv.so.2 -o "$bundle_v2/lib/libmedia_kit_video_plugin.so" "$test_dir/plugin.c"
-"$compiler" -L"$bundle_v2/lib" -Wl,--no-as-needed -l:libmedia_kit_video_plugin.so -o "$bundle_v2/KikoFlu" "$test_dir/app.c"
-"$patchelf_bin" --set-rpath '$ORIGIN/lib' "$bundle_v2/KikoFlu"
+"$compiler" -L"$bundle_v2/lib" -Wl,--no-as-needed -l:libmedia_kit_video_plugin.so -o "$bundle_v2/Iroru" "$test_dir/app.c"
+"$patchelf_bin" --set-rpath '$ORIGIN/lib' "$bundle_v2/Iroru"
 bash "$packer" "$bundle_v2" "$lddtree_bin" "$patchelf_bin" "$readelf_bin" >/dev/null
 bash "$checker" "$bundle_v2" "$lddtree_bin" "$patchelf_bin" "$readelf_bin" >/dev/null
 [[ "$(readlink -- "$bundle_v2/lib/libmpv.so")" == 'libmpv.so.2' ]] || {

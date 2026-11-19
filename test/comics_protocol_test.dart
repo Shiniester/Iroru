@@ -4,17 +4,17 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/comics/comic_http.dart';
-import 'package:kikoeru_flutter/src/comics/comic_images.dart';
-import 'package:kikoeru_flutter/src/comics/comic_models.dart';
-import 'package:kikoeru_flutter/src/comics/sources/eh_source.dart';
-import 'package:kikoeru_flutter/src/comics/sources/ht_source.dart';
-import 'package:kikoeru_flutter/src/comics/sources/nh_source.dart';
-import 'package:kikoeru_flutter/src/comics/sources/hitomi_source.dart';
-import 'package:kikoeru_flutter/src/comics/sources/pica_source.dart';
-import 'package:kikoeru_flutter/src/comics/ui/comic_search_screen.dart';
-import 'package:kikoeru_flutter/src/comics/ui/comic_reader_screen.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/comics/comic_http.dart';
+import 'package:iroru/src/comics/comic_images.dart';
+import 'package:iroru/src/comics/comic_models.dart';
+import 'package:iroru/src/comics/sources/eh_source.dart';
+import 'package:iroru/src/comics/sources/ht_source.dart';
+import 'package:iroru/src/comics/sources/nh_source.dart';
+import 'package:iroru/src/comics/sources/hitomi_source.dart';
+import 'package:iroru/src/comics/sources/pica_source.dart';
+import 'package:iroru/src/comics/ui/comic_search_screen.dart';
+import 'package:iroru/src/comics/ui/comic_reader_screen.dart';
 
 class _Adapter implements HttpClientAdapter {
   final requests = <RequestOptions>[];

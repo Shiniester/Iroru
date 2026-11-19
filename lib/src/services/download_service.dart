@@ -333,7 +333,7 @@ class DownloadService implements DownloadTaskRepository {
     final probe = File(
       p.join(
         directory.path,
-        '.kikoflu_write_test_${DateTime.now().microsecondsSinceEpoch}',
+        '.iroru_write_test_${DateTime.now().microsecondsSinceEpoch}',
       ),
     );
     try {

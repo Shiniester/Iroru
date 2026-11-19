@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/work_id_parser.dart';
+import 'package:iroru/src/services/work_id_parser.dart';
 
 void main() {
   group('WorkIdParser', () {

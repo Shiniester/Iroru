@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/widgets/floating_feed_toolbar.dart';
-import 'package:kikoeru_flutter/src/screens/local_downloads_screen.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/services/download_service.dart';
-import 'package:kikoeru_flutter/src/models/download_task.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/widgets/floating_feed_toolbar.dart';
+import 'package:iroru/src/screens/local_downloads_screen.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/services/download_service.dart';
+import 'package:iroru/src/models/download_task.dart';
 
 Widget _app(Widget child, ValueNotifier<bool> reduced) => ProviderScope(
   child: MaterialApp(

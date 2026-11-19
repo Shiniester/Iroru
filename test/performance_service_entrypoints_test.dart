@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:archive/archive_io.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/download_service.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_library_service.dart';
+import 'package:iroru/src/services/download_service.dart';
+import 'package:iroru/src/services/subtitle_library_service.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

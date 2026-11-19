@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/audio_file_url_resolver.dart';
+import 'package:iroru/src/services/audio_file_url_resolver.dart';
 import 'package:path/path.dart' as p;
 
 final _posixPathContext = p.Context(style: p.Style.posix);

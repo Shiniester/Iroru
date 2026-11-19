@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/audio_file_signature.dart';
+import 'package:iroru/src/services/audio_file_signature.dart';
 
 void main() {
   test('detects supported audio containers', () {

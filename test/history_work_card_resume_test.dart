@@ -9,19 +9,19 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart'
     show BaseCacheManager, FileResponse;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/download_task.dart';
-import 'package:kikoeru_flutter/src/models/history_record.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
-import 'package:kikoeru_flutter/src/services/download_service.dart';
-import 'package:kikoeru_flutter/src/services/history_database.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/download_task.dart';
+import 'package:iroru/src/models/history_record.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/providers/auth_provider.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/download_service.dart';
+import 'package:iroru/src/services/history_database.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/widgets/history_work_card.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/widgets/history_work_card.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';

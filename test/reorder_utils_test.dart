@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/utils/reorder_utils.dart';
+import 'package:iroru/src/utils/reorder_utils.dart';
 
 void main() {
   test('moves an item downward using the callback final index', () {

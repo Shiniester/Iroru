@@ -40,7 +40,7 @@ static GtkWindow* get_window(FloatingLyricPlugin* self) {
 // events are intentionally limited to window operations, so this file is not
 // touched by the lyric update loop.
 static gchar* diagnostic_log_path() {
-  return g_build_filename(g_get_user_data_dir(), "KikoFlu", "logs",
+  return g_build_filename(g_get_user_data_dir(), APPLICATION_ID, "logs",
                           "floating_lyric_linux.log", nullptr);
 }
 

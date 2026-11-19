@@ -3,10 +3,10 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/audio_slice.dart';
-import 'package:kikoeru_flutter/src/providers/theme_provider.dart';
-import 'package:kikoeru_flutter/src/utils/theme.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_slice_progress.dart';
+import 'package:iroru/src/models/audio_slice.dart';
+import 'package:iroru/src/providers/theme_provider.dart';
+import 'package:iroru/src/utils/theme.dart';
+import 'package:iroru/src/widgets/player/player_slice_progress.dart';
 
 const _boundaryKey = ValueKey('slice-progress-boundary');
 const _activeColor = Color(0xff334499);

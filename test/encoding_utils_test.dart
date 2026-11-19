@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/utils/encoding_utils.dart';
+import 'package:iroru/src/utils/encoding_utils.dart';
 
 const _gbkSubtitleBytes = <int>[
   213,

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/download_file_path_service.dart';
+import 'package:iroru/src/services/download_file_path_service.dart';
 import 'package:path/path.dart' as p;
 
 Map<String, dynamic> fileItem(

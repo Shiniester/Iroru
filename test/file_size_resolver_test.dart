@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/file_size_resolver.dart';
+import 'package:iroru/src/services/file_size_resolver.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

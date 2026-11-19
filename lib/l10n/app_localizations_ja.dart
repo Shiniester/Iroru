@@ -3704,10 +3704,6 @@ class SJa extends S {
       'Android: システムのファイルピッカーを使用します。ストレージ権限が必要な場合があります';
 
   @override
-  String get platformHintIOS =>
-      'iOS: システム制限によりデフォルトパスを使用します。システムのファイルマネージャーで確認できます';
-
-  @override
   String get platformHintWindows => 'Windows: 任意のアクセス可能なディレクトリを選択できます';
 
   @override

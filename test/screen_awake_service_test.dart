@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/screen_awake_service.dart';
+import 'package:iroru/src/services/screen_awake_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

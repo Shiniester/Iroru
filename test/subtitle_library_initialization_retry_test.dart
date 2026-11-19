@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_database.dart';
-import 'package:kikoeru_flutter/src/services/subtitle_library_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/services/subtitle_database.dart';
+import 'package:iroru/src/services/subtitle_library_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 

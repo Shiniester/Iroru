@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
 
 void main() {
   group('resolveManualSkipTarget', () {

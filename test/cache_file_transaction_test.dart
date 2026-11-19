@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/cache_file_transaction.dart';
+import 'package:iroru/src/services/cache_file_transaction.dart';
 
 void main() {
   late Directory tempDirectory;

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/models/playlist.dart';
-import 'package:kikoeru_flutter/src/widgets/playlist_metadata_section.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/models/playlist.dart';
+import 'package:iroru/src/widgets/playlist_metadata_section.dart';
 
 Widget _testApp({
   required Playlist metadata,

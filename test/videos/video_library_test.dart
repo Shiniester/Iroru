@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:kikoeru_flutter/src/videos/video_library.dart';
+import 'package:iroru/src/videos/video_library.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

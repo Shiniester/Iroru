@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/utils/responsive_grid_helper.dart';
+import 'package:iroru/src/utils/responsive_grid_helper.dart';
 
 void main() {
   testWidgets('adapts big-grid columns to width and aspect ratio', (

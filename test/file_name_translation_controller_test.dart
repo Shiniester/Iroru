@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/file_name_translation_controller.dart';
+import 'package:iroru/src/services/file_name_translation_controller.dart';
 
 void main() {
   group('FileNameTranslationController', () {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -24,13 +25,14 @@ typedef ProcessStarter =
 
 /// Service to check for app updates from GitHub releases and install them.
 class UpdateService {
-  static const String _stableGithubApiUrl =
-      'https://api.github.com/repos/Shiniester/KikoFlu/releases/latest';
-  static const String _betaGithubApiUrl =
-      'https://api.github.com/repos/Shiniester/KikoFlu/releases';
+  static const String _releaseRepository = 'Shiniester/Iroru';
+  static const String _releasesGithubApiUrl =
+      'https://api.github.com/repos/$_releaseRepository/releases';
+  static const String _stableGithubApiUrl = '$_releasesGithubApiUrl/latest';
   static const String _releasePageUrl =
-      'https://github.com/Shiniester/KikoFlu/releases/latest';
-  static const String _betaPackageName = 'com.meteor.kikoeruflutter.beta';
+      'https://github.com/$_releaseRepository/releases/latest';
+  static const String _stableAndroidPackageName = 'com.meteor.iroru';
+  static const String _betaPackageName = '$_stableAndroidPackageName.beta';
 
   static const String _keyUpdateChannel = 'update_channel';
   static const String _keyLastCheckedVersion = 'last_checked_version';
@@ -43,6 +45,9 @@ class UpdateService {
   static const String _keyLastReleaseUrl = 'last_release_url';
 
   int _channelRevision = 0;
+  int _checkRevision = 0;
+  Future<void> _channelWriteTail = Future<void>.value();
+  Future<void> _cacheWriteTail = Future<void>.value();
 
   int get channelRevision => _channelRevision;
 
@@ -50,16 +55,20 @@ class UpdateService {
   final FileOpener _openFile;
   final ProcessStarter _processStarter;
   final Future<Directory> Function() _getTempDirectory;
+  final Abi? _androidAbi;
 
   UpdateService({
     Dio? dio,
     FileOpener? openFile,
     ProcessStarter? processStarter,
     Future<Directory> Function()? getTempDirectory,
+    Abi? androidAbi,
   }) : _dio = dio ?? Dio(),
        _openFile = openFile ?? OpenFilex.open,
        _processStarter = processStarter ?? Process.start,
-       _getTempDirectory = getTempDirectory ?? getTemporaryDirectory;
+       _getTempDirectory = getTempDirectory ?? getTemporaryDirectory,
+       _androidAbi =
+           androidAbi ?? (!kIsWeb && Platform.isAndroid ? Abi.current() : null);
 
   Future<UpdateChannel> getUpdateChannel({String? packageName}) async {
     final prefs = await SharedPreferences.getInstance();
@@ -72,10 +81,28 @@ class UpdateService {
     return _installedChannel(packageName);
   }
 
-  Future<void> setUpdateChannel(UpdateChannel channel) async {
-    _channelRevision++;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyUpdateChannel, channel.name);
+  Future<void> setUpdateChannel(UpdateChannel channel) {
+    final channelRevision = ++_channelRevision;
+    final previous = _channelWriteTail;
+    final completed = Completer<void>();
+    _channelWriteTail = completed.future;
+
+    return () async {
+      try {
+        await previous;
+        if (channelRevision != _channelRevision) return;
+        final prefs = await SharedPreferences.getInstance();
+        var saved = false;
+        try {
+          saved = await prefs.setString(_keyUpdateChannel, channel.name);
+        } finally {
+          if (!saved) await prefs.reload();
+        }
+        if (!saved) throw StateError('Could not save the update channel');
+      } finally {
+        completed.complete();
+      }
+    }();
   }
 
   /// Returns the selected channel's release when one is available.
@@ -84,13 +111,15 @@ class UpdateService {
     bool force = false,
     UpdateChannel? channel,
   }) async {
-    final requestRevision = _channelRevision;
+    final checkRevision = ++_checkRevision;
+    final channelRevision = _channelRevision;
     final packageInfo = await PackageInfo.fromPlatform();
     final currentVersion = packageInfo.version;
     final installedChannel = _installedChannel(packageInfo.packageName);
     final prefs = await SharedPreferences.getInstance();
     final selectedChannel =
         channel ?? await getUpdateChannel(packageName: packageInfo.packageName);
+    if (!_isCurrentCheck(checkRevision, channelRevision)) return null;
     final isCrossChannel = selectedChannel != installedChannel;
     final versionKey = _cacheKey(_keyLastCheckedVersion, selectedChannel);
     final checkedAtKey = _cacheKey(_keyLastCheckTime, selectedChannel);
@@ -125,9 +154,13 @@ class UpdateService {
     }
 
     final data = await _fetchRelease(selectedChannel);
-    if (requestRevision != _channelRevision) return null;
+    if (!_isCurrentCheck(checkRevision, channelRevision)) return null;
     if (data == null) {
-      await _cacheNoRelease(prefs, selectedChannel);
+      await _cacheIfCurrent(
+        checkRevision,
+        channelRevision,
+        () => _cacheNoRelease(prefs, selectedChannel),
+      );
       return null;
     }
 
@@ -138,22 +171,26 @@ class UpdateService {
 
     final releaseNotes = data['body'] as String?;
     final releaseUrl = data['html_url'] as String? ?? _releasePageUrl;
-    final assets = data['assets'] as List<dynamic>? ?? [];
-    final matchedAsset = findPlatformAsset(assets);
+    final matchedAsset = _findReleaseAsset(data, selectedChannel);
     final downloadUrl = matchedAsset?['browser_download_url'] as String?;
     final assetName = matchedAsset?['name'] as String?;
     final assetSize = matchedAsset?['size'] as int?;
 
-    await _cacheRelease(
-      prefs,
-      selectedChannel,
-      latestVersion: latestVersion,
-      releaseUrl: releaseUrl,
-      releaseNotes: releaseNotes,
-      downloadUrl: downloadUrl,
-      assetName: assetName,
-      assetSize: assetSize,
+    await _cacheIfCurrent(
+      checkRevision,
+      channelRevision,
+      () => _cacheRelease(
+        prefs,
+        selectedChannel,
+        latestVersion: latestVersion,
+        releaseUrl: releaseUrl,
+        releaseNotes: releaseNotes,
+        downloadUrl: downloadUrl,
+        assetName: assetName,
+        assetSize: assetSize,
+      ),
     );
+    if (!_isCurrentCheck(checkRevision, channelRevision)) return null;
 
     return UpdateInfo(
       latestVersion: latestVersion,
@@ -183,13 +220,16 @@ class UpdateService {
       }
       final data = response.data as Map<String, dynamic>;
       if (data['draft'] == true || data['prerelease'] == true) return null;
+      if (_androidAbi != null && _findReleaseAsset(data, channel) == null) {
+        return null;
+      }
       return data;
     }
 
     var page = 1;
     while (true) {
       final response = await _dio.get(
-        _betaGithubApiUrl,
+        _releasesGithubApiUrl,
         queryParameters: {'per_page': 100, 'page': page},
         options: options,
       );
@@ -200,13 +240,37 @@ class UpdateService {
       for (final release in releases.whereType<Map<String, dynamic>>()) {
         if (release['draft'] == true || release['prerelease'] != true) continue;
         final tag = _normalizeVersion(release['tag_name'] as String? ?? '');
-        if (RegExp(r'^\d+\.\d+\.\d+-beta\.\d+$').hasMatch(tag)) {
+        if (RegExp(r'^\d+\.\d+\.\d+-beta\.\d+$').hasMatch(tag) &&
+            (_androidAbi == null ||
+                _findReleaseAsset(release, channel) != null)) {
           return release;
         }
       }
       if (releases.length < 100) return null;
       page++;
     }
+  }
+
+  Map<String, dynamic>? _findReleaseAsset(
+    Map<String, dynamic> release,
+    UpdateChannel channel,
+  ) {
+    final assets = release['assets'] as List<dynamic>? ?? [];
+    final androidAbi = _androidAbi;
+    if (androidAbi == null) return findPlatformAsset(assets);
+
+    final packageName = channel == UpdateChannel.beta
+        ? _betaPackageName
+        : _stableAndroidPackageName;
+    final candidates = assets.whereType<Map<String, dynamic>>().where((asset) {
+      final name = asset['name'] as String?;
+      return name != null && name.endsWith('_$packageName.apk');
+    });
+    return findPlatformAsset(
+      candidates.toList(),
+      targetPlatform: 'android',
+      targetAbi: androidAbi,
+    );
   }
 
   String _normalizeVersion(String version) => version
@@ -221,6 +285,29 @@ class UpdateService {
 
   String _cacheKey(String key, UpdateChannel channel) =>
       '${key}_${channel.name}';
+
+  bool _isCurrentCheck(int checkRevision, int channelRevision) =>
+      checkRevision == _checkRevision && channelRevision == _channelRevision;
+
+  Future<void> _cacheIfCurrent(
+    int checkRevision,
+    int channelRevision,
+    Future<void> Function() write,
+  ) {
+    final previous = _cacheWriteTail;
+    final completed = Completer<void>();
+    _cacheWriteTail = completed.future;
+
+    return () async {
+      try {
+        await previous;
+        if (!_isCurrentCheck(checkRevision, channelRevision)) return;
+        await write();
+      } finally {
+        completed.complete();
+      }
+    }();
+  }
 
   Future<void> _cacheRelease(
     SharedPreferences prefs,
@@ -311,25 +398,11 @@ class UpdateService {
     Map<String, dynamic>? result;
     switch (os) {
       case 'android':
-        final architecture = targetAbi ?? Abi.current();
-        if (architecture != Abi.androidArm64 &&
-            architecture != Abi.androidArm &&
-            architecture != Abi.androidX64) {
-          return null;
-        }
-        final arm64Asset = architecture == Abi.androidArm64
-            ? assetList.firstWhere((asset) {
-                final name = (asset['name'] as String? ?? '').toLowerCase();
-                return name.endsWith('.apk') && name.contains('arm64-v8a');
-              }, orElse: () => <String, dynamic>{})
-            : <String, dynamic>{};
-        result = arm64Asset.isNotEmpty
-            ? arm64Asset
-            : assetList.firstWhere((asset) {
-                final name = (asset['name'] as String? ?? '').toLowerCase();
-                return name.endsWith('.apk') &&
-                    (name.contains('universe') || name.contains('universal'));
-              }, orElse: () => <String, dynamic>{});
+        if ((targetAbi ?? Abi.current()) != Abi.androidArm64) return null;
+        result = assetList.firstWhere((asset) {
+          final name = (asset['name'] as String? ?? '').toLowerCase();
+          return name.endsWith('.apk') && name.contains('arm64-v8a');
+        }, orElse: () => <String, dynamic>{});
         break;
       case 'windows':
         result = assetList.firstWhere(

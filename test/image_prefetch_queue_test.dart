@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/image_prefetch_queue.dart';
+import 'package:iroru/src/widgets/image_prefetch_queue.dart';
 
 void main() {
   test(

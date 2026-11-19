@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/download_task.dart';
-import 'package:kikoeru_flutter/src/services/download_task_persistence.dart';
+import 'package:iroru/src/models/download_task.dart';
+import 'package:iroru/src/services/download_task_persistence.dart';
 
 void main() {
   test('large task JSON round-trips through the isolate codec', () async {

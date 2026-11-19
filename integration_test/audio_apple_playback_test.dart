@@ -6,12 +6,12 @@ import 'package:integration_test/integration_test.dart';
 import 'package:just_audio/just_audio.dart'
     show AudioPlayer, PlayerState, ProcessingState;
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
-import 'package:kikoeru_flutter/src/models/audio_effects_settings.dart';
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/playback_diagnostic_event.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
-import 'package:kikoeru_flutter/src/services/native_audio_effects.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:iroru/src/models/audio_effects_settings.dart';
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/playback_diagnostic_event.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/native_audio_effects.dart';
+import 'package:iroru/src/services/storage_service.dart';
 import 'package:media_kit/media_kit.dart' show NativePlayer;
 import 'package:shared_preferences/shared_preferences.dart';
 

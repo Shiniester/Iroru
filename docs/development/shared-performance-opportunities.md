@@ -67,8 +67,8 @@ Hive 的账户管理数据由 `StorageService.initSecondary` 打开。
 首帧后的任务或账户管理首次访问会触发这个入口。
 并发调用等待同一个 Future；失败后可以重试。
 关键阶段只读取 SharedPreferences，不再初始化 Hive。
-Windows、Linux 和 macOS 仍使用文档目录下的 `KikoFlu` 子目录。
-Android 和 iOS 仍使用原来的文档目录。
+Windows、Linux 和 macOS 使用 Iroru 的应用支持目录。
+Android 和 iOS 使用 Iroru 自己的应用文档目录。
 `bootstrapHiveBackendMs` 和 Timeline 记录已保留。
 
 回归测试覆盖延迟初始化、并发调用、失败重试和账户读写。

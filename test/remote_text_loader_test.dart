@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
-import 'package:kikoeru_flutter/src/services/remote_text_loader.dart';
+import 'package:iroru/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/services/remote_text_loader.dart';
 
 void main() {
   late Directory tempDirectory;

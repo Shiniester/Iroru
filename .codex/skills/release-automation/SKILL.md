@@ -1,8 +1,8 @@
 ---
 name: "release-automation"
-description: "Use when triggering or discussing KikoFlu GitHub Actions releases: all-platform stable releases from main with change-based version selection, and Android Beta releases from other branches."
+description: "Use when triggering or discussing Iroru GitHub Actions releases: all-platform stable releases from main with change-based version selection, and Android Beta releases from other branches."
 metadata:
-  short-description: "KikoFlu GitHub Actions 发布流程与版本平台选择。"
+  short-description: "Iroru GitHub Actions 发布流程与版本平台选择。"
 ---
 
 # Release automation
@@ -24,7 +24,7 @@ and the user explicitly requests the full repository sync:
 2. Commit the changes with a Conventional Commit message matching the changes (`fix`, `feat`, or a breaking marker when appropriate). Include Beta branch context in the body, for example `Branch: feature/player`. The commit type determines whether the push starts a release.
 3. Push only the current local branch to its resolved remote branch using an explicit refspec (`HEAD:refs/heads/<remote-branch>`).
 4. Confirm that the remote branch points to the local release commit.
-5. For the default channel, the push starts `release_on_push.yml`: `main` selects all-platform stable; other branches select Android Beta. Confirm the push-triggered run for that exact commit and capture its URL. Its planner parses Conventional Commit messages and computes the version; do not also dispatch a manual release for the same push.
+5. For the default channel, confirm the push-triggered `release_on_push.yml` run for that exact commit and capture its URL. Its planner parses Conventional Commit messages and computes the version; do not also dispatch a manual release for the same push.
 6. Report the commit, remote branch, push result, and workflow URL, then finish the local release task. If the workflow is absent from the pushed branch, report the setup requirement using `docs/agents/push-release.md`.
 
 For an explicit version, platform override, or manual-only release, use the selected
@@ -48,29 +48,15 @@ When reporting an accepted push-triggered run or dispatch, state that the workfl
 
 - When the resolved remote branch is `main`, use **Build and Release** (`build.yml`) for a stable release on all supported platforms, including PATCH updates. Select its version using the comparison below.
 - Other branches default to Android Beta releases using **Build Android Beta and Pre-release** (`build_android_beta.yml`). An explicitly requested channel or platform overrides these defaults; explicit Beta requests also use this workflow.
-- Before choosing a Beta version, query the repository's latest published stable GitHub release, excluding drafts and pre-releases. Keep its MAJOR and MINOR components and increment PATCH by one: stable `4.5.2` produces the Beta base `4.5.3`. Derive this base from the current stable release each time; example versions are not fixed defaults.
-- Use `MAJOR.MINOR.PATCH-beta.N`, where N starts at 1 and increases beyond the highest existing Beta number for that base across tags and releases, including drafts. For example, stable `4.5.2` with an existing `4.5.3-beta.2` produces `4.5.3-beta.3`; after stable `4.5.3` is published, the next base becomes `4.5.4`. Verify an explicitly supplied version against this rule and report any mismatch before dispatching.
-- Beta releases publish the Android arm64-v8a APK as a GitHub **Pre-release**, with `latest=false`. They use the separate `com.meteor.kikoeruflutter.beta` application ID and **KikoFlu Beta** name so they can coexist with the stable app.
+- Before choosing or validating a Beta version, query the latest published stable release and list existing tags and releases for its next PATCH base, including drafts. Apply the Beta rule in [Commit-based version selection](../../../docs/agents/push-release.md#commit-based-version-selection) and report any mismatch before dispatching.
+- Beta releases publish the Android arm64-v8a APK as a GitHub **Pre-release**, with `latest=false`. Verify the separate application ID and display name against `build_android_beta.yml`.
 - Use **Build Android and Release** (`build_android.yml`) for an Android-only stable patch release only when the user explicitly requests that stable release.
 
 ## Stable version selection from main
 
 Query the latest published stable release, excluding drafts and pre-releases, and
 resolve its tag to the actual commit. Read full commit messages from that commit
-to the intended main release commit. Apply Conventional Commits v1.0.0:
-
-- `fix:` or `fix(scope):` selects PATCH: `M.m.(p+1)`.
-- `feat:` or `feat(scope):` selects MINOR: `M.(m+1).0`.
-- Any valid conventional type with `!`, or an uppercase `BREAKING CHANGE:` /
-  `BREAKING-CHANGE:` footer with an explanation, selects MAJOR: `(M+1).0.0`.
-- Types are case-insensitive; other types have no release impact unless marked
-  as breaking. Use the highest level across all new reachable commits.
-
-The push planner implements these rules directly in Python. It derives release
-notes from the subjects of releasing commits and skips histories without a
-release level or tree changes. The Actions version decision is independent of
-this skill. See `docs/agents/push-release.md` for message examples and turn
-auto-commit integration.
+to the intended main release commit. Apply [Commit-based version selection](../../../docs/agents/push-release.md#commit-based-version-selection).
 
 Report the baseline, matching commits and selected level. For an explicit manual
 version, validate the channel and tag availability before dispatching. If the

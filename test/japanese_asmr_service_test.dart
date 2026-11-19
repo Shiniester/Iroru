@@ -4,13 +4,13 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
-import 'package:kikoeru_flutter/src/models/search_query.dart';
-import 'package:kikoeru_flutter/src/models/search_type.dart';
-import 'package:kikoeru_flutter/src/models/sort_options.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/services/audio_track_queue_builder.dart';
-import 'package:kikoeru_flutter/src/services/japanese_asmr_service.dart';
+import 'package:iroru/src/models/japanese_asmr_browse.dart';
+import 'package:iroru/src/models/search_query.dart';
+import 'package:iroru/src/models/search_type.dart';
+import 'package:iroru/src/models/sort_options.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/services/audio_track_queue_builder.dart';
+import 'package:iroru/src/services/japanese_asmr_service.dart';
 
 class _Reply {
   const _Reply(

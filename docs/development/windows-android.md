@@ -1,6 +1,6 @@
 # Windows Android development
 
-KikoFlu pins Flutter 3.44.7 and Dart 3.12.2. Use FVM for the Flutter SDK and
+Iroru pins Flutter in [`.fvmrc`](../../.fvmrc). Use FVM for the Flutter SDK and
 the standard per-user Android SDK for everyday development. The toolchain under
 `build/toolchains` is reserved for repeatable performance runs and is not the
 normal Android Studio SDK.

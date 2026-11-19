@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/videos/video_card_display_provider.dart';
+import 'package:iroru/src/videos/video_card_display_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> _settlePreferenceLoad() async {

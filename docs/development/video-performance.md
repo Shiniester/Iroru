@@ -1,5 +1,7 @@
 # Android 视频性能排查
 
+状态：历史排查记录。
+
 本轮减少了隐藏源站页面和视频封面原图解码的资源开销。
 Android 的实际帧耗时仍需真机测量。
 启动、后台刷新和音声路径的改动见[共享路径性能改动与候选](shared-performance-opportunities.md)。

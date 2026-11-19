@@ -3,12 +3,15 @@ import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../performance/performance_recorder.dart';
 import 'log_service.dart';
 
 class StorageService {
+  static const customDownloadPathKey = 'custom_download_path';
+
   static late Box _userBox;
   static late SharedPreferences _prefs;
   static Future<void>? _criticalInitFuture;
@@ -25,7 +28,9 @@ class StorageService {
   /// the first interactive frame.
   static Future<void> initCritical({SharedPreferences? preferences}) {
     if (_criticalInitialized) {
-      if (preferences != null) _prefs = preferences;
+      if (preferences != null && !identical(_prefs, preferences)) {
+        _prefs = preferences;
+      }
       return Future.value();
     }
     return _criticalInitFuture ??= _initializeCritical(preferences);
@@ -69,7 +74,9 @@ class StorageService {
     var failed = false;
     try {
       if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        await Hive.initFlutter('KikoFlu');
+        final supportDirectory = await getApplicationSupportDirectory();
+        await supportDirectory.create(recursive: true);
+        Hive.init(supportDirectory.path);
       } else {
         await Hive.initFlutter();
       }

@@ -74,7 +74,7 @@ def write_report(root, label, run, budget=16.667, metadata=None, checks=None,
         'control': {
             'label': label,
             'run': run,
-            'package': 'com.meteor.kikoeruflutter.profile',
+            'package': 'com.meteor.iroru',
             'sourceSha': 'a' * 40 if label.startswith('baseline') else 'b' * 40,
             'cycles': len(LYRIC_OPEN_CLOSE_SCENES),
             'ui': True,

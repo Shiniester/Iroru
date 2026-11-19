@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show Orientation;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/videos/video_player_platform.dart';
+import 'package:iroru/src/videos/video_player_platform.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';

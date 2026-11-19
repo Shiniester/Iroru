@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
+import 'package:iroru/src/widgets/player/player_route.dart';
+import 'package:iroru/src/widgets/player/player_vertical_gestures.dart';
 
 const _viewportSize = Size(400, 800);
 const _queueArtworkRect = Rect.fromLTWH(24, 112, 64, 48);

@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/utils/theme.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
+import 'package:iroru/src/utils/theme.dart';
+import 'package:iroru/src/widgets/player/player_route.dart';
+import 'package:iroru/src/widgets/player/player_vertical_gestures.dart';
+import 'package:iroru/src/widgets/work_detail/work_cover_frame.dart';
 
 const _root = ValueKey('root');
 const _page = ValueKey('page');

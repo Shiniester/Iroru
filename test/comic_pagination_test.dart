@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/comics/comic_models.dart';
-import 'package:kikoeru_flutter/src/comics/comic_pagination.dart';
+import 'package:iroru/src/comics/comic_models.dart';
+import 'package:iroru/src/comics/comic_pagination.dart';
 
 Comic _comic(String source, int index) =>
     Comic(source: source, id: '$index', title: '$source $index');

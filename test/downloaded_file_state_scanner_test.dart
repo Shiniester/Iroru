@@ -1,6 +1,6 @@
 import 'dart:collection';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/services/downloaded_file_state_scanner.dart';
+import 'package:iroru/src/services/downloaded_file_state_scanner.dart';
 import 'package:path/path.dart' as p;
 
 final _posixPathContext = p.Context(style: p.Style.posix);

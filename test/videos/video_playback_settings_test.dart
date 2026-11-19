@@ -4,11 +4,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:kikoeru_flutter/l10n/app_localizations.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_playback_settings_screen.dart';
-import 'package:kikoeru_flutter/src/videos/ui/video_settings_screen.dart';
-import 'package:kikoeru_flutter/src/videos/video_playback_settings.dart';
-import 'package:kikoeru_flutter/src/videos/video_super_resolution.dart';
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/videos/ui/video_playback_settings_screen.dart';
+import 'package:iroru/src/videos/ui/video_settings_screen.dart';
+import 'package:iroru/src/videos/video_playback_settings.dart';
+import 'package:iroru/src/videos/video_super_resolution.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

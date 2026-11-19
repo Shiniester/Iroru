@@ -1,7 +1,7 @@
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/utils/tag_localizer.dart';
+import 'package:iroru/src/models/work.dart';
+import 'package:iroru/src/utils/tag_localizer.dart';
 
 void main() {
   const names = {

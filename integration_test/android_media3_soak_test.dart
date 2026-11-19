@@ -5,15 +5,15 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:kikoeru_flutter/main.dart' as kikoflu_app;
-import 'package:kikoeru_flutter/src/models/audio_track.dart';
-import 'package:kikoeru_flutter/src/models/playback_diagnostic_event.dart';
-import 'package:kikoeru_flutter/src/performance/performance_fixture_manifest.dart';
-import 'package:kikoeru_flutter/src/performance/performance_recorder.dart';
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
-import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/utils/file_tree_utils.dart';
+import 'package:iroru/main.dart' as kikoflu_app;
+import 'package:iroru/src/models/audio_track.dart';
+import 'package:iroru/src/models/playback_diagnostic_event.dart';
+import 'package:iroru/src/performance/performance_fixture_manifest.dart';
+import 'package:iroru/src/performance/performance_recorder.dart';
+import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/kikoeru_api_service.dart';
+import 'package:iroru/src/services/storage_service.dart';
+import 'package:iroru/src/utils/file_tree_utils.dart';
 import 'package:just_audio/just_audio.dart';
 
 void main() {
@@ -26,7 +26,7 @@ void main() {
       const controlPath = String.fromEnvironment(
         'KIKOFLU_PERF_CONTROL_PATH',
         defaultValue:
-            '/sdcard/Android/data/com.meteor.kikoeruflutter/files/'
+            '/sdcard/Android/data/com.meteor.iroru/files/'
             'performance_fixtures/control.json',
       );
       final control = Map<String, dynamic>.from(

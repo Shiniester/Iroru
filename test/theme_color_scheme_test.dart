@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/utils/theme.dart';
+import 'package:iroru/src/utils/theme.dart';
 
 void main() {
   test('cover seed takes priority over the system dynamic scheme', () {
