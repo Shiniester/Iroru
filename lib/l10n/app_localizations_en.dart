@@ -4393,6 +4393,9 @@ class SEn extends S {
   String get videoAccountRestoring => 'Restoring sign-in';
 
   @override
+  String get videoAccountRestoreFailed => 'Could not restore sign-in';
+
+  @override
   String get videoAccountSignedOut => 'Not signed in';
 
   @override

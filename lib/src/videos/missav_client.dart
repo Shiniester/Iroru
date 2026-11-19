@@ -871,24 +871,26 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
     if (search == null || search.usesHtml) return null;
     final state = search;
-    try {
-      final request = state.pages.putIfAbsent(
+    final request = state.pages.putIfAbsent(page, () {
+      final pending = _MissavSearchPageRequest();
+      pending.response = _requestSearchPage(
+        query,
         page,
-        () => _requestSearchPage(
-          query,
-          page,
-          uri,
-          state,
-          generation: generation,
-          locale: locale,
-          cancelToken: cancelToken,
-        ),
-      );
+        uri,
+        state,
+        generation: generation,
+        locale: locale,
+        cancelToken: page > 1 ? pending.cancelToken : cancelToken,
+      ).whenComplete(() => pending.isPending = false);
+      return pending;
+    });
+    request.waiters++;
+    try {
       VideoRecommendationPage? result;
       DioException? requestError;
       try {
         result = await Future.any<VideoRecommendationPage?>([
-          request,
+          request.response,
           cancelToken.whenCancel.then<VideoRecommendationPage?>(
             (error) => throw error,
           ),
@@ -909,10 +911,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       }
       return result;
     } finally {
+      request.waiters--;
       if (page > 1 &&
           cancelToken.isCancelled &&
-          identical(_searches[key], state)) {
+          request.waiters == 0 &&
+          request.isPending) {
         state.usesHtml = true;
+        request.cancelToken.cancel();
       }
     }
   }
@@ -926,7 +931,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     required String locale,
     required CancelToken cancelToken,
   }) async {
-    final previous = await search.pages[page - 1];
+    final previous = await search.pages[page - 1]?.response;
     _checkContentRequest(uri, generation, locale, cancelToken);
     final cursor = previous?.cursor;
     if (page > 1 && cursor == null) {
@@ -3729,7 +3734,14 @@ class _ContentLineLoader {
     String backupHost,
     Future<_AcceptedContentLine?> Function(String) tryLine,
   ) async {
-    final primary = tryLine(firstHost);
+    (MissavRateLimitException, StackTrace)? primaryRateLimit;
+    final primary = tryLine(firstHost).onError<MissavRateLimitException>((
+      error,
+      trace,
+    ) {
+      primaryRateLimit = (error, trace);
+      return null;
+    });
     final delay = Completer<bool>();
     final timer = Timer(
       MissavClient._contentBackupDelay,
@@ -3741,7 +3753,10 @@ class _ContentLineLoader {
     } finally {
       timer.cancel();
     }
-    if (!overlap) return await primary ?? await tryLine(backupHost);
+    if (!overlap) {
+      final first = await primary;
+      if (first?.page.streams.isNotEmpty == true) return first;
+    }
 
     final backup = tryLine(backupHost).onError<MissavException>((
       error,
@@ -3757,7 +3772,15 @@ class _ContentLineLoader {
     ]);
     if (first?.page.streams.isNotEmpty == true) return first;
     final other = await (fromPrimary ? backup : primary);
-    return other?.page.streams.isNotEmpty == true ? other : first ?? other;
+    final accepted = other?.page.streams.isNotEmpty == true
+        ? other
+        : first ?? other;
+    if (accepted == null) {
+      if (primaryRateLimit case (final error, final trace)) {
+        Error.throwWithStackTrace(error, trace);
+      }
+    }
+    return accepted;
   }
 
   Iterable<String> _candidateHosts() {
@@ -3927,6 +3950,13 @@ class _ContentPageAttempts {
 }
 
 class _MissavSearchState {
-  final Map<int, Future<VideoRecommendationPage?>> pages = {};
+  final Map<int, _MissavSearchPageRequest> pages = {};
   bool usesHtml = false;
+}
+
+class _MissavSearchPageRequest {
+  final cancelToken = CancelToken();
+  late final Future<VideoRecommendationPage?> response;
+  int waiters = 0;
+  bool isPending = true;
 }

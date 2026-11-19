@@ -28,6 +28,7 @@ import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/videos/jable_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/ui/jable_account_screen.dart';
+import 'package:kikoeru_flutter/src/videos/ui/video_account_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_details_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_playback_settings_screen.dart';
@@ -7205,6 +7206,133 @@ void main() {
     expect(find.text(strings.videoLoginRequired), findsNothing);
   });
 
+  for (final favorite in [true, false]) {
+    final action = favorite ? 'favorite' : 'playlist';
+    _testPlayerWidget('failed MissAV $action restore opens account recovery', (
+      tester,
+    ) async {
+      const challengeUrl = 'https://missav.ai/en/saved';
+      final challengeRequests = <String>[];
+      var restoreAttempts = 0;
+      final client = _TestMissavClient(_details())
+        ..accountRestore = () async {
+          restoreAttempts++;
+          if (favorite) throw const MissavException('Restore unavailable.');
+          throw const MissavVerificationRequiredException(
+            sourceUrl: challengeUrl,
+          );
+        };
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _testVideoDetailsScreen(
+            video: _video(),
+            sessionFactory: _FakePlaybackSession.new,
+          ),
+          missavAccountVerificationUrls: challengeRequests,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final strings = await S.delegate.load(const Locale('en'));
+
+      await tester.tap(
+        find.byTooltip(
+          favorite ? strings.videoFavorites : strings.videoAddToPlaylist,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VideoAccountScreen), findsOneWidget);
+      expect(restoreAttempts, 1);
+      expect(find.text(strings.videoSourceUnavailable), findsNothing);
+      expect(find.text(strings.login), findsOneWidget);
+      expect(find.text(strings.videoVerifyAccess), findsOneWidget);
+      expect(client.videoFavoriteChanges, isEmpty);
+      expect(client.playlistsCalls, 0);
+
+      if (favorite) {
+        final fields = find.byType(TextField);
+        await tester.enterText(fields.first, 'viewer@example.test');
+        await tester.enterText(fields.last, 'password');
+        await tester.ensureVisible(find.text(strings.login));
+        await tester.tap(find.text(strings.login));
+        await tester.pumpAndSettle();
+        expect(find.text('Account B'), findsOneWidget);
+        expect(challengeRequests, isEmpty);
+      } else {
+        expect(find.text(strings.videoVerificationRequired), findsOneWidget);
+        await tester.ensureVisible(find.text(strings.videoVerifyAccess));
+        await tester.tap(find.text(strings.videoVerifyAccess));
+        await tester.pumpAndSettle();
+        expect(challengeRequests, [challengeUrl]);
+      }
+    });
+  }
+
+  for (final favorite in [true, false]) {
+    final action = favorite ? 'favorite' : 'unfavorite';
+    _testPlayerWidget(
+      'failed MissAV actor $action restore opens account recovery',
+      (tester) async {
+        const challengeUrl = 'https://missav.ai/en/actress/fixture';
+        const actor = VideoLink(
+          label: 'Fixture actor',
+          url: challengeUrl,
+          kind: VideoLinkKind.actor,
+        );
+        final details = VideoDetails(
+          video: _video(actors: const [actor]),
+          streams: _details().streams,
+        );
+        var restoreAttempts = 0;
+        final client = _TestMissavClient(details)
+          ..accountRestore = () async {
+            restoreAttempts++;
+            throw const MissavVerificationRequiredException(
+              sourceUrl: challengeUrl,
+            );
+          };
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(client: client, library: library);
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            _testVideoDetailsScreen(
+              video: _video(),
+              sessionFactory: _FakePlaybackSession.new,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final strings = await S.delegate.load(const Locale('en'));
+
+        await tester.ensureVisible(find.byTooltip(actor.label));
+        await tester.tap(find.byTooltip(actor.label));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.text(
+            favorite
+                ? strings.videoFavoriteActor
+                : strings.videoUnfavoriteActor,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(VideoAccountScreen), findsOneWidget);
+        expect(restoreAttempts, 1);
+        expect(find.text(strings.videoVerificationRequired), findsOneWidget);
+        expect(find.text(strings.videoSourceUnavailable), findsNothing);
+        expect(client.actorFavoriteChanges, isEmpty);
+      },
+    );
+  }
+
   _testPlayerWidget('account change clears and reloads detail favorite state', (
     tester,
   ) async {
@@ -9174,6 +9302,7 @@ Widget _app(
   JableClient? jableClient,
   bool? jableVerificationResult,
   List<String>? jableVerificationUrls,
+  List<String>? missavAccountVerificationUrls,
   AppNavigationController? appNavigationController,
 }) => ProviderScope(
   overrides: [
@@ -9186,6 +9315,15 @@ Widget _app(
       ref.onDispose(sourceClient.dispose);
       return sourceClient;
     }),
+    if (missavAccountVerificationUrls != null)
+      missavAccountVerifierProvider.overrideWithValue((
+        _,
+        _, {
+        required sourceUrl,
+      }) async {
+        missavAccountVerificationUrls.add(sourceUrl);
+        return (verified: false, signedIn: false);
+      }),
     if (jableVerificationResult != null)
       jableAccessVerifierProvider.overrideWithValue((
         _,

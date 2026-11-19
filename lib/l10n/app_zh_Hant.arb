@@ -1433,6 +1433,7 @@
   "videoAccountAndSources": "帳號與來源",
   "videoAccountSignedIn": "已登入",
   "videoAccountRestoring": "正在恢復登入",
+  "videoAccountRestoreFailed": "無法恢復登入",
   "videoAccountSignedOut": "未登入",
   "downloadsAndStorage": "下載與儲存",
   "videoCardMakers": "發行商",

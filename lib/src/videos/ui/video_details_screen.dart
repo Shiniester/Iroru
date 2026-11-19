@@ -626,6 +626,24 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     }
   }
 
+  Future<bool> _restoreMissavAccount() async {
+    final bool signedIn;
+    try {
+      signedIn = await _client.restoreAccount();
+    } catch (error) {
+      if (mounted && _routeReadiness.isIdle && !_client.isLoggedIn) {
+        await pushBottomDockRoute(
+          context,
+          builder: (_) => VideoAccountScreen(restoreError: error),
+        );
+      }
+      return false;
+    }
+    if (!mounted || !_routeReadiness.isIdle) return false;
+    if (!signedIn) await _loginRequired();
+    return signedIn;
+  }
+
   void _onJableAccountChanged() {
     if (!mounted || _isOffline) return;
     if (_jableAccount?.isLoggedIn != true) {
@@ -695,12 +713,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           await account.setVideoFavorite(details, favorite);
         }
       } else {
-        final signedIn = await _client.restoreAccount();
-        if (!mounted || !_routeReadiness.isIdle) return;
-        if (!signedIn) {
-          await _loginRequired();
-          return;
-        }
+        if (!await _restoreMissavAccount()) return;
         if (generation != _client.sessionGeneration) return;
         await _client.setVideoFavorite(details, favorite);
       }
@@ -731,12 +744,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   Future<void> _setActorFavorite(VideoLink actor, bool favorite) async {
     if (widget.video.sourceKey != 'missav') return;
     try {
-      final signedIn = await _client.restoreAccount();
-      if (!mounted) return;
-      if (!signedIn) {
-        await _loginRequired();
-        return;
-      }
+      if (!await _restoreMissavAccount()) return;
       await _client.setActorFavorite(actor, favorite);
     } on MissavAuthenticationException {
       await _loginRequired();
@@ -907,12 +915,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     if (widget.video.sourceKey != 'missav') return;
     List<VideoLink> playlists;
     try {
-      final signedIn = await _client.restoreAccount();
-      if (!mounted || !_routeReadiness.isIdle) return;
-      if (!signedIn) {
-        await _loginRequired();
-        return;
-      }
+      if (!await _restoreMissavAccount()) return;
       playlists = await _client.playlistsFor(widget.video);
     } on MissavAuthenticationException {
       if (!mounted || !_routeReadiness.isIdle) return;

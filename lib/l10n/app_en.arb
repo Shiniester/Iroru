@@ -1828,6 +1828,10 @@
   "videoAccountAndSources": "Account and sources",
   "videoAccountSignedIn": "Signed in",
   "videoAccountRestoring": "Restoring sign-in",
+  "videoAccountRestoreFailed": "Could not restore sign-in",
+  "@videoAccountRestoreFailed": {
+    "description": "Shown when a saved MissAV sign-in could not be restored."
+  },
   "videoAccountSignedOut": "Not signed in",
   "downloadsAndStorage": "Downloads and storage",
   "videoCardMakers": "Studio",

@@ -91,7 +91,6 @@ class MissavMediaServer {
   Future<void> _handleRequest(HttpRequest request) async {
     final cancellation = RemoteAssetCancellation();
     _activeRequests.add(cancellation);
-    Uri? source;
     final response = request.response;
     unawaited(
       response.done.then<void>(
@@ -119,18 +118,11 @@ class MissavMediaServer {
 
       final isHead = request.method == 'HEAD';
       final isManifest = _isManifest(registration.source);
-      source = registration.source;
       var remoteResponse = await _openRemote(
         registration.source,
         _copyRequestHeaders(request, includeRange: !isManifest),
         cancellation,
       );
-      _ensureActive(cancellation);
-      if (remoteResponse.header('cf-mitigated')?.trim().toLowerCase() ==
-          'challenge') {
-        _onVerificationRequired?.call(source);
-        throw const HttpException('MissAV media requires verification.');
-      }
       if (remoteResponse.statusCode == HttpStatus.partialContent &&
           remoteResponse.header('content-range') == null &&
           request.headers.value(HttpHeaders.rangeHeader) != null) {
@@ -142,7 +134,6 @@ class MissavMediaServer {
           _copyRequestHeaders(request, includeRange: false),
           cancellation,
         );
-        _ensureActive(cancellation);
       }
 
       if (_isManifestResponse(registration.source, remoteResponse) &&
@@ -213,8 +204,8 @@ class MissavMediaServer {
     Uri source,
     Map<String, String> headers,
     RemoteAssetCancellation cancellation,
-  ) {
-    return Future.any<RemoteAssetResponse>([
+  ) async {
+    final response = await Future.any<RemoteAssetResponse>([
       _transport.open(
         RemoteAssetTransportRequest(
           uri: source,
@@ -226,6 +217,12 @@ class MissavMediaServer {
         (_) => throw const _MediaRequestCancelled(),
       ),
     ]);
+    _ensureActive(cancellation);
+    if (response.header('cf-mitigated')?.trim().toLowerCase() == 'challenge') {
+      _onVerificationRequired?.call(source);
+      throw const HttpException('MissAV media requires verification.');
+    }
+    return response;
   }
 
   Map<String, String> _copyRequestHeaders(

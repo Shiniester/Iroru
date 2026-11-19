@@ -120,19 +120,75 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text(s.videoSourceUnavailable), findsOneWidget);
+    expect(find.text(s.videoAccountRestoreFailed), findsOneWidget);
+    expect(find.text(s.login), findsOneWidget);
+    expect(find.text(s.videoVerifyAccess), findsOneWidget);
     expect(find.widgetWithText(FilledButton, s.retry), findsOneWidget);
-    expect(find.byType(TextField), findsNothing);
+    expect(find.byType(TextField), findsNWidgets(2));
     expect(client.hasRestorableSession, isTrue);
 
     client.restoreAccountError = null;
-    await tester.tap(find.text(s.retry));
+    final retry = find.widgetWithText(FilledButton, s.retry);
+    await tester.scrollUntilVisible(
+      retry,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(retry);
     await tester.pumpAndSettle();
 
     expect(client.restoreAccountCalls, 2);
     expect(find.text('saved-viewer'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
   });
+
+  testWidgets(
+    'failed recheck keeps recovery actions for an in-memory session',
+    (tester) async {
+      const challengeUrl = 'https://missav.ai/en/api/login';
+      final client = _TestMissavClient(savedSession: true)
+        ..confirmAccount('previous-viewer')
+        ..restoreAccountError = const MissavVerificationRequiredException(
+          sourceUrl: challengeUrl,
+        );
+      final s = await S.delegate.load(const Locale('en'));
+      await tester.pumpWidget(
+        _app(
+          client,
+          verifier: (_, _, {required sourceUrl}) async =>
+              (verified: false, signedIn: false),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(client.isLoggedIn, isTrue);
+      expect(find.text(s.videoVerificationRequired), findsOneWidget);
+      expect(find.text(s.login), findsOneWidget);
+      expect(find.text(s.videoVerifyAccess), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text(s.retry),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text(s.retry), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text(s.logout),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text(s.logout), findsOneWidget);
+
+      await tester.tap(find.text(s.logout));
+      await tester.pumpAndSettle();
+
+      expect(client.logoutCalls, 1);
+      expect(client.isLoggedIn, isFalse);
+      expect(find.text(s.videoVerificationRequired), findsNothing);
+      expect(find.text(s.videoAccountRestoreFailed), findsNothing);
+      expect(find.text(s.retry), findsNothing);
+      expect(find.byType(TextField), findsNWidgets(2));
+    },
+  );
 
   for (final previouslySignedIn in [false, true]) {
     testWidgets(
@@ -204,6 +260,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(TextField), findsNWidgets(2));
 
+    await tester.ensureVisible(find.text(s.videoVerifyAccess));
     await tester.tap(find.text(s.videoVerifyAccess));
     await tester.pumpAndSettle();
     expect(requests.last, (sourceUrl: 'https://missav.ai/cn'));
@@ -237,6 +294,7 @@ void main() {
     expect(find.text(s.videoVerifyAccess), findsOneWidget);
     expect(find.byType(TextField), findsNWidgets(2));
 
+    await tester.ensureVisible(find.text(s.videoVerifyAccess));
     await tester.tap(find.text(s.videoVerifyAccess));
     await tester.pumpAndSettle();
 
@@ -247,6 +305,58 @@ void main() {
     expect(find.byType(TextField), findsNothing);
     expect(client.nativeLoginCalls, 0);
   });
+
+  testWidgets(
+    'initial restore challenge opens manual recovery without restoring',
+    (tester) async {
+      const challengeUrl = 'https://missav.ai/en/api/login';
+      final client = _TestMissavClient(savedSession: true);
+      final requests = <({String sourceUrl})>[];
+      final verification = Completer<MissavVerificationResult>();
+      final s = await S.delegate.load(const Locale('en'));
+      await tester.pumpWidget(
+        _app(
+          client,
+          restoreError: const MissavVerificationRequiredException(
+            sourceUrl: challengeUrl,
+          ),
+          verifier: (_, _, {required sourceUrl}) async {
+            requests.add((sourceUrl: sourceUrl));
+            client.restoredAccountName = 'manual-viewer';
+            return verification.future;
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(client.restoreAccountCalls, 0);
+      expect(find.text(s.videoVerificationRequired), findsOneWidget);
+      expect(find.text(s.login), findsOneWidget);
+      expect(find.text(s.videoVerifyAccess), findsOneWidget);
+
+      await tester.ensureVisible(find.text(s.videoVerifyAccess));
+      await tester.tap(find.text(s.videoVerifyAccess));
+      await tester.pump();
+
+      final retryFinder = find.widgetWithText(FilledButton, s.retry);
+      await tester.scrollUntilVisible(
+        retryFinder,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      final retry = tester.widget<FilledButton>(retryFinder);
+      expect(retry.onPressed, isNull);
+
+      verification.complete((verified: true, signedIn: false));
+      await tester.pumpAndSettle();
+
+      expect(requests, [(sourceUrl: challengeUrl)]);
+      expect(client.restoreAccountCalls, 0);
+      expect(client.browserAccessChecks, 1);
+      expect(client.nativeLoginCalls, 0);
+      expect(find.text('manual-viewer'), findsOneWidget);
+    },
+  );
 
   testWidgets('native login succeeds without opening the browser', (
     tester,
@@ -686,6 +796,7 @@ Widget _app(
   _TestMissavClient client, {
   required _MissavAccountVerifier verifier,
   Future<void> Function()? clearBrowserSession,
+  Object? restoreError,
 }) => ProviderScope(
   overrides: [
     videoClientProvider.overrideWith((ref) => client),
@@ -700,7 +811,7 @@ Widget _app(
     supportedLocales: S.supportedLocales,
     localizationsDelegates: S.localizationsDelegates,
     theme: ThemeData(useMaterial3: true),
-    home: const VideoAccountScreen(),
+    home: VideoAccountScreen(restoreError: restoreError),
   ),
 );
 

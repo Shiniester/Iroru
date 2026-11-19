@@ -7840,6 +7840,12 @@ abstract class S {
   /// **'Restoring sign-in'**
   String get videoAccountRestoring;
 
+  /// Shown when a saved MissAV sign-in could not be restored.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not restore sign-in'**
+  String get videoAccountRestoreFailed;
+
   /// No description provided for @videoAccountSignedOut.
   ///
   /// In en, this message translates to:

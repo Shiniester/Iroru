@@ -1433,6 +1433,7 @@
   "videoAccountAndSources": "アカウントとソース",
   "videoAccountSignedIn": "ログイン済み",
   "videoAccountRestoring": "ログインを復元しています",
+  "videoAccountRestoreFailed": "ログインを復元できませんでした",
   "videoAccountSignedOut": "未ログイン",
   "downloadsAndStorage": "ダウンロードとストレージ",
   "videoCardMakers": "メーカー",

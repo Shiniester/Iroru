@@ -406,6 +406,64 @@ void main() {
         expect(details.streams, hasLength(2));
       });
 
+      testWidgets('fast metadata-only detail tries the backup mirror', (
+        tester,
+      ) async {
+        await begin(tester);
+        responses[hosts[0]]!.complete(
+          _response('<main><h1>Metadata only</h1></main>'),
+        );
+        await tester.pump(Duration.zero);
+        expect(requested(), hosts.take(2));
+
+        responses[hosts[1]]!.complete(_response(detail));
+        await tester.pump(Duration.zero);
+        final details = await pending;
+        expect(Uri.parse(details.video.pageUrl).origin, hosts[1]);
+        expect(details.streams, isNotEmpty);
+      });
+
+      testWidgets('a fast rate-limited primary starts the backup immediately', (
+        tester,
+      ) async {
+        await begin(tester);
+        pending.ignore();
+        expect(requested(), [hosts[0]]);
+
+        responses[hosts[0]]!.complete(
+          _response('', statusCode: HttpStatus.tooManyRequests),
+        );
+        await tester.pump(Duration.zero);
+        expect(requested(), hosts.take(2));
+
+        responses[hosts[1]]!.complete(_response(detail));
+        await tester.pump(Duration.zero);
+        final details = await pending;
+        expect(Uri.parse(details.video.pageUrl).origin, hosts[1]);
+        expect(details.streams, hasLength(2));
+      });
+
+      testWidgets('a rate-limited primary leaves the active backup running', (
+        tester,
+      ) async {
+        await begin(tester);
+        pending.ignore();
+        await tester.pump(const Duration(milliseconds: 1500));
+        expect(requested(), hosts.take(2));
+
+        responses[hosts[0]]!.complete(
+          _response('', statusCode: HttpStatus.tooManyRequests),
+        );
+        await tester.pump(Duration.zero);
+        expect(adapter.requests.last.cancelToken!.isCancelled, isFalse);
+
+        responses[hosts[1]]!.complete(_response(detail));
+        await tester.pump(Duration.zero);
+        final details = await pending;
+        expect(Uri.parse(details.video.pageUrl).origin, hosts[1]);
+        expect(details.streams, isNotEmpty);
+      });
+
       for (final firstSucceeds in [true, false]) {
         testWidgets('backup is rate-limited (first succeeds=$firstSucceeds)', (
           tester,
@@ -2321,6 +2379,69 @@ void main() {
     },
   );
 
+  testWidgets('cancelling one search waiter preserves its shared next page', (
+    tester,
+  ) async {
+    final continuation = Completer<ResponseBody>();
+    final source = _Adapter((_) => _response('<main></main>'));
+    final metadata = _Adapter((request) {
+      if (request.uri.path.contains('/next/')) return continuation.future;
+      if (request.uri.path.contains('/search/')) {
+        return _metadataResponse({
+          'recommId': 'first-cursor',
+          'recomms': [
+            {'id': 'first', 'values': <String, Object?>{}},
+          ],
+        });
+      }
+      return _metadataResponse({'recomms': []});
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = source,
+      metadataDio: Dio()..httpClientAdapter = metadata,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    final search = client.search('needle');
+    await tester.pump(Duration.zero);
+    final first = await search;
+    final cancelToken = CancelToken();
+    final cancelled = expectLater(
+      client.browse(first.nextUrl!, cancelToken: cancelToken),
+      throwsA(
+        isA<DioException>().having(
+          (error) => error.type,
+          'type',
+          DioExceptionType.cancel,
+        ),
+      ),
+    );
+    await tester.pump(Duration.zero);
+    final live = client.browse(first.nextUrl!);
+    await tester.pump(Duration.zero);
+
+    cancelToken.cancel();
+    await tester.pump(Duration.zero);
+    await cancelled;
+    continuation.complete(
+      _metadataResponse({
+        'recommId': 'next-cursor',
+        'recomms': [
+          {'id': 'second', 'values': <String, Object?>{}},
+        ],
+      }),
+    );
+    await tester.pump(Duration.zero);
+
+    expect((await live).videos.map((video) => video.id), ['second']);
+    expect(
+      metadata.requests.where((request) => request.uri.path.contains('/next/')),
+      hasLength(1),
+    );
+    expect(source.requests, isEmpty);
+  });
+
   test('Recombee search does not reuse a cancelled continuation', () async {
     final started = Completer<void>();
     final response = Completer<ResponseBody>();
@@ -2367,6 +2488,13 @@ void main() {
     response.complete(_metadataResponse({'recommId': 'unused', 'recomms': []}));
     await cancelled;
     expect(source.requests, isEmpty);
+    expect(
+      metadata.requests
+          .singleWhere((request) => request.uri.path.contains('/next/'))
+          .cancelToken!
+          .isCancelled,
+      isTrue,
+    );
 
     final retry = await client.browse(first.nextUrl!);
     expect(retry.videos.single.id, 'mirror-2');

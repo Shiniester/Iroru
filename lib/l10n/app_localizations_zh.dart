@@ -4250,6 +4250,9 @@ class SZh extends S {
   String get videoAccountRestoring => '正在恢复登录';
 
   @override
+  String get videoAccountRestoreFailed => '无法恢复登录';
+
+  @override
   String get videoAccountSignedOut => '未登录';
 
   @override
@@ -9249,6 +9252,9 @@ class SZhHant extends SZh {
 
   @override
   String get videoAccountRestoring => '正在恢復登入';
+
+  @override
+  String get videoAccountRestoreFailed => '無法恢復登入';
 
   @override
   String get videoAccountSignedOut => '未登入';

@@ -4272,6 +4272,9 @@ class SJa extends S {
   String get videoAccountRestoring => 'ログインを復元しています';
 
   @override
+  String get videoAccountRestoreFailed => 'ログインを復元できませんでした';
+
+  @override
   String get videoAccountSignedOut => '未ログイン';
 
   @override

@@ -1476,6 +1476,7 @@
   "videoAccountAndSources": "账号与来源",
   "videoAccountSignedIn": "已登录",
   "videoAccountRestoring": "正在恢复登录",
+  "videoAccountRestoreFailed": "无法恢复登录",
   "videoAccountSignedOut": "未登录",
   "downloadsAndStorage": "下载与存储",
   "videoCardMakers": "发行商",

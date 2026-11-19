@@ -209,6 +209,38 @@ segment.ts?part=1
     expect(transport.requests.last.headers, isNot(contains('if-range')));
   });
 
+  test(
+    'reports verification when the retry without Range is challenged',
+    () async {
+      final source = Uri.parse('https://surrit.com/segment.ts');
+      final reported = <Uri>[];
+      final challengedServer = await MissavMediaServer.start(
+        transport,
+        onVerificationRequired: reported.add,
+      );
+      addTearDown(challengedServer.close);
+      transport.onOpen = (request) async {
+        if (request.headers.containsKey('range')) {
+          return _responseBytes([2, 3], statusCode: HttpStatus.partialContent);
+        }
+        return _response(
+          'Challenge',
+          statusCode: HttpStatus.forbidden,
+          headers: {'cf-mitigated': 'challenge'},
+        );
+      };
+
+      final request = await client.getUrl(challengedServer.register(source));
+      request.headers.set(HttpHeaders.rangeHeader, 'bytes=2-');
+      final response = await request.close();
+      await response.drain<void>();
+
+      expect(transport.requests, hasLength(2));
+      expect(reported, [source]);
+      expect(response.statusCode, HttpStatus.badGateway);
+    },
+  );
+
   test('cancels the remote body when the local client disconnects', () async {
     final source = Uri.parse('https://surrit.com/video/clip.mp4');
     final bodyListening = Completer<void>();
