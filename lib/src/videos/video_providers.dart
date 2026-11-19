@@ -40,7 +40,9 @@ final videoClientProvider = ChangeNotifierProvider<MissavClient>(
 );
 
 final jableVideoClientProvider = Provider<JableClient>((ref) {
-  final client = JableClient(restoreSavedSession: restoreJableBrowserSession);
+  final client = JableClient.withMirror(
+    restoreSavedSession: restoreJableBrowserSession,
+  );
   ref.onDispose(client.dispose);
   return client;
 });

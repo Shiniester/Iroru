@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:media_kit/media_kit.dart';
@@ -27,6 +28,9 @@ void main() {
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
   binding.shouldPropagateDevicePointerEvents = true;
   const enabled = bool.fromEnvironment('KIKOFLU_LIVE_JABLE');
+  const mirror = bool.fromEnvironment('KIKOFLU_LIVE_JABLE_MIRROR');
+  const account = bool.fromEnvironment('KIKOFLU_LIVE_JABLE_ACCOUNT');
+  const useMirror = mirror || account;
   const downloadOnly = bool.fromEnvironment('KIKOFLU_LIVE_JABLE_DOWNLOAD_ONLY');
   const selectedPage = String.fromEnvironment('KIKOFLU_LIVE_JABLE_PAGE');
   const sourceProxy = String.fromEnvironment('KIKOFLU_LIVE_JABLE_PROXY');
@@ -46,10 +50,11 @@ void main() {
       if (sourceProxy.isNotEmpty) {
         await ProxyConfig.saveMode(ProxyMode.manual, sourceProxy);
       }
+      if (useMirror) FlutterSecureStorage.setMockInitialValues({});
       final library = VideoLibrary(preferences: preferences);
-      final client = JableClient(
-        restoreSavedSession: restoreJableBrowserSession,
-      );
+      final client = useMirror
+          ? JableClient.withMirror()
+          : JableClient(restoreSavedSession: restoreJableBrowserSession);
       final missav = MissavClient();
       final Directory root;
       if (resumeDirectory.isEmpty) {
@@ -74,6 +79,8 @@ void main() {
       final measurements = <String, dynamic>{
         'source': 'jable',
         'downloadOnly': downloadOnly,
+        'mirror': useMirror,
+        'account': account,
       };
       binding.reportData = measurements;
       var verifiedAll = false;
@@ -116,12 +123,23 @@ void main() {
 
       try {
         await client.initialize();
-        await _verify(tester, client);
-        measurements['browserVerified'] = true;
-        debugPrint('JABLE_LIVE browserVerified=true');
+        if (useMirror) {
+          expect(client.account.isLoggedIn, isFalse);
+          debugPrint(
+            'JABLE_LIVE mirror=true anonymous=true sessionRestore=false',
+          );
+        } else {
+          await _verify(tester, client);
+          measurements['browserVerified'] = true;
+          debugPrint('JABLE_LIVE browserVerified=true');
+        }
         phase.value = '读取目录和详情';
         final catalog = await client.browse(client.homeUrl);
         expect(catalog.videos, isNotEmpty);
+        if (useMirror) {
+          _expectJableHost('catalog', catalog.url, _mirrorHost);
+          _expectJableVideoHosts('catalog', catalog.videos, _mirrorHost);
+        }
         measurements['catalogCount'] = catalog.videos.length;
         debugPrint('JABLE_LIVE catalogCount=${catalog.videos.length}');
         final candidates = [...catalog.videos]
@@ -142,12 +160,19 @@ void main() {
               );
         final search = await client.search(video.id);
         expect(search.videos.any((item) => item.id == video.id), isTrue);
+        if (useMirror) {
+          _expectJableHost('search', search.url, _mirrorHost);
+          _expectJableVideoHosts('search', search.videos, _mirrorHost);
+        }
         measurements['searchMatched'] = true;
         debugPrint(
           'JABLE_LIVE searchMatched=true resultCount=${search.videos.length}',
         );
         final details = await client.details(video);
         expect(details.streams, isNotEmpty);
+        if (useMirror) {
+          _expectJableHost('details', details.video.pageUrl, _mirrorHost);
+        }
         final stream = details.streams.first;
         expect(
           stream.headers.keys.any(
@@ -159,6 +184,30 @@ void main() {
         debugPrint(
           'JABLE_LIVE streamCount=${details.streams.length} hls=${stream.isHls}',
         );
+
+        if (account) {
+          phase.value = '登录 Jable 账号';
+          await _verify(
+            tester,
+            client,
+            sourceUrl: '${JableClient.origin}/login/',
+            requireLogin: true,
+          );
+          expect(client.account.isLoggedIn, isTrue);
+          debugPrint('JABLE_LIVE accountLogin=true');
+          await _expectPublicRoutes(client, video, _officialHost);
+          measurements['accountLogin'] = true;
+          phase.value = '退出账号并检查镜像恢复';
+          await client.account.logout();
+          expect(client.account.isLoggedIn, isFalse);
+          await _expectPublicRoutes(client, video, _mirrorHost);
+          measurements['accountLogout'] = true;
+          debugPrint('JABLE_LIVE accountLogout=true mirrorRestored=true');
+          verifiedAll = true;
+          phase.value = 'Jable 账号切换通过';
+          return;
+        }
+
         await _probeMedia(stream);
 
         if (!downloadOnly) {
@@ -197,25 +246,27 @@ void main() {
           );
         }
 
-        phase.value = '检查浏览器会话恢复';
-        client.restoreNativeTransport();
-        final restoredClient = JableClient(
-          restoreSavedSession: restoreJableBrowserSession,
-        );
-        try {
-          await restoredClient.initialize();
-          expect(
-            (await restoredClient.browse(restoredClient.homeUrl)).videos,
-            isNotEmpty,
+        if (!useMirror) {
+          phase.value = '检查浏览器会话恢复';
+          client.restoreNativeTransport();
+          final restoredClient = JableClient(
+            restoreSavedSession: restoreJableBrowserSession,
           );
-        } finally {
-          restoredClient.dispose();
+          try {
+            await restoredClient.initialize();
+            expect(
+              (await restoredClient.browse(restoredClient.homeUrl)).videos,
+              isNotEmpty,
+            );
+          } finally {
+            restoredClient.dispose();
+          }
+          debugPrint('JABLE_LIVE sessionRestored=true');
+          measurements['sessionRestored'] = true;
         }
-        debugPrint('JABLE_LIVE sessionRestored=true');
-        measurements['sessionRestored'] = true;
 
         phase.value = '检查下载、暂停和继续';
-        await downloads.add(video, stream);
+        await downloads.add(details.video, stream);
         VideoDownloadTask task() => downloads.forVideo(video.storageKey)!;
         var retryCount = 0;
         Future<bool> completed() async {
@@ -246,6 +297,7 @@ void main() {
         await downloads.pause(video.storageKey);
         expect(task().status, VideoDownloadStatus.paused);
         await downloads.resume(video.storageKey);
+        debugPrint('JABLE_LIVE downloadPausedAndResumed=true');
         var previousPercent = -5;
         await _wait(
           tester,
@@ -356,6 +408,41 @@ void main() {
   );
 }
 
+const _officialHost = 'jable.tv';
+const _mirrorHost = 'jable1.net';
+
+Future<void> _expectPublicRoutes(
+  JableClient client,
+  VideoItem video,
+  String host,
+) async {
+  final catalog = await client.browse(client.homeUrl);
+  _expectJableHost('catalog', catalog.url, host);
+  _expectJableVideoHosts('catalog', catalog.videos, host);
+  final search = await client.search(video.id);
+  _expectJableHost('search', search.url, host);
+  _expectJableVideoHosts('search', search.videos, host);
+  expect(search.videos.any((item) => item.id == video.id), isTrue);
+  final details = await client.details(video);
+  _expectJableHost('details', details.video.pageUrl, host);
+  expect(details.streams, isNotEmpty);
+}
+
+void _expectJableHost(String route, String url, String host) {
+  final actual = Uri.parse(url).host;
+  expect(actual, host, reason: '$route should use $host');
+  debugPrint('JABLE_LIVE ${route}Host=$actual');
+}
+
+void _expectJableVideoHosts(
+  String route,
+  Iterable<VideoItem> videos,
+  String host,
+) {
+  final hosts = videos.map((video) => Uri.parse(video.pageUrl).host).toSet();
+  expect(hosts, {host}, reason: '$route results should use $host');
+}
+
 Future<void> _probeMedia(VideoStream stream) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
   try {
@@ -366,7 +453,12 @@ Future<void> _probeMedia(VideoStream stream) async {
       final response = await request.close().timeout(
         const Duration(seconds: 30),
       );
-      final body = await utf8.decodeStream(response);
+      for (final redirect in response.redirects) {
+        uri = uri.resolveUri(redirect.location);
+      }
+      final body = await utf8
+          .decodeStream(response)
+          .timeout(const Duration(seconds: 30));
       final playlist = body.trimLeft().startsWith('#EXTM3U');
       debugPrint(
         'JABLE_LIVE mediaStatus=${response.statusCode} contentType=${response.headers.contentType?.mimeType} playlist=$playlist challenge=${response.headers.value('cf-mitigated') == 'challenge'}',
@@ -380,10 +472,9 @@ Future<void> _probeMedia(VideoStream stream) async {
         final response = await request.close().timeout(
           const Duration(seconds: 30),
         );
-        final bytes = await response.fold<int>(
-          0,
-          (all, chunk) => all + chunk.length,
-        );
+        final bytes = await response
+            .fold<int>(0, (all, chunk) => all + chunk.length)
+            .timeout(const Duration(seconds: 30));
         debugPrint(
           'JABLE_LIVE keyStatus=${response.statusCode} keyBytes=$bytes',
         );
@@ -400,10 +491,9 @@ Future<void> _probeMedia(VideoStream stream) async {
       stream.headers.forEach(segment.headers.set);
       segment.headers.set(HttpHeaders.rangeHeader, 'bytes=0-1023');
       final media = await segment.close().timeout(const Duration(seconds: 30));
-      final bytes = await media.fold<List<int>>(
-        [],
-        (all, chunk) => all..addAll(chunk),
-      );
+      final bytes = await media
+          .fold<List<int>>([], (all, chunk) => all..addAll(chunk))
+          .timeout(const Duration(seconds: 30));
       debugPrint(
         'JABLE_LIVE segmentStatus=${media.statusCode} contentType=${media.headers.contentType?.mimeType} bytes=${bytes.length} prefix=${bytes.take(12).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}',
       );
@@ -417,13 +507,19 @@ Future<void> _probeMedia(VideoStream stream) async {
   }
 }
 
-Future<void> _verify(WidgetTester tester, JableClient client) async {
+Future<void> _verify(
+  WidgetTester tester,
+  JableClient client, {
+  String? sourceUrl,
+  bool requireLogin = false,
+}) async {
   bool? verified;
   final result =
       verifyJableAccess(
         tester.element(find.byType(Scaffold).first),
         client,
-        sourceUrl: client.homeUrl,
+        sourceUrl: sourceUrl ?? client.homeUrl,
+        requireLogin: requireLogin,
       ).then((value) {
         verified = value;
       });
@@ -444,17 +540,21 @@ Future<void> _verify(WidgetTester tester, JableClient client) async {
     var prompted = false;
     while (verified == null) {
       await tester.pump(const Duration(milliseconds: 500));
+      final pageReady = requireLogin
+          ? "!!document.querySelector('#list_videos_my_favourite_videos')"
+          : 'true';
       final ready = await controller.runJavaScriptReturningResult('''
 location.origin === 'https://jable.tv' && document.readyState === 'complete' &&
 !document.title.toLowerCase().startsWith('just a moment') &&
 !document.title.toLowerCase().startsWith('attention required') &&
-!document.querySelector('#challenge-form')
+!document.querySelector('#challenge-form') &&
+$pageReady
 ''');
       if (ready == true) {
         final s = S.of(tester.element(find.byType(Scaffold).first));
         final button = find.widgetWithText(
           FilledButton,
-          s.videoVerificationContinue,
+          requireLogin ? s.videoLoginComplete : s.videoVerificationContinue,
         );
         await tester.tap(button);
         break;
@@ -468,13 +568,26 @@ document.title.toLowerCase().startsWith('attention required') ||
         final atSource = await controller.runJavaScriptReturningResult(
           "location.origin === 'https://jable.tv'",
         );
-        debugPrint(
-          'JABLE_LIVE awaitingManualVerification=true challenge=$challenge sourceOrigin=$atSource',
-        );
+        if (requireLogin) {
+          final signedIn = await controller.runJavaScriptReturningResult(
+            "!!document.querySelector('#list_videos_my_favourite_videos')",
+          );
+          debugPrint(
+            'JABLE_LIVE awaitingManualJableLogin=true challenge=$challenge signedIn=$signedIn sourceOrigin=$atSource',
+          );
+        } else {
+          debugPrint(
+            'JABLE_LIVE awaitingManualVerification=true challenge=$challenge sourceOrigin=$atSource',
+          );
+        }
         prompted = true;
       }
       if (DateTime.now().isAfter(deadline)) {
-        fail('Jable browser verification was not completed');
+        fail(
+          requireLogin
+              ? 'Jable sign-in was not completed'
+              : 'Jable browser verification was not completed',
+        );
       }
     }
   }

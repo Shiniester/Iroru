@@ -171,7 +171,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   int _request = 0;
   Future<void> Function()? _retryAction;
   ({bool loggedIn, String? accountName})? _accountIdentity;
-  ({bool loggedIn, int revision})? _jableAccountIdentity;
+  ({bool loggedIn, int revision, int contentGeneration})? _jableAccountIdentity;
   late final UnifiedSearchHistorySession _historySession =
       UnifiedSearchHistorySession(
         ref.read(unifiedSearchHistoryProvider.notifier),
@@ -268,11 +268,14 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       ? null
       : (loggedIn: client.isLoggedIn, accountName: client.accountName);
 
-  ({bool loggedIn, int revision})? _readJableAccountIdentity(
-    JableAccount? account,
-  ) => account == null
+  ({bool loggedIn, int revision, int contentGeneration})?
+  _readJableAccountIdentity(JableAccount? account) => account == null
       ? null
-      : (loggedIn: account.isLoggedIn, revision: account.revision);
+      : (
+          loggedIn: account.isLoggedIn,
+          revision: account.revision,
+          contentGeneration: account.contentGeneration,
+        );
 
   bool _sameFilterKinds(
     List<VideoSearchFilterKind> first,
@@ -325,8 +328,14 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     if (identity == _jableAccountIdentity) return;
     final previousIdentity = _jableAccountIdentity;
     _jableAccountIdentity = identity;
-    if (widget.sourceKey != 'jable' ||
-        widget.historyContext.entryScope != 'favorites') {
+    if (widget.sourceKey != 'jable') return;
+    final favoriteScope = widget.historyContext.entryScope == 'favorites';
+    final generationChanged =
+        identity?.contentGeneration != previousIdentity?.contentGeneration;
+    final favoritesChanged = identity?.revision != previousIdentity?.revision;
+    if (!generationChanged && (!favoriteScope || !favoritesChanged)) return;
+    if (!favoriteScope) {
+      if (generationChanged) _refreshPublicJableSearch();
       return;
     }
     // Session import must keep the pending verification retry current.
@@ -345,7 +354,6 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
         identity?.loggedIn == true) {
       return;
     }
-
     final query = _query.text.trim();
     final filters = List<VideoLink>.unmodifiable(_filters);
     _invalidateAccountResults(
@@ -361,6 +369,20 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
         }
       });
     }
+  }
+
+  void _refreshPublicJableSearch() {
+    final query = _query.text.trim();
+    final filters = List<VideoLink>.unmodifiable(_filters);
+    _invalidateAccountResults();
+    final request = _request;
+    _loadFocusedFilterPageAfterFrame();
+    if (query.isEmpty && filters.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && request == _request) {
+        unawaited(_runSearch(query, filters: filters, recordHistory: false));
+      }
+    });
   }
 
   void _invalidateAccountResults({Object? error}) {
@@ -410,6 +432,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   void _clearLoadedFilterPages() {
     _filterScopeRevision++;
     _loadedFilterPages.clear();
+    _filterPageRequests.clear();
     _filterPageErrors.clear();
     _verifyingFilterPages.clear();
   }

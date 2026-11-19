@@ -296,6 +296,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
 
   Future<void> _initialize({VideoDetails? supplement}) async {
     final generation = ++_loadGeneration;
+    int? jableContentGeneration;
     _cancelDetailsRequest();
     final requestToken = _detailsRequestToken = CancelToken();
     final loadDuringEntry =
@@ -339,8 +340,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       if (loadDuringEntry) {
         _preparePlaybackSession(generation, requestToken).ignore();
       }
+      jableContentGeneration = _jableAccount?.contentGeneration;
       Future<void> onReady(VideoDetails details) async {
         if (!await _waitForRouteIdle(generation)) return;
+        if (jableContentGeneration != _jableAccount?.contentGeneration) return;
         if (_details == null) {
           task = _completedDownloadTask ?? task;
         }
@@ -373,6 +376,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         _ => await _sourceClient.details(widget.video, onReady: onReady),
       };
       if (!await _waitForRouteIdle(generation)) return;
+      if (jableContentGeneration != _jableAccount?.contentGeneration) {
+        await _finishJableContentChange();
+        return;
+      }
       if (_details == null) {
         task = _completedDownloadTask ?? task;
       }
@@ -392,6 +399,11 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       }
     } catch (error) {
       if (!await _waitForRouteIdle(generation)) return;
+      if (jableContentGeneration != null &&
+          jableContentGeneration != _jableAccount?.contentGeneration) {
+        await _finishJableContentChange();
+        return;
+      }
       final completedDownload = _details == null
           ? _completedDownloadTask
           : null;
@@ -411,6 +423,18 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         _error = error;
         _verificationError = error is VideoVerificationRequired ? error : null;
       });
+    }
+  }
+
+  Future<void> _finishJableContentChange() async {
+    final details = _details;
+    if (details == null) {
+      await _initialize();
+      return;
+    }
+    setState(() => _loading = false);
+    if (_jableAccount?.isLoggedIn == true) {
+      await _refreshJableFavorite(details);
     }
   }
 

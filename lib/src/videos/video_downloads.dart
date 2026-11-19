@@ -13,6 +13,7 @@ import '../services/http_response_stream.dart';
 import '../services/remote_asset_cache.dart';
 import '../services/resumable_file_transfer.dart';
 import '../services/shared_http_client.dart';
+import 'jable_client.dart';
 import 'missav_client.dart';
 import 'video_download_task.dart';
 import 'video_library.dart';
@@ -293,10 +294,14 @@ class VideoDownloads extends ChangeNotifier {
   ) async {
     _ensureCurrent(operation);
     final source = sourceClientFor?.call(task.video.sourceKey) ?? client;
-    final details = await source.details(
-      task.video,
-      includeAccountState: false,
-    );
+    final jable = task.video.sourceKey == 'jable' && source is JableClient
+        ? source
+        : null;
+    final hasPartialMedia = jable != null && await _hasPartialMedia(task);
+    _ensureCurrent(operation);
+    final details = jable != null && hasPartialMedia
+        ? await jable.detailsForDownload(task.video)
+        : await source.details(task.video, includeAccountState: false);
     _ensureCurrent(operation);
     final stream = _selectStream(details, task.quality);
     if (stream == null) {
@@ -310,6 +315,21 @@ class VideoDownloads extends ChangeNotifier {
       );
     }
 
+    var activeTask = task;
+    if (jable != null && !hasPartialMedia) {
+      final pageUrl = details.video.pageUrl;
+      if (pageUrl.isNotEmpty && pageUrl != task.video.pageUrl) {
+        final current = forVideo(task.id);
+        if (current == null || !_canContinue(operation)) {
+          throw const HttpException('Video download cancelled');
+        }
+        activeTask = current.copyWith(video: details.video);
+        _replaceTask(activeTask);
+        await _persist();
+        _ensureCurrent(operation);
+      }
+    }
+
     final prepared = source is MissavClient
         ? await source.prepareMediaStreamWithCancellation(
             details.video,
@@ -319,14 +339,26 @@ class VideoDownloads extends ChangeNotifier {
         : stream;
     _ensureCurrent(operation);
     final uri = _requireHttpUri(Uri.parse(prepared.url));
-    final directory = _taskDirectory(task.id);
+    final directory = _taskDirectory(activeTask.id);
     await directory.create(recursive: true);
-    final headers = _headersFor(task.video, uri, prepared.headers);
-    if (task.isHls) {
-      await _downloadHls(task, uri, headers, directory, operation);
+    final headers = _headersFor(activeTask.video, uri, prepared.headers);
+    if (activeTask.isHls) {
+      await _downloadHls(activeTask, uri, headers, directory, operation);
     } else {
-      await _downloadMp4(task, uri, headers, operation);
+      await _downloadMp4(activeTask, uri, headers, operation);
     }
+  }
+
+  Future<bool> _hasPartialMedia(VideoDownloadTask task) async {
+    final directory = _taskDirectory(task.id);
+    if (!await directory.exists()) return false;
+    await for (final entity in directory.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is File && await entity.length() > 0) return true;
+    }
+    return false;
   }
 
   Future<void> _downloadMp4(

@@ -40,11 +40,17 @@ Jable 沿用 MissAV 的浏览器验证交互。
 取消验证后，页面保留验证入口。
 
 Jable 与 MissAV 分别保存浏览器会话。
-目录、搜索和详情通过已验证的源站浏览器读取。
-重新打开应用后，首次请求恢复 Jable 浏览器会话。
+未登录、会话待确认或仅通过源站验证时，目录、搜索和详情优先使用匿名镜像 `jable1.net`。
+匿名首页打开镜像的新作目录。镜像访问失败或返回无效页面时，请求官方线路。
+搜索成功返回空结果时，不换线。
+
+应用在官方线路恢复已保存的会话。官方收藏页确认登录后，新的内容请求切到 `jable.tv`。
+退出或确认会话过期后，新请求恢复镜像优先。账号 Cookie 和浏览器会话仅用于官方线路。
+线路切换后，目录和搜索使用当前查询重新加载。
 切换视频源后，旧请求的响应不得替换当前源的内容。
 
-播放和下载使用源站详情提供的 HLS 地址及请求头。
+播放和下载使用实际详情页提供的 HLS 地址及请求头。
+线路切换不打断已开始的播放或下载。恢复已有分片的下载时，仍从原线路获取播放地址。
 
 ## 资料归属
 
@@ -82,14 +88,16 @@ Jable 与 MissAV 分别保存浏览器会话。
 ## Android 实测入口
 
 `integration_test/jable_live_test.dart` 默认跳过源站实测。
-连接 Android 设备后，使用以下命令启用实测：
+连接 Android 设备后，使用以下命令验证匿名镜像：
 
 ```powershell
-flutter drive --no-pub -d emulator-5554 --driver=test_driver/jable_live_driver.dart --target=integration_test/jable_live_test.dart --dart-define=KIKOFLU_LIVE_JABLE=true --keep-app-running
+flutter drive --no-pub -d emulator-5554 --driver=test_driver/jable_live_driver.dart --target=integration_test/jable_live_test.dart --dart-define=KIKOFLU_LIVE_JABLE=true --dart-define=KIKOFLU_LIVE_JABLE_MIRROR=true --keep-app-running
 ```
 
-需要交互验证时，在设备中的 Jable 页面完成验证。
-实测检查目录、搜索、在线播放、跳转、会话恢复、完整下载、暂停继续和离线播放。
+匿名实测检查镜像目录、搜索、详情、在线跳转、整片下载、暂停续传和离线播放。
+加入 `--dart-define=KIKOFLU_LIVE_JABLE_ACCOUNT=true` 可单独验证账号切换。
+在测试应用打开的 Jable 页面用测试账号登录。测试会确认目录、搜索和详情切到官方线路，再退出账号并确认镜像恢复。
+仅启用 `KIKOFLU_LIVE_JABLE` 时，测试验证官方线路的浏览器验证和会话恢复。
 完整下载的等待上限为 4 小时。
 下载失败后，实测调用下载页已有的重试操作，最多重试 20 次。
 全部检查通过后，实测删除临时样本。
@@ -103,6 +111,20 @@ flutter drive --no-pub -d emulator-5554 --driver=test_driver/jable_live_driver.d
   - 会话恢复、完整下载、暂停继续、失败重试和离线播放。
 
   实测报告会标记 `downloadOnly`。
+
+### 镜像线路验收
+
+2026 年 11 月 20 日，Android API 36 x86_64 模拟器通过应用 HTTP 代理测试 `jable1.net`。
+
+| 检查 | 结果 |
+| --- | --- |
+| 匿名目录、搜索与详情 | 目录返回 24 条，按编号找到样本，详情返回 HLS 播放地址 |
+| 在线播放与中段跳转 | 通过，分辨率为 1280 × 720 |
+| 暂停、续传与整片落盘 | 通过，从 938 个已校验的镜像分片续传，完成后共 808,193,234 字节 |
+| 离线播放与中段跳转 | 通过，分辨率为 1280 × 720，时长 3,834 秒 |
+| 真实账号登录与退出切线 | 待在 Jable 官方页面完成验证和登录 |
+
+从零下载的测试遇到媒体连接中断。整片验收使用已有分片，并在一次连接超时后重试成功。
 
 ## 实际访问
 

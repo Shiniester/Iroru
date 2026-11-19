@@ -75,7 +75,8 @@ _Avoid_: Audio account, comic account
 
 **Video Source Account Session (视频源账号会话)**:
 The period during which a Video Source accepts a sign-in to a Video Source
-Account. A valid session can continue after the app closes and reopens.
+Account. A valid session can continue after the app closes and reopens. Jable
+confirms a session by granting access to the account's Favorites.
 
 **Video Source Verification (视频源验证)**:
 The website check required before a Video Source permits access from the current
@@ -83,18 +84,21 @@ network. It is separate from signing in to a Video Source Account.
 _Avoid_: Video account login
 
 **Content Host (内容线路)**:
-A Video Source host that serves catalog pages without Video Source Verification.
-For MissAV, Content Hosts are the measured mirror list.
+A host that serves a Video Source's catalog and video details. For MissAV,
+Content Hosts are the measured mirrors. Jable uses a Video Source Mirror for
+anonymous access and its Official Host after account confirmation.
 _Avoid_: Source mirror, browsing mirror
 
 **Account Host (账号线路)**:
 A Video Source host used for account login and account APIs. For MissAV, Account
-Hosts are `missav.live`, `missav.ws`, and `missav.ai`.
+Hosts are `missav.live`, `missav.ws`, and `missav.ai`. The Jable Account Host is
+`jable.tv`.
 _Avoid_: Login mirror
 
 **Official Host (官方线路)**:
-A MissAV host that may require Video Source Verification: `missav.live`,
-`missav.ws`, or `missav.ai`. Official Hosts are the last Content Host fallback.
+A host operated by the Video Source. For MissAV, Official Hosts are
+`missav.live`, `missav.ws`, and `missav.ai`. For Jable, the Official Host is
+`jable.tv`. Official Hosts may require Video Source Verification.
 _Avoid_: Primary mirror, canonical host
 
 **Last Good Content Host (上次可用内容线路)**:

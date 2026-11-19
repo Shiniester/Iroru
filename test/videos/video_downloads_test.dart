@@ -9,11 +9,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:iroru/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/videos/jable_client.dart';
 import 'package:iroru/src/videos/missav_client.dart';
 import 'package:iroru/src/videos/video_download_task.dart';
 import 'package:iroru/src/videos/video_downloads.dart';
 import 'package:iroru/src/videos/video_library.dart';
 import 'package:iroru/src/videos/video_models.dart';
+import 'package:iroru/src/videos/video_source_client.dart';
 
 void main() {
   late Directory root;
@@ -32,6 +34,7 @@ void main() {
       services: [],
       libraries: [],
       sourceClients: [],
+      jableClients: [],
     );
   });
 
@@ -44,6 +47,9 @@ void main() {
     }
     for (final sourceClient in _activeTest.sourceClients) {
       sourceClient.dispose();
+    }
+    for (final jableClient in _activeTest.jableClients) {
+      jableClient.dispose();
     }
     httpClient.close(force: true);
     for (final server in _activeTest.servers) {
@@ -824,11 +830,155 @@ ${_url(cdnServer, '/segment.m4s')}
       expect(await File(restoredJable.localPath!).readAsBytes(), _mp4Fixture());
     },
   );
+
+  test(
+    'Jable pins the resolved detail page before media and resumes on that page',
+    () async {
+      final firstSegmentStarted = Completer<void>();
+      final secondSegmentStarted = Completer<void>();
+      final releaseSecondSegment = Completer<void>();
+      final requests = <String>[];
+      var secondSegmentRequests = 0;
+      final server = await _server((request) async {
+        requests.add(request.uri.path);
+        switch (request.uri.path) {
+          case '/line-a/index.m3u8':
+            await _send(
+              request,
+              utf8.encode('''#EXTM3U
+#EXTINF:1.0,
+/line-a/seg1.ts
+#EXTINF:1.0,
+/line-a/seg2.ts
+#EXT-X-ENDLIST
+'''),
+              contentType: 'application/vnd.apple.mpegurl',
+            );
+            return;
+          case '/line-a/seg1.ts':
+            if (!firstSegmentStarted.isCompleted) {
+              firstSegmentStarted.complete();
+            }
+            await _send(request, _tsFixture(), contentType: 'video/mp2t');
+            return;
+          case '/line-a/seg2.ts':
+            if (secondSegmentRequests++ == 0) {
+              if (!secondSegmentStarted.isCompleted) {
+                secondSegmentStarted.complete();
+              }
+              await releaseSecondSegment.future;
+              try {
+                await _send(request, _tsFixture(), contentType: 'video/mp2t');
+              } catch (_) {
+                // The suspended response is aborted when the download pauses.
+              }
+            } else {
+              await _send(request, _tsFixture(), contentType: 'video/mp2t');
+            }
+            return;
+          default:
+            request.response.statusCode = HttpStatus.notFound;
+            await request.response.close();
+        }
+      });
+      const video = VideoItem(
+        id: 'routed-download',
+        sourceKey: 'jable',
+        title: 'Routed download',
+        pageUrl: 'https://jable.tv/videos/routed-download/',
+      );
+      const pinnedPage = 'https://jable1.net/videos/routed-download/';
+      const stream = VideoStream(
+        label: 'HLS',
+        url: 'https://media.invalid/index.m3u8',
+        isHls: true,
+      );
+      final firstJable = _FixtureJableDownloadClient(
+        resolveDetails: (item) async =>
+            _jableDetails(item, pinnedPage, _url(server, '/line-a/index.m3u8')),
+        resolveDownload: (item) async =>
+            throw StateError('Unexpected download details request.'),
+      );
+      _activeTest.jableClients.add(firstJable);
+      final firstMissav = _unusedMissavClient();
+      final downloads = await _downloads(
+        firstMissav,
+        sourceClients: {'jable': firstJable},
+      );
+
+      await downloads.add(video, stream);
+      await firstSegmentStarted.future.timeout(const Duration(seconds: 5));
+      expect(downloads.forVideo(video.storageKey)!.video.pageUrl, pinnedPage);
+      final persisted = preferences.getString('video_download_tasks_v1')!;
+      expect(persisted, contains(pinnedPage));
+
+      await secondSegmentStarted.future.timeout(const Duration(seconds: 5));
+      try {
+        await downloads
+            .pause(video.storageKey)
+            .timeout(const Duration(seconds: 5));
+      } finally {
+        if (!releaseSecondSegment.isCompleted) {
+          releaseSecondSegment.complete();
+        }
+      }
+      expect(
+        downloads.forVideo(video.storageKey)!.status,
+        VideoDownloadStatus.paused,
+      );
+      expect(firstJable.detailsCalls, 1);
+      expect(firstJable.downloadCalls, 0);
+
+      downloads.dispose();
+      _activeTest.services.remove(downloads);
+      firstJable.dispose();
+      _activeTest.jableClients.remove(firstJable);
+      firstMissav.dispose();
+      _activeTest.sourceClients.remove(firstMissav);
+
+      final secondJable = _FixtureJableDownloadClient(
+        resolveDetails: (item) async =>
+            throw StateError('Unexpected current route request.'),
+        resolveDownload: (item) async => item.pageUrl == pinnedPage
+            ? _jableDetails(
+                item,
+                pinnedPage,
+                _url(server, '/line-a/index.m3u8'),
+              )
+            : throw StateError(
+                'Unexpected cross-line request: ${item.pageUrl}',
+              ),
+      );
+      _activeTest.jableClients.add(secondJable);
+      final secondMissav = _unusedMissavClient();
+      final resumed = await _downloads(
+        secondMissav,
+        sourceClients: {'jable': secondJable},
+      );
+      expect(
+        resumed.forVideo(video.storageKey)!.status,
+        VideoDownloadStatus.paused,
+      );
+
+      await resumed.resume(video.storageKey);
+      await _until(
+        resumed,
+        (task) => task.status == VideoDownloadStatus.completed,
+        videoId: video.storageKey,
+      );
+
+      expect(secondJable.detailsCalls, 0);
+      expect(secondJable.downloadCalls, 1);
+      expect(secondJable.downloadPageUrls.single, pinnedPage);
+      expect(requests.where((path) => path == '/line-a/seg1.ts'), hasLength(1));
+      expect(requests, everyElement(startsWith('/line-a/')));
+    },
+  );
 }
 
 Future<VideoDownloads> _downloads(
   MissavClient sourceClient, {
-  Map<String, MissavClient>? sourceClients,
+  Map<String, VideoSourceClient>? sourceClients,
 }) async {
   final test = _activeTest;
   final service = VideoDownloads(
@@ -872,6 +1022,28 @@ _FixtureMissavClient _fixtureClient(VideoItem video, VideoStream stream) {
   _activeTest.sourceClients.add(client);
   return client;
 }
+
+_FixtureMissavClient _unusedMissavClient() {
+  final client = _FixtureMissavClient(
+    (_) async => throw StateError('Unexpected MissAV request.'),
+  );
+  _activeTest.sourceClients.add(client);
+  return client;
+}
+
+VideoDetails _jableDetails(VideoItem item, String pageUrl, String streamUrl) =>
+    VideoDetails(
+      video: VideoItem(
+        id: item.id,
+        sourceKey: item.sourceKey,
+        title: item.title,
+        pageUrl: pageUrl,
+      ),
+      streams: [VideoStream(label: 'HLS', url: streamUrl, isHls: true)],
+    );
+
+Uint8List _tsFixture() =>
+    Uint8List.fromList([0x47, ...List<int>.filled(187, 0)]);
 
 Future<void> _send(
   HttpRequest request,
@@ -955,6 +1127,7 @@ class _TestContext {
     required this.services,
     required this.libraries,
     required this.sourceClients,
+    required this.jableClients,
   });
 
   final Directory root;
@@ -964,6 +1137,7 @@ class _TestContext {
   final List<VideoDownloads> services;
   final List<VideoLibrary> libraries;
   final List<MissavClient> sourceClients;
+  final List<JableClient> jableClients;
 
   VideoLibrary get library {
     final value = VideoLibrary(preferences: preferences);
@@ -1020,4 +1194,36 @@ class _FixtureJableClient extends _FixtureMissavClient {
 
   @override
   String get sourceKey => 'jable';
+}
+
+class _FixtureJableDownloadClient extends JableClient {
+  _FixtureJableDownloadClient({
+    required this.resolveDetails,
+    required this.resolveDownload,
+  }) : super(dio: Dio());
+
+  final Future<VideoDetails> Function(VideoItem) resolveDetails;
+  final Future<VideoDetails> Function(VideoItem) resolveDownload;
+  int detailsCalls = 0;
+  int downloadCalls = 0;
+  final List<String> downloadPageUrls = [];
+
+  @override
+  Future<VideoDetails> details(
+    VideoItem item, {
+    FutureOr<void> Function(VideoDetails)? onReady,
+    bool includeAccountState = true,
+  }) async {
+    detailsCalls++;
+    final value = await resolveDetails(item);
+    await onReady?.call(value);
+    return value;
+  }
+
+  @override
+  Future<VideoDetails> detailsForDownload(VideoItem item) {
+    downloadCalls++;
+    downloadPageUrls.add(item.pageUrl);
+    return resolveDownload(item);
+  }
 }

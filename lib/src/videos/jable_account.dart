@@ -11,10 +11,12 @@ class JableAccount extends ChangeNotifier {
   final JableClient _client;
   bool _isLoggedIn = false;
   int _revision = 0;
+  int _contentGeneration = 0;
   bool _disposed = false;
 
   bool get isLoggedIn => _isLoggedIn;
   int get revision => _revision;
+  int get contentGeneration => _contentGeneration;
 
   static bool isFavoritesUri(Uri uri) =>
       uri.scheme == 'https' &&
@@ -28,13 +30,17 @@ class JableAccount extends ChangeNotifier {
       document.querySelector('#$_favoritesBlockId') != null;
 
   void _sessionChanged() {
-    _isLoggedIn = false;
-    _changed();
+    if (_isLoggedIn) {
+      _setLoggedIn(false);
+    } else {
+      _changed();
+    }
   }
 
   void _setLoggedIn(bool value) {
     if (_disposed || value == _isLoggedIn) return;
     _isLoggedIn = value;
+    _contentGeneration++;
     _changed();
   }
 
@@ -435,7 +441,9 @@ class JableAccount extends ChangeNotifier {
         sourceUrl: details.video.pageUrl,
       );
     }
-    final uri = _client._sourceUri(pageUrl);
+    final uri = _client
+        ._sourceUri(pageUrl, allowMirror: true)
+        .replace(host: JableClient._officialHost);
     final segments = _client._segments(uri);
     if (segments.length != 2 || segments.first != 'videos') {
       throw VideoSourceException(

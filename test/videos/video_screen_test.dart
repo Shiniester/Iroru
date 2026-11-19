@@ -2799,6 +2799,70 @@ void main() {
   );
 
   testWidgets(
+    'Jable session route changes reload the catalog and ignore stale pages',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final account = _TestJableAccount(loggedIn: false, revision: 0);
+      final signedInResponse = Completer<VideoCatalogPage>();
+      var browseCount = 0;
+      final jable = _TestJableClient(
+        account: account,
+        browseHandler: (url) {
+          browseCount++;
+          if (browseCount == 1) {
+            return Future.value(
+              VideoCatalogPage(title: 'Signed-out catalog', url: url),
+            );
+          }
+          if (browseCount == 2) return signedInResponse.future;
+          return Future.value(
+            VideoCatalogPage(title: 'Current public catalog', url: url),
+          );
+        },
+      );
+      final missav = _TestMissavClient();
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: missav, library: library);
+      await tester.pumpWidget(
+        _app(
+          missav,
+          library,
+          downloads,
+          const VideoScreen(),
+          selectedVideoSource: 'jable',
+          jableClient: jable,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Signed-out catalog'), findsOneWidget);
+
+      account.confirmLogin();
+      await tester.pump();
+      expect(browseCount, 2);
+      account.expireSession();
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(browseCount, 3);
+      expect(find.text('Current public catalog'), findsOneWidget);
+
+      signedInResponse.complete(
+        VideoCatalogPage(
+          title: 'Stale signed-in catalog',
+          url: jable.browsedUrls.first,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Current public catalog'), findsOneWidget);
+      expect(find.text('Stale signed-in catalog'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
     'Jable favorite catalog offers account login after auth failure',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -5299,6 +5363,9 @@ class _TestJableClient extends JableClient {
   JableAccount get account => _testAccount ?? super.account;
 
   @override
+  int get contentGeneration => account.contentGeneration;
+
+  @override
   Future<void> initialize() async {}
 
   @override
@@ -5344,6 +5411,9 @@ class _TestJableAccount extends ChangeNotifier implements JableAccount {
   int revision;
 
   @override
+  int contentGeneration = 0;
+
+  @override
   bool get isLoggedIn => loggedIn;
 
   @override
@@ -5355,6 +5425,14 @@ class _TestJableAccount extends ChangeNotifier implements JableAccount {
   void expireSession() {
     loggedIn = false;
     revision++;
+    contentGeneration++;
+    notifyListeners();
+  }
+
+  void confirmLogin() {
+    loggedIn = true;
+    revision++;
+    contentGeneration++;
     notifyListeners();
   }
 

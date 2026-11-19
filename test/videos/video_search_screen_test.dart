@@ -251,6 +251,65 @@ void main() {
     );
   }
 
+  testWidgets('Jable public search refreshes after a session route change', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final account = _TestJableAccount();
+    final staleResults = Completer<VideoSearchResults>();
+    var searchCount = 0;
+    const currentVideo = VideoItem(
+      id: 'current-public',
+      sourceKey: 'jable',
+      title: 'Current public result',
+      pageUrl: 'https://jable.tv/videos/current-public/',
+    );
+    const staleVideo = VideoItem(
+      id: 'stale-public',
+      sourceKey: 'jable',
+      title: 'Stale public result',
+      pageUrl: 'https://jable.tv/videos/stale-public/',
+    );
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Jable search',
+          sourceKey: 'jable',
+          jableAccount: account,
+          initialQuery: 'public query',
+          search: (query, _, _) {
+            expect(query, 'public query');
+            searchCount++;
+            return searchCount == 1
+                ? staleResults.future
+                : Future.value(
+                    const VideoSearchResults.collection([currentVideo]),
+                  );
+          },
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(searchCount, 1);
+
+    account.expireSession();
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(searchCount, 2);
+    expect(find.text(currentVideo.title), findsOneWidget);
+
+    staleResults.complete(const VideoSearchResults.collection([staleVideo]));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text(currentVideo.title), findsOneWidget);
+    expect(find.text(staleVideo.title), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    account.dispose();
+  });
+
   testWidgets(
     'Jable search renders supported filters and source navigation choices',
     (tester) async {
@@ -2940,12 +2999,16 @@ class _TestAccountClient extends MissavClient {
 class _TestJableAccount extends ChangeNotifier implements JableAccount {
   bool _loggedIn = true;
   int _revision = 0;
+  int _contentGeneration = 0;
 
   @override
   bool get isLoggedIn => _loggedIn;
 
   @override
   int get revision => _revision;
+
+  @override
+  int get contentGeneration => _contentGeneration;
 
   @override
   Future<List<VideoItem>> searchFavorites(
@@ -2961,6 +3024,7 @@ class _TestJableAccount extends ChangeNotifier implements JableAccount {
   void expireSession() {
     _loggedIn = false;
     _revision++;
+    _contentGeneration++;
     notifyListeners();
   }
 

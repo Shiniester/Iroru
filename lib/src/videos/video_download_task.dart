@@ -24,6 +24,7 @@ class VideoDownloadTask {
   final String? error;
 
   VideoDownloadTask copyWith({
+    VideoItem? video,
     VideoDownloadStatus? status,
     double? progress,
     String? localPath,
@@ -31,7 +32,7 @@ class VideoDownloadTask {
     bool clearError = false,
   }) => VideoDownloadTask(
     id: id,
-    video: video,
+    video: video ?? this.video,
     quality: quality,
     isHls: isHls,
     status: status ?? this.status,
