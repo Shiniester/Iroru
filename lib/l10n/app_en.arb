@@ -1827,6 +1827,11 @@
   "videoInterface": "Interface",
   "videoAccountAndSources": "Account and sources",
   "videoAccountSignedIn": "Signed in",
+  "videoAccountRestoring": "Restoring sign-in",
+  "videoAccountRestoreFailed": "Could not restore sign-in",
+  "@videoAccountRestoreFailed": {
+    "description": "Shown when a saved MissAV sign-in could not be restored."
+  },
   "videoAccountSignedOut": "Not signed in",
   "downloadsAndStorage": "Downloads and storage",
   "videoCardMakers": "Studio",
@@ -1854,8 +1859,63 @@
     "description": "Opens the paginated video filter directory."
   },
   "videoSourceAccount": "MissAV account",
+  "videoAccountEmail": "Email",
+  "videoAccountHost": "Login host",
+  "@videoAccountHost": {
+    "description": "Selector label for the official MissAV host used for account sign-in."
+  },
+  "videoAccountBrowserLogin": "Sign in on website",
   "videoJableAccount": "Jable account",
   "videoJableLoginRequired": "Sign in to Jable to view and manage your video favorites.",
+  "videoMirrorSettings": "MissAV host",
+  "@videoMirrorSettings": {
+    "description": "Settings entry for the MissAV mirror host speed test."
+  },
+  "videoMirrorDescription": "All hosts are listed. Unavailable hosts cannot be selected. The selected host is used for browsing, search, and playback.",
+  "@videoMirrorDescription": {
+    "description": "Explains that the list shows all hosts and unavailable hosts cannot be selected."
+  },
+  "videoMirrorAutomatic": "Choose the fastest host automatically",
+  "@videoMirrorAutomatic": {
+    "description": "Option that selects the fastest reachable MissAV host during access."
+  },
+  "videoMirrorUseFastest": "Use fastest",
+  "@videoMirrorUseFastest": {
+    "description": "Action that selects the fastest host from the current speed test."
+  },
+  "videoMirrorRetest": "Test speed",
+  "@videoMirrorRetest": {
+    "description": "Action that measures every MissAV mirror again."
+  },
+  "videoMirrorTesting": "Testing…",
+  "@videoMirrorTesting": {
+    "description": "Shown while a MissAV mirror latency test is pending."
+  },
+  "videoMirrorTimeout": "Timed out",
+  "@videoMirrorTimeout": {
+    "description": "Shown when a MissAV mirror latency test times out."
+  },
+  "videoMirrorUnavailable": "Unavailable",
+  "@videoMirrorUnavailable": {
+    "description": "Shown when a MissAV mirror does not pass its latency test."
+  },
+  "videoMirrorSelect": "Use",
+  "@videoMirrorSelect": {
+    "description": "Action that selects a MissAV mirror."
+  },
+  "videoMirrorInUse": "In use",
+  "@videoMirrorInUse": {
+    "description": "Indicates the currently selected MissAV mirror."
+  },
+  "videoMirrorCurrent": "Current: {host}",
+  "@videoMirrorCurrent": {
+    "description": "Shows the MissAV host currently serving content.",
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
   "videoLoginHelp": "Sign in on the source website, then select Done to check your sign-in status.",
   "@videoLoginHelp": {
     "description": "Instruction shown in the source website login dialog before confirming account status."
@@ -1889,6 +1949,13 @@
   "videoWatchHistory": "Watch history",
   "videoDownloads": "Video downloads",
   "videoSourceUnavailable": "This feature is unavailable in the app. Open the source website.",
+  "videoAccessDenied": "The source website denied access. Open the website to check access.",
+  "videoRateLimited": "Too many requests. Wait a while, then try again.",
+  "videoRateLimitedUntil": "Too many requests. Try again after {time}.",
+  "@videoRateLimitedUntil": {
+    "description": "The source website has limited requests and provided a time to try again.",
+    "placeholders": { "time": { "type": "String", "example": "Nov 17, 2026 3:30 PM" } }
+  },
   "videoVerificationRequired": "The video source requires browser verification. Verify access, then retry.",
   "videoVerifyAccess": "Verify access",
   "videoVerificationHelp": "Complete verification on the source website, then select Check access.",

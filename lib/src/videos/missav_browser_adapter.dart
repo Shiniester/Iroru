@@ -14,6 +14,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
     required this.currentUrl,
     required this.navigateDocument,
     required this.disposeBrowser,
+    this.readCookieHeader,
   }) : _isJable = false;
 
   MissavBrowserAdapter.jable({
@@ -21,6 +22,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
     required this.currentUrl,
     required this.navigateDocument,
     required this.disposeBrowser,
+    this.readCookieHeader,
   }) : _isJable = true;
 
   final bool _isJable;
@@ -29,6 +31,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
   final Future<String> Function(Uri uri, Future<void> cancelled)
   navigateDocument;
   final Future<void> Function() disposeBrowser;
+  final Future<String> Function()? readCookieHeader;
   final _pending = <int, _BrowserRequest>{};
   final _nonce = base64UrlEncode(
     List<int>.generate(24, (_) => Random.secure().nextInt(256)),

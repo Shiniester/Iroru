@@ -4390,6 +4390,12 @@ class SEn extends S {
   String get videoAccountSignedIn => 'Signed in';
 
   @override
+  String get videoAccountRestoring => 'Restoring sign-in';
+
+  @override
+  String get videoAccountRestoreFailed => 'Could not restore sign-in';
+
+  @override
   String get videoAccountSignedOut => 'Not signed in';
 
   @override
@@ -4428,11 +4434,56 @@ class SEn extends S {
   String get videoSourceAccount => 'MissAV account';
 
   @override
+  String get videoAccountEmail => 'Email';
+
+  @override
+  String get videoAccountHost => 'Login host';
+
+  @override
+  String get videoAccountBrowserLogin => 'Sign in on website';
+
+  @override
   String get videoJableAccount => 'Jable account';
 
   @override
   String get videoJableLoginRequired =>
       'Sign in to Jable to view and manage your video favorites.';
+
+  @override
+  String get videoMirrorSettings => 'MissAV host';
+
+  @override
+  String get videoMirrorDescription =>
+      'All hosts are listed. Unavailable hosts cannot be selected. The selected host is used for browsing, search, and playback.';
+
+  @override
+  String get videoMirrorAutomatic => 'Choose the fastest host automatically';
+
+  @override
+  String get videoMirrorUseFastest => 'Use fastest';
+
+  @override
+  String get videoMirrorRetest => 'Test speed';
+
+  @override
+  String get videoMirrorTesting => 'Testing…';
+
+  @override
+  String get videoMirrorTimeout => 'Timed out';
+
+  @override
+  String get videoMirrorUnavailable => 'Unavailable';
+
+  @override
+  String get videoMirrorSelect => 'Use';
+
+  @override
+  String get videoMirrorInUse => 'In use';
+
+  @override
+  String videoMirrorCurrent(String host) {
+    return 'Current: $host';
+  }
 
   @override
   String get videoLoginHelp =>
@@ -4498,6 +4549,19 @@ class SEn extends S {
   @override
   String get videoSourceUnavailable =>
       'This feature is unavailable in the app. Open the source website.';
+
+  @override
+  String get videoAccessDenied =>
+      'The source website denied access. Open the website to check access.';
+
+  @override
+  String get videoRateLimited =>
+      'Too many requests. Wait a while, then try again.';
+
+  @override
+  String videoRateLimitedUntil(String time) {
+    return 'Too many requests. Try again after $time.';
+  }
 
   @override
   String get videoVerificationRequired =>

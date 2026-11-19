@@ -132,7 +132,10 @@ void main() {
             (left, right) =>
                 (_quality(left.label)).compareTo(_quality(right.label)),
           );
-        final stream = streams.first;
+        final stream = await client.prepareMediaStream(
+          details.video,
+          streams.first,
+        );
         debugPrint(
           'MISSAV_LIVE mediaHost=${Uri.parse(stream.url).host} hls=${stream.isHls} durationSeconds=${video.durationSeconds}',
         );

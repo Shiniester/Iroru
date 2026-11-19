@@ -9,6 +9,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../services/remote_asset_cache.dart';
 import '../../utils/snackbar_util.dart';
 import '../../services/proxy_config.dart';
 import '../../widgets/app_navigation_scope.dart';
@@ -313,6 +314,12 @@ class MediaKitVideoPlaybackSession implements VideoPlaybackAdvancedSession {
             ? ''
             : ProxyConfig.httpsProxyUrl ?? '',
       );
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        const channel = MethodChannel('com.meteor.kikoeruflutter/native_audio');
+        final caFile = await channel.invokeMethod<String>('getCaFile');
+        if (caFile == null) throw StateError('Missing Android CA file path');
+        await platform.setProperty('tls-ca-file', caFile);
+      }
     }
     if (defaultTargetPlatform == TargetPlatform.windows &&
         platform is NativePlayer) {
@@ -591,9 +598,12 @@ class VideoPlaybackPanel extends StatefulWidget {
     this.savePositionOnSourceChange = false,
     this.sessionFactory,
     this.platform,
+    this.prepareStream,
+    this.mediaVerificationError,
     this.onStreamChanged,
     this.onOpenSource,
     this.onVerifyAccess,
+    this.requireVerificationError = false,
     this.onFullscreenChanged,
   });
 
@@ -611,9 +621,13 @@ class VideoPlaybackPanel extends StatefulWidget {
   final bool savePositionOnSourceChange;
   final VideoPlaybackSessionFactory? sessionFactory;
   final VideoPlayerPlatform? platform;
+  final Future<VideoStream> Function(VideoStream, RemoteAssetCancellation)?
+  prepareStream;
+  final VideoVerificationRequired? mediaVerificationError;
   final ValueChanged<VideoStream>? onStreamChanged;
   final VoidCallback? onOpenSource;
   final Future<void> Function()? onVerifyAccess;
+  final bool requireVerificationError;
   final ValueChanged<bool>? onFullscreenChanged;
 
   @override
@@ -633,6 +647,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   late double _volume;
   late int _streamIndex;
   late Future<void> _loadTail;
+  RemoteAssetCancellation? _activeLoadCancellation;
   Future<void> _rateTail = Future<void>.value();
   Future<void> _loopModeTail = Future<void>.value();
   Timer? _saveTimer;
@@ -712,7 +727,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   bool? _appTabWasSelected;
   int _pauseGeneration = 0;
   int _loadGeneration = 0;
-  String? _error;
+  Object? _error;
   ({int level, bool charging})? _batteryStatus;
 
   @override
@@ -855,7 +870,8 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _appliedSubtitlesEnabled = enabled;
   }
 
-  Future<void> _syncAutomaticPictureInPicture() async {
+  Future<void> _syncAutomaticPictureInPicture({int? generation}) async {
+    if (generation != null && !_isLoadCurrent(generation)) return;
     final advanced = _session;
     if (advanced is VideoPlaybackAdvancedSession &&
         !kIsWeb &&
@@ -863,6 +879,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS)) {
       await _platform.attachVideoController(advanced.videoController);
+      if (generation != null && !_isLoadCurrent(generation)) return;
     }
     final enabled =
         _settings.autoPictureInPicture &&
@@ -1120,6 +1137,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     final sourceLocalPath = widget.localPath;
     final sourceStreams = widget.streams;
     final sourceStreamIndex = _streamIndex;
+    final prepareStream = widget.prepareStream;
     final pendingSourcePosition = _pendingSourcePosition;
     final pendingSeekPosition = _pendingSeekPosition;
     final pendingSeekVideoId = _loadedVideoId;
@@ -1134,6 +1152,10 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     }
     _cancelSeekPreview();
     final generation = ++_loadGeneration;
+    final previousCancellation = _activeLoadCancellation;
+    final loadCancellation = _activeLoadCancellation =
+        RemoteAssetCancellation();
+    previousCancellation?.cancel();
     final pauseGeneration = _pauseGeneration;
     final firstSourceLoad = !_sourceLoaded;
     _appliedSubtitlesEnabled = null;
@@ -1179,7 +1201,11 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         );
       } else {
         if (sourceStreams.isEmpty) return;
-        final stream = sourceStreams[sourceStreamIndex];
+        var stream = sourceStreams[sourceStreamIndex];
+        if (prepareStream != null) {
+          stream = await prepareStream(stream, loadCancellation);
+        }
+        if (!_isLoadCurrent(generation)) return;
         await _session.loadStream(
           stream,
           position: loadPosition,
@@ -1189,7 +1215,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       if (widget.savePositionOnSourceChange) {
         _loadedVideoId = sourceVideoId;
       }
-      if (_disposed || generation != _loadGeneration) return;
+      if (!_isLoadCurrent(generation)) return;
       _sourceLoaded = true;
       if (firstSourceLoad &&
           pauseGeneration == _pauseGeneration &&
@@ -1198,14 +1224,17 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
           !_appSuspended) {
         _canSavePosition = true;
       }
+      if (!_isLoadCurrent(generation)) return;
       final playbackRate = _runtimeRate ?? _settings.defaultSpeed;
       _runtimeRate ??= playbackRate;
       if (playbackRate != _session.snapshot.value.rate) {
         await _session.setRate(playbackRate);
       }
+      if (!_isLoadCurrent(generation)) return;
       await _platform.setBackgroundPlayback(
         _settings.backgroundPlayback && _session.snapshot.value.playing,
       );
+      if (!_isLoadCurrent(generation)) return;
       final advanced = _session;
       if (advanced is VideoPlaybackAdvancedSession) {
         await _applyLoopMode();
@@ -1217,8 +1246,11 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         _appliedSuperResolution = superResolution;
       }
       await _applySubtitlePreference();
-      await _syncAutomaticPictureInPicture();
+      if (!_isLoadCurrent(generation)) return;
+      final pipSync = _syncAutomaticPictureInPicture(generation: generation);
+      unawaited(pipSync.catchError((Object _) {}));
       _onSnapshotChanged();
+      if (!_isLoadCurrent(generation)) return;
       if ((resume || autoPlay) &&
           pauseGeneration == _pauseGeneration &&
           _isAppTabVisible &&
@@ -1227,6 +1259,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         await _session.play();
         autoPlayStarted =
             autoPlay &&
+            generation == _loadGeneration &&
             pauseGeneration == _pauseGeneration &&
             _isAppTabVisible &&
             !_routeCovered &&
@@ -1252,7 +1285,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       _controlsTimer?.cancel();
       _updatePlayerState(() {
         _loading = false;
-        _error = error.toString();
+        _error = error;
         _controlsVisible = true;
       });
       if (widget.savePositionOnSourceChange &&
@@ -1264,6 +1297,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     });
     return _loadTail;
   }
+
+  bool _isLoadCurrent(int generation) =>
+      !_disposed && generation == _loadGeneration;
 
   bool get _isAppTabVisible {
     final navigation = AppNavigationScope.maybeOf(context);
@@ -2642,7 +2678,10 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                         icon: const Icon(Icons.refresh),
                         onPressed: () => unawaited(_reloadSource()),
                       ),
-                      if (widget.onVerifyAccess != null)
+                      if (widget.onVerifyAccess != null &&
+                          (!widget.requireVerificationError ||
+                              _error is VideoVerificationRequired ||
+                              widget.mediaVerificationError != null))
                         TextButton.icon(
                           onPressed: () => unawaited(_verifyAccess()),
                           icon: const Icon(Icons.verified_user_outlined),
@@ -4206,6 +4245,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _fullscreenMetricsChanged?.complete();
     _fullscreenMetricsChanged = null;
     _loadGeneration++;
+    _activeLoadCancellation?.cancel();
     _saveTimer?.cancel();
     _controlsTimer?.cancel();
     _seekPreviewClearTimer?.cancel();

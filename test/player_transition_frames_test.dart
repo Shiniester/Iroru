@@ -41,6 +41,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('mini-player-upward-launcher')));
     await tester.pump();
     await tester.pump();
+    await tester.pump();
     await tester.pump(playerRouteTransitionDuration * (8 / 45));
     await frame(tester, 'expand_80');
     await tester.pump(playerRouteTransitionDuration * (2 / 9));

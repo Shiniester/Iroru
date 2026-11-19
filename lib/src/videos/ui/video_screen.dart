@@ -327,12 +327,14 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   void _scheduleInitialize() {
+    _client.cancelBackgroundMirrorProbe();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.active) unawaited(_initialize());
     });
   }
 
   void _scheduleLoadUrl(String url, {String? collectionKey}) {
+    _client.cancelBackgroundMirrorProbe();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.active) {
         unawaited(
@@ -343,9 +345,29 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   void _scheduleRecommendationLoad() {
+    _client.cancelBackgroundMirrorProbe();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.active) _openRecommendations();
     });
+  }
+
+  void _syncBackgroundMirrorProbe() {
+    if (mounted &&
+        widget.active &&
+        _sourceKey == 'missav' &&
+        _route?.isCurrent == true &&
+        _page != null &&
+        !_loading &&
+        _error == null &&
+        _loadingUrl == null &&
+        !_verifyingAccess &&
+        !_sourceChangePending &&
+        _pendingAccountReloadUrl == null &&
+        !_pendingRecommendationReload) {
+      _client.scheduleBackgroundMirrorProbe();
+    } else {
+      _client.cancelBackgroundMirrorProbe();
+    }
   }
 
   @override
@@ -357,6 +379,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _route?.secondaryAnimation?.removeStatusListener(_onRouteStatusChanged);
     _route = route;
     _route?.secondaryAnimation?.addStatusListener(_onRouteStatusChanged);
+    _syncBackgroundMirrorProbe();
   }
 
   void _syncSourceLocale() {
@@ -424,6 +447,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   void _changeSource(String sourceKey) {
     if (!mounted || _sourceKey == sourceKey) return;
+    _client.cancelBackgroundMirrorProbe();
     _sourceGeneration++;
     _discardCachedJableFavorites();
     _resetPlaylistCoverAccess(null);
@@ -472,6 +496,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     if (widget.sourceKey != null && oldWidget.sourceKey != widget.sourceKey) {
       _changeSource(widget.sourceKey!);
     }
+    if (oldWidget.active && !widget.active) {
+      _client.cancelBackgroundMirrorProbe();
+    }
     if (oldWidget.active &&
         !widget.active &&
         _playlistCoverDirectoryPath != null) {
@@ -511,6 +538,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
     if (widget.active && oldWidget.initialUrl != widget.initialUrl) {
       _scheduleInitialize();
+    }
+    if (!oldWidget.active &&
+        widget.active &&
+        oldWidget.initialUrl == widget.initialUrl) {
+      _syncBackgroundMirrorProbe();
     }
   }
 
@@ -702,7 +734,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   void _onRouteStatusChanged(AnimationStatus _) {
-    if (!mounted || _verifyingAccess) return;
+    if (!mounted) return;
+    if (_verifyingAccess) {
+      _syncBackgroundMirrorProbe();
+      return;
+    }
     if (_sourceChangePending && _route?.isCurrent == true && widget.active) {
       _sourceChangePending = false;
       unawaited(_loadUrl(_sourceClient.defaultCatalogUrl));
@@ -728,6 +764,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         _resumePlaylistCoverAccess();
       });
     }
+    _syncBackgroundMirrorProbe();
   }
 
   _VideoPageCacheKey _pageCacheKey(String url) => (
@@ -744,8 +781,29 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final key = _pageCacheKey(url);
     final page = _pageCache.remove(key);
     if (page != null) _pageCache[key] = page;
-    return page;
+    if (page != null) return page;
+    _VideoPageCacheKey? matchingKey;
+    for (final entry in _pageCache.entries) {
+      if (entry.value.url == url && _samePageCacheScope(entry.key, key)) {
+        matchingKey = entry.key;
+        break;
+      }
+    }
+    if (matchingKey == null) return null;
+    final matchingPage = _pageCache.remove(matchingKey);
+    if (matchingPage != null) _pageCache[matchingKey] = matchingPage;
+    return matchingPage;
   }
+
+  static bool _samePageCacheScope(
+    _VideoPageCacheKey left,
+    _VideoPageCacheKey right,
+  ) =>
+      left.sourceKey == right.sourceKey &&
+      left.locale == right.locale &&
+      left.sessionGeneration == right.sessionGeneration &&
+      left.isLoggedIn == right.isLoggedIn &&
+      left.accountName == right.accountName;
 
   void _rememberPage(String url, VideoCatalogPage page) {
     if (_isJableFavoritesUrl(url)) return;
@@ -954,7 +1012,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     String url, {
     String? collectionKey,
     bool preserveCollection = false,
+    bool reuseVisitedPage = false,
   }) async {
+    _client.cancelBackgroundMirrorProbe();
     _recommendationsActive = false;
     _activeRecommendationPageSize = null;
     _pendingRecommendationReload = false;
@@ -974,6 +1034,8 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final cancelToken = CancelToken();
     _activeBrowseCancelToken = cancelToken;
     final cachedPage = _takeCachedPage(url);
+    final reuseCachedPage =
+        cachedPage != null && reuseVisitedPage && _activeCollectionKey == null;
     final cachedFailures =
         cachedPage != null && _publishedFailedPageUrl == cachedPage.url
         ? Set<VideoCoverImageKey>.of(_publishedFailedCovers)
@@ -1009,17 +1071,19 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     VideoCatalogPage? refreshedPage;
     Object? refreshError;
     StackTrace? refreshTrace;
-    final browseFuture = _sourceClient
-        .browse(url, cancelToken: cancelToken, onParsed: onParsed)
-        .then<void>(
-          (page) {
-            refreshedPage = page;
-          },
-          onError: (Object error, StackTrace trace) {
-            refreshError = error;
-            refreshTrace = trace;
-          },
-        );
+    final browseFuture = reuseCachedPage
+        ? Future<void>.value()
+        : _sourceClient
+              .browse(url, cancelToken: cancelToken, onParsed: onParsed)
+              .then<void>(
+                (page) {
+                  refreshedPage = page;
+                },
+                onError: (Object error, StackTrace trace) {
+                  refreshError = error;
+                  refreshTrace = trace;
+                },
+              );
 
     try {
       if (cachedPage != null) {
@@ -1052,6 +1116,16 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
         await WidgetsBinding.instance.endOfFrame;
         if (!mounted || request != _request) return;
+        if (reuseCachedPage) {
+          setState(() {
+            _loading = false;
+            _error = null;
+            _errorSourceUrl = null;
+            _verificationError = null;
+            _discardStaging();
+          });
+          return;
+        }
         if (refreshError != null) return;
       }
 
@@ -1113,6 +1187,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         _activeBrowseCancelToken = null;
       }
       if (request == _request && _loadingUrl == url) _loadingUrl = null;
+      if (request == _request) _syncBackgroundMirrorProbe();
     }
   }
 
@@ -1314,6 +1389,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final snapshot = state.pages[pageNumber];
     if (snapshot == null) return;
 
+    _client.cancelBackgroundMirrorProbe();
     final request = ++_request;
     _loadingUrl = null;
     final activeBrowseCancelToken = _activeBrowseCancelToken;
@@ -1355,6 +1431,10 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         _recordError(error);
         _discardStaging();
       });
+    } finally {
+      if (_isCurrentRecommendationRequest(request, pageSize)) {
+        _syncBackgroundMirrorProbe();
+      }
     }
   }
 
@@ -1386,6 +1466,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       return;
     }
 
+    _client.cancelBackgroundMirrorProbe();
     final request = ++_request;
     _activeRecommendationPageSize = pageSize;
     _loadingUrl = null;
@@ -1517,6 +1598,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       if (identical(_activeBrowseCancelToken, cancelToken)) {
         _activeBrowseCancelToken = null;
       }
+      if (_isCurrentRecommendationRequest(request, pageSize)) {
+        _syncBackgroundMirrorProbe();
+      }
     }
   }
 
@@ -1602,6 +1686,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   Future<void> _openDetails(VideoItem video) async {
+    _client.cancelBackgroundMirrorProbe();
     _pausePlaylistCoverAccess();
     _prepareJableFavoritesRefresh();
     final collectionKey = switch (_activeCollectionKey) {
@@ -2047,11 +2132,13 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   Future<void> _setActorFavorite(VideoLink actor, bool favorite) async {
-    if (!_client.isLoggedIn) {
-      await _loginRequired();
-      return;
-    }
     try {
+      final signedIn = await _client.restoreAccount();
+      if (!mounted || _sourceKey != 'missav') return;
+      if (!signedIn) {
+        await _loginRequired();
+        return;
+      }
       await _client.setActorFavorite(actor, favorite);
       final page = _page;
       if (!favorite &&
@@ -2090,30 +2177,32 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   Future<void> _confirmClearWatchHistory() async {
     final page = _page;
     if (page == null) return;
-    if (!_client.isLoggedIn) {
-      await _loginRequired();
-      return;
-    }
-    final s = S.of(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(s.clearHistory),
-        content: Text(s.clearHistoryConfirm),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(s.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(s.confirm),
-          ),
-        ],
-      ),
-    );
-    if (!mounted || confirmed != true) return;
     try {
+      final signedIn = await _client.restoreAccount();
+      if (!mounted || _sourceKey != 'missav') return;
+      if (!signedIn) {
+        await _loginRequired();
+        return;
+      }
+      final s = S.of(context);
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(s.clearHistory),
+          content: Text(s.clearHistoryConfirm),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(s.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(s.confirm),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || confirmed != true) return;
       await _client.clearWatchHistory();
       if (mounted) await _loadUrl(page.url);
     } on MissavAuthenticationException {
@@ -2602,7 +2691,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           : hasSourcePagination
           ? page.previousUrl == null
                 ? null
-                : () => _loadUrl(page.previousUrl!, preserveCollection: true)
+                : () => _loadUrl(
+                    page.previousUrl!,
+                    preserveCollection: true,
+                    reuseVisitedPage: true,
+                  )
           : hasLocalPagination && localPage > 1
           ? () => setState(() => _localPage = localPage - 1)
           : null,
@@ -2616,7 +2709,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           : hasSourcePagination
           ? page.nextUrl == null
                 ? null
-                : () => _loadUrl(page.nextUrl!, preserveCollection: true)
+                : () => _loadUrl(
+                    page.nextUrl!,
+                    preserveCollection: true,
+                    reuseVisitedPage: true,
+                  )
           : hasLocalPagination && localPage < localPageCount
           ? () => setState(() => _localPage = localPage + 1)
           : null,
@@ -2630,6 +2727,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                 : (targetPage) => _loadUrl(
                     page.pageUrl(targetPage),
                     preserveCollection: true,
+                    reuseVisitedPage: true,
                   )
           : hasLocalPagination
           ? (targetPage) => setState(() => _localPage = targetPage)
@@ -2871,6 +2969,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   @override
   void dispose() {
+    _client.cancelBackgroundMirrorProbe();
     _resetPlaylistCoverAccess(null);
     _client.removeListener(_onClientChanged);
     _jableAccount.removeListener(_onJableAccountChanged);

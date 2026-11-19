@@ -302,7 +302,8 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
   }
 
   @override
-  Future<bool> didPopRoute() async => _handleBack();
+  Future<bool> didPopRoute() async =>
+      _navigationController == null && _handleBack();
 
   bool _handleBack() {
     final session = _interactiveSession;

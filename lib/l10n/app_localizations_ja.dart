@@ -4269,6 +4269,12 @@ class SJa extends S {
   String get videoAccountSignedIn => 'ログイン済み';
 
   @override
+  String get videoAccountRestoring => 'ログインを復元しています';
+
+  @override
+  String get videoAccountRestoreFailed => 'ログインを復元できませんでした';
+
+  @override
   String get videoAccountSignedOut => '未ログイン';
 
   @override
@@ -4305,10 +4311,55 @@ class SJa extends S {
   String get videoSourceAccount => 'MissAV アカウント';
 
   @override
+  String get videoAccountEmail => 'メールアドレス';
+
+  @override
+  String get videoAccountHost => 'ログイン回線';
+
+  @override
+  String get videoAccountBrowserLogin => 'ウェブでログイン';
+
+  @override
   String get videoJableAccount => 'Jable アカウント';
 
   @override
   String get videoJableLoginRequired => 'Jable にログインすると、お気に入りの動画を表示・管理できます。';
+
+  @override
+  String get videoMirrorSettings => 'MissAV 回線';
+
+  @override
+  String get videoMirrorDescription =>
+      'すべての回線を表示します。利用できない回線は選択できません。選択した回線を一覧、検索、再生に使用します。';
+
+  @override
+  String get videoMirrorAutomatic => '最速の回線を自動選択';
+
+  @override
+  String get videoMirrorUseFastest => '最速を使用';
+
+  @override
+  String get videoMirrorRetest => '速度テスト';
+
+  @override
+  String get videoMirrorTesting => 'テスト中…';
+
+  @override
+  String get videoMirrorTimeout => '接続タイムアウト';
+
+  @override
+  String get videoMirrorUnavailable => '利用不可';
+
+  @override
+  String get videoMirrorSelect => '使用';
+
+  @override
+  String get videoMirrorInUse => '使用中';
+
+  @override
+  String videoMirrorCurrent(String host) {
+    return '現在：$host';
+  }
 
   @override
   String get videoLoginHelp => '配信元サイトでログインしてから「完了」を選択してログイン状態を確認してください。';
@@ -4372,6 +4423,17 @@ class SJa extends S {
 
   @override
   String get videoSourceUnavailable => 'この機能はアプリ内で利用できません。配信元サイトで開いてください。';
+
+  @override
+  String get videoAccessDenied => '配信元サイトがアクセスを拒否しました。配信元サイトを開いてアクセスを確認してください。';
+
+  @override
+  String get videoRateLimited => 'リクエストが多すぎます。時間をおいて再試行してください。';
+
+  @override
+  String videoRateLimitedUntil(String time) {
+    return 'リクエストが多すぎます。$time以降に再試行してください。';
+  }
 
   @override
   String get videoVerificationRequired =>

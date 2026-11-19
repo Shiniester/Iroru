@@ -7834,6 +7834,18 @@ abstract class S {
   /// **'Signed in'**
   String get videoAccountSignedIn;
 
+  /// No description provided for @videoAccountRestoring.
+  ///
+  /// In en, this message translates to:
+  /// **'Restoring sign-in'**
+  String get videoAccountRestoring;
+
+  /// Shown when a saved MissAV sign-in could not be restored.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not restore sign-in'**
+  String get videoAccountRestoreFailed;
+
   /// No description provided for @videoAccountSignedOut.
   ///
   /// In en, this message translates to:
@@ -7906,6 +7918,24 @@ abstract class S {
   /// **'MissAV account'**
   String get videoSourceAccount;
 
+  /// No description provided for @videoAccountEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get videoAccountEmail;
+
+  /// Selector label for the official MissAV host used for account sign-in.
+  ///
+  /// In en, this message translates to:
+  /// **'Login host'**
+  String get videoAccountHost;
+
+  /// No description provided for @videoAccountBrowserLogin.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in on website'**
+  String get videoAccountBrowserLogin;
+
   /// No description provided for @videoJableAccount.
   ///
   /// In en, this message translates to:
@@ -7917,6 +7947,72 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Sign in to Jable to view and manage your video favorites.'**
   String get videoJableLoginRequired;
+
+  /// Settings entry for the MissAV mirror host speed test.
+  ///
+  /// In en, this message translates to:
+  /// **'MissAV host'**
+  String get videoMirrorSettings;
+
+  /// Explains that the list shows all hosts and unavailable hosts cannot be selected.
+  ///
+  /// In en, this message translates to:
+  /// **'All hosts are listed. Unavailable hosts cannot be selected. The selected host is used for browsing, search, and playback.'**
+  String get videoMirrorDescription;
+
+  /// Option that selects the fastest reachable MissAV host during access.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the fastest host automatically'**
+  String get videoMirrorAutomatic;
+
+  /// Action that selects the fastest host from the current speed test.
+  ///
+  /// In en, this message translates to:
+  /// **'Use fastest'**
+  String get videoMirrorUseFastest;
+
+  /// Action that measures every MissAV mirror again.
+  ///
+  /// In en, this message translates to:
+  /// **'Test speed'**
+  String get videoMirrorRetest;
+
+  /// Shown while a MissAV mirror latency test is pending.
+  ///
+  /// In en, this message translates to:
+  /// **'Testing…'**
+  String get videoMirrorTesting;
+
+  /// Shown when a MissAV mirror latency test times out.
+  ///
+  /// In en, this message translates to:
+  /// **'Timed out'**
+  String get videoMirrorTimeout;
+
+  /// Shown when a MissAV mirror does not pass its latency test.
+  ///
+  /// In en, this message translates to:
+  /// **'Unavailable'**
+  String get videoMirrorUnavailable;
+
+  /// Action that selects a MissAV mirror.
+  ///
+  /// In en, this message translates to:
+  /// **'Use'**
+  String get videoMirrorSelect;
+
+  /// Indicates the currently selected MissAV mirror.
+  ///
+  /// In en, this message translates to:
+  /// **'In use'**
+  String get videoMirrorInUse;
+
+  /// Shows the MissAV host currently serving content.
+  ///
+  /// In en, this message translates to:
+  /// **'Current: {host}'**
+  String videoMirrorCurrent(String host);
 
   /// Instruction shown in the source website login dialog before confirming account status.
   ///
@@ -8043,6 +8139,24 @@ abstract class S {
   /// In en, this message translates to:
   /// **'This feature is unavailable in the app. Open the source website.'**
   String get videoSourceUnavailable;
+
+  /// No description provided for @videoAccessDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'The source website denied access. Open the website to check access.'**
+  String get videoAccessDenied;
+
+  /// No description provided for @videoRateLimited.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many requests. Wait a while, then try again.'**
+  String get videoRateLimited;
+
+  /// The source website has limited requests and provided a time to try again.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many requests. Try again after {time}.'**
+  String videoRateLimitedUntil(String time);
 
   /// No description provided for @videoVerificationRequired.
   ///

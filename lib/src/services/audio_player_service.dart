@@ -2857,13 +2857,14 @@ class AudioPlayerService {
     final track = _trackForPlaybackIntent();
     if (track == null) return;
     final idle = _player.processingState == ProcessingState.idle;
-    if (_sourceNeedsReload || published?.id != track.id || idle) {
+    final reloadFromIdle = idle && _failedSeekPosition != null;
+    if (_sourceNeedsReload || published?.id != track.id || reloadFromIdle) {
       await _enqueueTrackLoad(
         track,
         emitCurrentTrack: published?.id != track.id,
         autoplay: true,
         direction: PlayerTrackChangeDirection.none,
-        sourceToReload: _failedSeekSource,
+        sourceToReload: idle ? null : _failedSeekSource,
         initialPosition:
             _failedSeekPosition ??
             (idle && published?.id == track.id ? _player.position : null),
@@ -3467,7 +3468,12 @@ class AudioPlayerService {
         sourceToReload: source,
         initialPosition: targetPosition,
       );
-      await recovery.future;
+      try {
+        await recovery.future;
+      } catch (error) {
+        _log.captureOutput('[Audio] Seek recovery failed: $error');
+        rethrow;
+      }
       final succeeded =
           isCurrentSeekLoad(recovery) &&
           await _confirmPositionJump(jump, () => isCurrentSeekLoad(recovery));

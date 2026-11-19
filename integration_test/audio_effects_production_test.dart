@@ -15,6 +15,7 @@ import 'package:kikoeru_flutter/src/models/audio_effects_settings.dart';
 import 'package:kikoeru_flutter/src/services/native_audio_effects.dart';
 
 import 'audio_effects_native_helpers.dart';
+import 'native_tls_fixture.dart';
 
 const _butterflyUrl =
     'https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4';
@@ -391,8 +392,8 @@ void main() {
 
   testWidgets('native HTTPS rejects an untrusted certificate', (tester) async {
     final context = SecurityContext(withTrustedRoots: false)
-      ..useCertificateChainBytes(utf8.encode(_untrustedCertificate))
-      ..usePrivateKeyBytes(utf8.encode(_untrustedKey));
+      ..useCertificateChainBytes(utf8.encode(nativeTlsCertificate))
+      ..usePrivateKeyBytes(utf8.encode(nativeTlsKey));
     final server = await HttpServer.bindSecure(
       InternetAddress.loopbackIPv4,
       0,
@@ -447,30 +448,6 @@ Future<void> _configureHttpsTestPlayer(NativePlayer player) async {
     await player.setProperty('tls-ca-file', caFile!);
   }
 }
-
-// This certificate and key are for the untrusted loopback TLS server in this test.
-const _untrustedCertificate = '''
------BEGIN CERTIFICATE-----
-MIIBxjCCAWygAwIBAgIUMyUCJBRQR+bR0B4O3JAnqujlbnQwCgYIKoZIzj0EAwIw
-HjEcMBoGA1UEAwwTSXJvcnUgVGVzdCBMb29wYmFjazAeFw0yMDAxMDEwMDAwMDBa
-Fw00NTAxMDEwMDAwMDBaMB4xHDAaBgNVBAMME0lyb3J1IFRlc3QgTG9vcGJhY2sw
-WTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAS3iOzEDvlxjcrPDmnhYyYvp/1fNh2i
-WvPJCAZ5DK2Yc2wOaW3smZXX7tEIYQmzGFZirvO2yeKE+ymjbqNGFW/8o4GHMIGE
-MB0GA1UdDgQWBBR0EqxVN0PzUXGjBvaqTXetAgURDzAfBgNVHSMEGDAWgBR0EqxV
-N0PzUXGjBvaqTXetAgURDzAPBgNVHREECDAGhwR/AAABMAwGA1UdEwEB/wQCMAAw
-DgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMAoGCCqGSM49BAMC
-A0gAMEUCIB1N1Zovpj49kL3FWoJ7DwhrdOtLZejwuRoSe/b1ljjoAiEA2oYSv9g8
-K71A/J0Dz81hB1gdj1iCW0+flYqEib1tQhg=
------END CERTIFICATE-----
-''';
-
-const _untrustedKey = '''
------BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgs84qSoIuNhYb9jRv
-xl7Gj8/n+2IP18KYHCZyzLS/ELyhRANCAAS3iOzEDvlxjcrPDmnhYyYvp/1fNh2i
-WvPJCAZ5DK2Yc2wOaW3smZXX7tEIYQmzGFZirvO2yeKE+ymjbqNGFW/8
------END PRIVATE KEY-----
-''';
 
 Player _newPlayer() => Player(
   configuration: const PlayerConfiguration(

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -46,6 +47,104 @@ typedef _RecommendationHandler =
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('only schedules mirror probing on the idle video route', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Catalog',
+        url: 'https://missav.ai/cn/release',
+      ),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    expect(client.mirrorProbeScheduled, isTrue);
+
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    unawaited(
+      navigator.push<void>(MaterialPageRoute(builder: (_) => const Scaffold())),
+    );
+    await tester.pumpAndSettle();
+    expect(client.mirrorProbeScheduled, isFalse);
+
+    navigator.pop();
+    await tester.pumpAndSettle();
+    expect(client.mirrorProbeScheduled, isTrue);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(client.mirrorProbeScheduled, isFalse);
+  });
+
+  testWidgets('mirror cards without main replace the video list spinner', (
+    tester,
+  ) async {
+    final fallbackGate = Completer<void>();
+    final source = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) async {
+            if (options.uri.host != 'www.missav05.com') {
+              await fallbackGate.future;
+            }
+            handler.resolve(
+              Response<String>(
+                requestOptions: options,
+                statusCode: HttpStatus.ok,
+                data: '''
+<div class="relative aspect-w-16 aspect-h-9">
+  <a href="/en/replay-video"><img alt="Loaded mirror video"></a>
+</div>
+''',
+              ),
+            );
+          },
+        ),
+      );
+    final metadata = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) => handler.resolve(
+            Response<Object?>(
+              requestOptions: options,
+              statusCode: HttpStatus.ok,
+              data: {'recomms': []},
+            ),
+          ),
+        ),
+      );
+    final client = MissavClient(
+      dio: source,
+      metadataDio: metadata,
+      secureStorage: _EmptyVideoSecureStorage(),
+      contentHosts: const [
+        'https://www.missav05.com',
+        'https://www.missav02.net',
+      ],
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    addTearDown(() async {
+      fallbackGate.complete();
+      await tester.pumpWidget(const SizedBox.shrink());
+      client.dispose();
+    });
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    for (var frame = 0; frame < 20; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('Loaded mirror video').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'prepares parsed covers before metadata returns and waits before showing cards',
@@ -3552,7 +3651,8 @@ void main() {
     expect(client.browsedUrls, contains(page3Url));
     await tester.tap(find.text(l10n.previousPage));
     await tester.pumpAndSettle();
-    expect(client.browsedUrls, contains(page2Url));
+    expect(client.browsedUrls, [page2Url, page3Url]);
+    expect(find.text('Source page 2'), findsOneWidget);
     await tester.tap(find.text(l10n.jumpTo));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '4');
@@ -3564,6 +3664,121 @@ void main() {
       tester.widget<PaginationBar>(find.byType(PaginationBar)).jumpMaxPage,
       8,
     );
+  });
+
+  testWidgets('account collection pagination refreshes visited pages', (
+    tester,
+  ) async {
+    const firstUrl = 'https://missav.ai/en/saved?page=1';
+    const secondUrl = 'https://missav.ai/en/saved?page=2';
+    final client = _TestMissavClient(
+      loggedIn: true,
+      accountName: 'Account A',
+      pagesByUrl: {
+        firstUrl: const VideoCatalogPage(
+          title: 'Account collection',
+          url: firstUrl,
+          nextUrl: secondUrl,
+          videos: [
+            VideoItem(
+              id: 'account-page-1',
+              title: 'Account page 1',
+              pageUrl: 'https://missav.ai/en/account-page-1',
+            ),
+          ],
+        ),
+        secondUrl: const VideoCatalogPage(
+          title: 'Account collection',
+          url: secondUrl,
+          previousUrl: firstUrl,
+          currentPage: 2,
+          videos: [
+            VideoItem(
+              id: 'account-page-2',
+              title: 'Account page 2',
+              pageUrl: 'https://missav.ai/en/account-page-2',
+            ),
+          ],
+        ),
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        const VideoScreen.catalog(url: firstUrl),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    await tester.tap(find.text(l10n.nextPage));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.previousPage));
+    await tester.pumpAndSettle();
+
+    expect(client.browsedUrls, [firstUrl, secondUrl, firstUrl]);
+    expect(find.text('Account page 1'), findsOneWidget);
+  });
+
+  testWidgets('visited fallback page reuses its final source address', (
+    tester,
+  ) async {
+    const requestedFirstUrl = 'https://missav.ai/en/catalog?page=1';
+    const fallbackFirstUrl = 'https://missav.ws/en/catalog?page=1';
+    const secondUrl = 'https://missav.ws/en/catalog?page=2';
+    final client = _TestMissavClient(
+      pagesByUrl: {
+        requestedFirstUrl: const VideoCatalogPage(
+          title: 'Fallback catalog',
+          url: fallbackFirstUrl,
+          nextUrl: secondUrl,
+          videos: [
+            VideoItem(
+              id: 'fallback-page-1',
+              title: 'Fallback page 1',
+              pageUrl: 'https://missav.ws/en/fallback-page-1',
+            ),
+          ],
+        ),
+        secondUrl: const VideoCatalogPage(
+          title: 'Fallback catalog',
+          url: secondUrl,
+          previousUrl: fallbackFirstUrl,
+          currentPage: 2,
+          videos: [
+            VideoItem(
+              id: 'fallback-page-2',
+              title: 'Fallback page 2',
+              pageUrl: 'https://missav.ws/en/fallback-page-2',
+            ),
+          ],
+        ),
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        const VideoScreen.catalog(url: requestedFirstUrl),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    await tester.tap(find.text(l10n.nextPage));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.previousPage));
+    await tester.pumpAndSettle();
+
+    expect(client.browsedUrls, [requestedFirstUrl, secondUrl]);
+    expect(find.text('Fallback page 1'), findsOneWidget);
   });
 
   testWidgets('catalog locally pages loaded home items above the bottom dock', (
@@ -4309,6 +4524,143 @@ void main() {
     });
   }
 
+  testWidgets('verified login opens playlists, history and video details', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const mirror = 'https://www.missav05.com';
+    const catalog = '''
+<main>
+  <div class="relative aspect-w-16 aspect-h-9">
+    <a href="/en/signed-in-video"><img alt="Watched video"></a>
+  </div>
+</main>
+''';
+    final source = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (request, handler) {
+            if (request.uri.origin != mirror) {
+              handler.next(request);
+              return;
+            }
+            handler.resolve(
+              Response<String>(
+                requestOptions: request,
+                statusCode: HttpStatus.ok,
+                data: request.uri.path == '/en/signed-in-video'
+                    ? '<main><h1>Detail from content host</h1></main>'
+                    : '<main></main>',
+              ),
+            );
+          },
+        ),
+      );
+    final metadata = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (request, handler) => handler.resolve(
+            Response<Object?>(
+              requestOptions: request,
+              statusCode: HttpStatus.ok,
+              data: {'recomms': []},
+            ),
+          ),
+        ),
+      );
+    final loginUrls = <Object?>[];
+    late final MissavBrowserAdapter browser;
+    browser = MissavBrowserAdapter(
+      currentUrl: () async => '${MissavClient.origin}/en',
+      navigateDocument: (uri, _) async => switch (uri.path) {
+        '/en/playlists' =>
+          '<main><a href="/en/playlists/saved-list">Saved playlist</a></main>',
+        '/en/history' => catalog,
+        _ => fail('Unexpected account page ${uri.path}'),
+      },
+      runJavaScript: (script) async {
+        final match = RegExp(r'const request = (.*);').firstMatch(script)!;
+        final request = jsonDecode(match.group(1)!) as Map;
+        loginUrls.add(request['url']);
+        browser.receiveMessage({
+          'id': request['id'],
+          'nonce': request['nonce'],
+          'origin': MissavClient.origin,
+          'status': 200,
+          'url': request['url'],
+          'headers': {'content-type': 'application/json'},
+          'body': '{"user":{"name":"Signed-in viewer"}}',
+        });
+      },
+      readCookieHeader: () async => 'XSRF-TOKEN=token; session=signed-in',
+      disposeBrowser: () async {},
+    );
+    final client = MissavClient(
+      dio: source,
+      metadataDio: metadata,
+      secureStorage: _EmptyVideoSecureStorage(),
+      contentHosts: const [mirror, MissavClient.origin],
+    );
+    addTearDown(client.dispose);
+    final library = await _testLibrary();
+    final signIn = () async {
+      await client.importVerifiedSession(
+        cookieHeader: 'XSRF-TOKEN=token; session=verified',
+        userAgent: 'Test browser',
+      );
+      client.useVerifiedBrowserTransport(browser);
+      await client.login(email: 'viewer@example.test', password: 'password');
+    }();
+    Object? signInError;
+    unawaited(
+      signIn.onError((error, _) {
+        signInError = error;
+      }),
+    );
+    for (var frame = 0; frame < 20 && !client.isLoggedIn; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(client.isLoggedIn, isTrue, reason: signInError?.toString());
+    await signIn;
+    expect(loginUrls, ['${MissavClient.origin}/en/api/login']);
+
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    await _selectVideoDrawerLabel(tester, l10n, l10n.playlists);
+    expect(find.text('Saved playlist').hitTestable(), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+
+    await _selectVideoDrawerLabel(tester, l10n, l10n.videoWatchHistory);
+    expect(find.text('Watched video').hitTestable(), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    final navigator = Navigator.of(tester.element(find.byType(VideoScreen)));
+    unawaited(
+      navigator.push<void>(
+        MaterialPageRoute(
+          builder: (_) => const VideoDetailsScreen(
+            video: VideoItem(
+              id: 'signed-in-video',
+              title: 'Watched video',
+              pageUrl: 'https://missav.ai/en/signed-in-video',
+            ),
+            sessionFactory: _TestVideoPlaybackSession.new,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(VideoDetailsScreen), findsOneWidget);
+    expect(find.text('Detail from content host').hitTestable(), findsWidgets);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
   testWidgets('account confirmed by a collection page reloads once', (
     tester,
   ) async {
@@ -4748,7 +5100,8 @@ void main() {
         read: (_) async => {
           'url': uri.toString(),
           'html': requests == 1
-              ? '<html><body x-data="{user: {name: \'viewer\'}}"></body></html>'
+              ? '<html><body x-data="{user: {name: \'viewer\'}}">'
+                    '<main></main></body></html>'
               : '<html><body><main></main></body></html>',
           'responseStatus': requests == 1 ? 200 : 401,
         },
@@ -5127,10 +5480,17 @@ class _TestMissavClient extends MissavClient {
   final List<String> browsedUrls = [];
   final recommendationRequests = <({String? cursor, int count})>[];
   bool browseFinished = false;
+  bool mirrorProbeScheduled = false;
   String testLocale = 'cn';
   final filterOptionKinds = <VideoSearchFilterKind>[];
   final combinedSearchRequests =
       <({String query, List<VideoLink> filters, bool? current})>[];
+
+  @override
+  void scheduleBackgroundMirrorProbe() => mirrorProbeScheduled = true;
+
+  @override
+  void cancelBackgroundMirrorProbe() => mirrorProbeScheduled = false;
 
   @override
   String get homeUrl => sourceHomeUrl;
@@ -5159,6 +5519,9 @@ class _TestMissavClient extends MissavClient {
   }
 
   @override
+  Future<bool> restoreAccount({bool recheck = false}) async => loggedIn;
+
+  @override
   Future<void> initialize() async {}
 
   @override
@@ -5166,6 +5529,7 @@ class _TestMissavClient extends MissavClient {
     VideoItem item, {
     FutureOr<void> Function(VideoDetails)? onReady,
     bool includeAccountState = true,
+    CancelToken? cancelToken,
   }) async {
     final details = detailsResult ?? VideoDetails(video: item);
     await onReady?.call(details);
@@ -5379,8 +5743,9 @@ Future<ListTile> _videoDrawerTile(WidgetTester tester, String label) async {
   final scrollable = find
       .descendant(of: drawer, matching: find.byType(Scrollable))
       .first;
-  tester.state<ScrollableState>(scrollable).position.jumpTo(0);
-  await tester.pump();
+  // Reset to the top first so a tile above the current scroll position is mounted.
+  await tester.drag(scrollable, const Offset(0, 2000));
+  await tester.pumpAndSettle();
   await tester.scrollUntilVisible(labelFinder, 240, scrollable: scrollable);
   await tester.pumpAndSettle();
   await tester.ensureVisible(labelFinder);

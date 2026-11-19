@@ -303,6 +303,29 @@ class MissavAuthenticationException extends MissavException {
   }) : super(message, sourceUrl: sourceUrl);
 }
 
+class MissavAccessDeniedException extends MissavException {
+  const MissavAccessDeniedException({required String sourceUrl})
+    : super('MissAV denied access.', sourceUrl: sourceUrl);
+}
+
+class MissavRateLimitException extends MissavException {
+  const MissavRateLimitException({required String sourceUrl, this.retryAt})
+    : super('MissAV rate limited the request.', sourceUrl: sourceUrl);
+
+  final DateTime? retryAt;
+}
+
+class MissavMirrorUnavailableException extends MissavException {
+  const MissavMirrorUnavailableException({
+    required this.challenged,
+    String message = 'MissAV mirror is unavailable.',
+    String? sourceUrl,
+    Object? cause,
+  }) : super(message, sourceUrl: sourceUrl, cause: cause);
+
+  final bool challenged;
+}
+
 class MissavVerificationRequiredException extends MissavException
     implements VideoVerificationRequired {
   const MissavVerificationRequiredException({required String sourceUrl})

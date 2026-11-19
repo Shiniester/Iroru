@@ -4247,6 +4247,12 @@ class SZh extends S {
   String get videoAccountSignedIn => '已登录';
 
   @override
+  String get videoAccountRestoring => '正在恢复登录';
+
+  @override
+  String get videoAccountRestoreFailed => '无法恢复登录';
+
+  @override
   String get videoAccountSignedOut => '未登录';
 
   @override
@@ -4283,10 +4289,54 @@ class SZh extends S {
   String get videoSourceAccount => 'MissAV 账号';
 
   @override
+  String get videoAccountEmail => '邮箱';
+
+  @override
+  String get videoAccountHost => '登录线路';
+
+  @override
+  String get videoAccountBrowserLogin => '网页登录';
+
+  @override
   String get videoJableAccount => 'Jable 账号';
 
   @override
   String get videoJableLoginRequired => '登录 Jable 后可查看和管理视频收藏。';
+
+  @override
+  String get videoMirrorSettings => 'MissAV 线路';
+
+  @override
+  String get videoMirrorDescription => '列出全部线路。不可用线路不能选择。浏览、搜索和播放使用所选线路。';
+
+  @override
+  String get videoMirrorAutomatic => '自动选择最快线路';
+
+  @override
+  String get videoMirrorUseFastest => '使用最快';
+
+  @override
+  String get videoMirrorRetest => '测速';
+
+  @override
+  String get videoMirrorTesting => '测试中…';
+
+  @override
+  String get videoMirrorTimeout => '连接超时';
+
+  @override
+  String get videoMirrorUnavailable => '不可用';
+
+  @override
+  String get videoMirrorSelect => '使用';
+
+  @override
+  String get videoMirrorInUse => '使用中';
+
+  @override
+  String videoMirrorCurrent(String host) {
+    return '当前：$host';
+  }
 
   @override
   String get videoLoginHelp => '在源站登录后，点击“完成”检查登录状态。';
@@ -4350,6 +4400,17 @@ class SZh extends S {
 
   @override
   String get videoSourceUnavailable => '此功能暂无法在应用内使用，可打开源站。';
+
+  @override
+  String get videoAccessDenied => '源站拒绝访问。请打开源站确认能否访问。';
+
+  @override
+  String get videoRateLimited => '请求次数过多。请稍后重试。';
+
+  @override
+  String videoRateLimitedUntil(String time) {
+    return '请求次数过多。请在 $time 后重试。';
+  }
 
   @override
   String get videoVerificationRequired => '源站要求浏览器验证。请先验证访问，再重试。';
@@ -9190,6 +9251,12 @@ class SZhHant extends SZh {
   String get videoAccountSignedIn => '已登入';
 
   @override
+  String get videoAccountRestoring => '正在恢復登入';
+
+  @override
+  String get videoAccountRestoreFailed => '無法恢復登入';
+
+  @override
   String get videoAccountSignedOut => '未登入';
 
   @override
@@ -9226,10 +9293,54 @@ class SZhHant extends SZh {
   String get videoSourceAccount => 'MissAV 帳號';
 
   @override
+  String get videoAccountEmail => '電子郵件';
+
+  @override
+  String get videoAccountHost => '登入線路';
+
+  @override
+  String get videoAccountBrowserLogin => '網頁登入';
+
+  @override
   String get videoJableAccount => 'Jable 帳號';
 
   @override
   String get videoJableLoginRequired => '登入 Jable 後可查看及管理影片收藏。';
+
+  @override
+  String get videoMirrorSettings => 'MissAV 線路';
+
+  @override
+  String get videoMirrorDescription => '列出全部線路。不可用線路不能選擇。瀏覽、搜尋和播放使用所選線路。';
+
+  @override
+  String get videoMirrorAutomatic => '自動選擇最快線路';
+
+  @override
+  String get videoMirrorUseFastest => '使用最快';
+
+  @override
+  String get videoMirrorRetest => '測速';
+
+  @override
+  String get videoMirrorTesting => '測試中…';
+
+  @override
+  String get videoMirrorTimeout => '連線逾時';
+
+  @override
+  String get videoMirrorUnavailable => '無法使用';
+
+  @override
+  String get videoMirrorSelect => '使用';
+
+  @override
+  String get videoMirrorInUse => '使用中';
+
+  @override
+  String videoMirrorCurrent(String host) {
+    return '目前：$host';
+  }
 
   @override
   String get videoLoginHelp => '在來源網站登入後，按一下「完成」檢查登入狀態。';
@@ -9293,6 +9404,17 @@ class SZhHant extends SZh {
 
   @override
   String get videoSourceUnavailable => '此功能暫時無法在應用程式內使用，可開啟來源網站。';
+
+  @override
+  String get videoAccessDenied => '來源網站拒絕存取。請開啟來源網站確認是否可存取。';
+
+  @override
+  String get videoRateLimited => '請求次數過多。請稍後再試。';
+
+  @override
+  String videoRateLimitedUntil(String time) {
+    return '請求次數過多。請在 $time 後再試。';
+  }
 
   @override
   String get videoVerificationRequired => '來源網站要求瀏覽器驗證。請先驗證存取，再重試。';

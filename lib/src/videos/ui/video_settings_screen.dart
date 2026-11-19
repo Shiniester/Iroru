@@ -19,6 +19,7 @@ import '../video_downloads.dart';
 import '../video_providers.dart';
 import '../video_search_history.dart';
 import 'jable_account_screen.dart';
+import 'missav_mirror_settings_screen.dart';
 import 'video_account_screen.dart';
 import 'video_downloads_screen.dart';
 import 'video_playback_settings_screen.dart';
@@ -189,6 +190,18 @@ class _VideoSettingsScreenState extends ConsumerState<VideoSettingsScreen> {
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => const VideoAccountScreen(),
+                  ),
+                ),
+              ),
+              SettingsNavigationTile(
+                icon: Icons.speed,
+                title: s.videoMirrorSettings,
+                subtitle: missav.usesAutomaticMirror
+                    ? s.videoMirrorAutomatic
+                    : missav.activeMirrorHost,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const MissavMirrorSettingsScreen(),
                   ),
                 ),
               ),
