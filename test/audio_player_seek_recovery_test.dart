@@ -446,14 +446,16 @@ void main() {
       await service.stop();
       player.failSeek();
       await service.play();
-      expect(player.reloadPositions, [target]);
+      expect(player.playing, isTrue);
+      expect(player.position, target);
+      expect(player.reloadPositions, isEmpty);
       expect(player.stopCount, 1);
       final next = track.copyWith(id: 'next');
       await service.updateQueue([next], autoplay: true);
       player.failSeek();
       await Future<void>.delayed(Duration.zero);
       expect(player.playing, isTrue);
-      expect(player.reloadPositions, [target]);
+      expect(player.reloadPositions, isEmpty);
       expect(player.stopCount, 1);
       expect(service.currentTrack, next);
     },
