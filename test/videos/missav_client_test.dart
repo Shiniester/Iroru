@@ -4081,17 +4081,27 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
           200,
         ),
       );
+      final storage = _MemorySecureStorage();
       final client = MissavClient(
         metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = nativeAdapter,
-        secureStorage: _MemorySecureStorage(),
+        secureStorage: storage,
       );
       addTearDown(client.dispose);
       client.setLocale('ja');
+      await client.importVerifiedSession(
+        cookieHeader: 'session=browser',
+        userAgent: 'MissAV WebView/1.0',
+      );
       late final MissavBrowserAdapter browser;
       browser = MissavBrowserAdapter(
         currentUrl: () async => 'https://missav.ai/ja/open-sample-001',
         disposeBrowser: () async {},
+        readCookieHeader: () async => apiRequests.isEmpty
+            ? 'session=rotated-in-document'
+            : apiRequests.length == 1
+            ? 'session=rotated-in-browser'
+            : 'session=rotated-after-save',
         navigateDocument: (uri, cancelled) async {
           documents.add(uri);
           return fixture;
@@ -4099,6 +4109,9 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
         runJavaScript: (script) async {
           final match = RegExp(r'const request = (.*);').firstMatch(script);
           if (match == null) return;
+          if (apiRequests.isEmpty) {
+            expect(storage.cookie, 'session=rotated-in-document');
+          }
           final request = jsonDecode(match.group(1)!) as Map<String, dynamic>;
           apiRequests.add(request['url'] as String);
           browser.receiveMessage({
@@ -4133,6 +4146,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       expect(documents.map((uri) => uri.path), ['/ja/open-sample-001']);
       expect(apiRequests, ['https://missav.ai/api/items/source-123/view']);
       expect(client.isLoggedIn, isTrue);
+      expect(storage.cookie, 'session=rotated-in-browser');
       expect(details.streams, hasLength(2));
       expect(mediaRoutes, 0);
       final prepared = await client.prepareMediaStream(
@@ -4143,6 +4157,14 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       expect(prepared.headers, isEmpty);
       expect(mediaRoutes, 1);
       expect(nativeAdapter.requests, isEmpty);
+
+      storage.beforeWrite = () async => throw StateError('Storage unavailable');
+      await client.setVideoFavorite(details, true);
+      expect(apiRequests.last, 'https://missav.ai/api/items/source-123/save');
+      expect(storage.cookie, 'session=rotated-in-browser');
+      storage.beforeWrite = null;
+      await client.checkBrowserAccess();
+      expect(storage.cookie, 'session=rotated-after-save');
 
       client.restoreNativeTransport();
       final nativeDetails = await client.details(details.video);
@@ -4156,7 +4178,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     },
   );
 
-  test('mirror details skip the canonical account API', () async {
+  test('anonymous mirror details skip the account API', () async {
     final fixture = await File(
       'test/fixtures/missav/detail.html',
     ).readAsString();
@@ -4189,6 +4211,58 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       isFalse,
     );
   });
+
+  test(
+    'mirror details read favorites from the restored account line',
+    () async {
+      final mirror = missavMirrors.first.baseUrl;
+      const account = 'https://missav.ws';
+      final storage = _MemorySecureStorage()
+        ..values['missav_verified_session'] = jsonEncode({
+          'cookie': 'session=saved',
+          'userAgent': 'Saved Browser UA',
+          'host': account,
+        });
+      final fixture = await _detailHtml();
+      final adapter = _Adapter((request) {
+        if (request.uri.path.endsWith('/view')) {
+          return _response('{"saved":true,"user":{"name":"Viewer"}}');
+        }
+        return _response(fixture);
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: storage,
+        contentHosts: [mirror, account],
+      );
+      addTearDown(client.dispose);
+
+      final details = await client.details(
+        VideoItem(
+          id: 'open-sample-001',
+          title: 'Sample',
+          pageUrl: '$mirror/en/open-sample-001',
+        ),
+      );
+
+      expect(details.isFavorite, isTrue);
+      final page = adapter.requests.first;
+      final view = adapter.requests.last;
+      expect(page.uri.origin, mirror);
+      expect(_cookieHeader(page), isEmpty);
+      expect(view.uri.origin, account);
+      expect(view.uri.path, endsWith('/view'));
+      expect(_cookieHeader(view), 'session=saved');
+      expect(details.streams, isNotEmpty);
+      expect(
+        details.streams.every(
+          (stream) => Uri.parse(stream.url).origin == mirror,
+        ),
+        isTrue,
+      );
+    },
+  );
 
   test('does not treat Cloudflare JSD as a verification challenge', () async {
     final fixture = await File(
@@ -4405,6 +4479,9 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
   test(
     'cancels a login before the replacement transport can send it',
     () async {
+      SharedPreferences.setMockInitialValues({
+        missavAccountBaseUrlKey: MissavClient.accountHosts.first,
+      });
       final transformStarted = Completer<void>();
       final releaseTransform = Completer<void>();
       final nativeAdapter = _Adapter((_) => _response('{}'));
@@ -4574,7 +4651,13 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       final fixture = await File(
         'test/fixtures/missav/catalog.html',
       ).readAsString();
-      final adapter = _Adapter((_) => _response(fixture));
+      final adapter = _Adapter(
+        (request) => _response(
+          request.uri.path.endsWith('/saved')
+              ? '<body x-data="{user: {name: \'Browser viewer\'}}"></body>'
+              : fixture,
+        ),
+      );
       final restoredClient = MissavClient(
         metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
@@ -4597,8 +4680,189 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
         storage.values.values.any((value) => value.contains(userAgent)),
         isTrue,
       );
+      expect(await restoredClient.restoreAccount(), isTrue);
+      expect(restoredClient.accountName, 'Browser viewer');
+      expect(_cookieHeader(adapter.requests.last), cookie);
     },
   );
+
+  test('coalesces account restoration and saves rotated cookies', () async {
+    const accountMarkup = '<body x-data="{user: {name: \'Viewer\'}}"></body>';
+    final storage = _MemorySecureStorage()..cookie = 'session=browser';
+    final firstResponse = Completer<ResponseBody>();
+    final requestStarted = Completer<void>();
+    final adapter = _Adapter((request) {
+      expect(request.uri, Uri.parse('https://missav.ai/en/saved'));
+      expect(_cookieHeader(request), 'session=browser');
+      requestStarted.complete();
+      return firstResponse.future;
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: storage,
+    );
+    await client.initialize();
+    final first = client.restoreAccount();
+    await requestStarted.future;
+    final second = client.restoreAccount();
+    firstResponse.complete(
+      _response(
+        accountMarkup,
+        headers: {
+          'set-cookie': [
+            'session=rotated; Path=/; Max-Age=120; '
+                'Expires=Sat, 01 Jan 2000 00:00:00 GMT',
+          ],
+        },
+      ),
+    );
+    expect(await Future.wait([first, second]), [true, true]);
+    expect(client.accountName, 'Viewer');
+    expect(adapter.requests, hasLength(1));
+    expect(storage.cookie, 'session=rotated');
+    final record =
+        jsonDecode(storage.values['missav_verified_session']!) as Map;
+    expect(record['expires'], contains('session'));
+    client.dispose();
+
+    final nextAdapter = _Adapter((request) {
+      expect(_cookieHeader(request), 'session=rotated');
+      if (request.method == 'POST') return _response('{}');
+      return _response(accountMarkup);
+    });
+    final restarted = MissavClient(
+      dio: Dio()..httpClientAdapter = nextAdapter,
+      secureStorage: storage,
+    );
+    addTearDown(restarted.dispose);
+    expect(await restarted.restoreAccount(), isTrue);
+    await restarted.setVideoFavorite(
+      const VideoDetails(
+        video: VideoItem(
+          id: 'sample',
+          title: 'Sample',
+          pageUrl: 'https://missav.ai/en/sample',
+        ),
+        sourceId: 'sample-id',
+      ),
+      true,
+    );
+    expect(nextAdapter.requests.last.uri.path, '/api/items/sample-id/save');
+  });
+
+  test('does not recover an expired cookie from the legacy copy', () async {
+    final storage = _MemorySecureStorage()..cookie = 'session=expired';
+    storage.values['missav_verified_session'] = jsonEncode({
+      'cookie': storage.cookie,
+      'host': 'https://missav.ai',
+      'userAgent': 'MissAV WebView/1.0',
+      'expires': {'session': 1},
+    });
+    final adapter = _Adapter((_) => _response('{}'));
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: storage,
+    );
+    addTearDown(client.dispose);
+    expect(await client.restoreAccount(), isFalse);
+    expect(adapter.requests, isEmpty);
+  });
+
+  test('only discards a saved session after account rejection', () async {
+    final storage = _MemorySecureStorage()..cookie = 'session=saved';
+    var attempts = 0;
+    final adapter = _Adapter((request) {
+      expect(_cookieHeader(request), 'session=saved');
+      return switch (++attempts) {
+        1 => _response(
+          'Unavailable',
+          statusCode: HttpStatus.serviceUnavailable,
+        ),
+        2 => _response(
+          '<body x-data="{user: null}"><button>Login</button></body>',
+        ),
+        _ => _response(
+          '<main><h1>My video collection</h1><a href="#">Login</a></main>',
+        ),
+      };
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: storage,
+    );
+    addTearDown(client.dispose);
+
+    for (var failure = 0; failure < 2; failure++) {
+      await expectLater(
+        client.restoreAccount(),
+        throwsA(isA<MissavException>()),
+      );
+      expect(storage.cookie, 'session=saved');
+      expect(client.hasRestorableSession, isTrue);
+    }
+    expect(await client.restoreAccount(), isFalse);
+    expect(storage.values, isEmpty);
+    expect(await client.restoreAccount(), isFalse);
+    expect(adapter.requests, hasLength(3));
+  });
+
+  test('rechecking a signed-in account clears a rejected session', () async {
+    final storage = _MemorySecureStorage()..cookie = 'session=saved';
+    var expired = false;
+    final adapter = _Adapter(
+      (_) => expired
+          ? _response('Unauthorized', statusCode: HttpStatus.unauthorized)
+          : _response('<body x-data="{user: {name: \'Viewer\'}}"></body>'),
+    );
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: storage,
+    );
+    addTearDown(client.dispose);
+
+    expect(await client.restoreAccount(), isTrue);
+    expired = true;
+    expect(await client.restoreAccount(), isTrue);
+    expect(adapter.requests, hasLength(1));
+    expect(await client.restoreAccount(recheck: true), isFalse);
+    expect(adapter.requests, hasLength(2));
+    expect(client.isLoggedIn, isFalse);
+    expect(storage.values, isEmpty);
+  });
+
+  test('logout wins over a late account restore response', () async {
+    final storage = _MemorySecureStorage()..cookie = 'session=saved';
+    final requestStarted = Completer<void>();
+    final response = Completer<ResponseBody>();
+    final client = MissavClient(
+      dio: Dio()
+        ..httpClientAdapter = _Adapter((_) {
+          requestStarted.complete();
+          return response.future;
+        }),
+      secureStorage: storage,
+    );
+    addTearDown(client.dispose);
+
+    final restoring = expectLater(
+      client.restoreAccount(),
+      throwsA(isA<MissavException>()),
+    );
+    await requestStarted.future;
+    await client.logout();
+    response.complete(
+      _response(
+        '<body x-data="{user: {name: \'Old viewer\'}}"></body>',
+        headers: {
+          'set-cookie': ['session=late; Path=/; Secure'],
+        },
+      ),
+    );
+    await restoring;
+    expect(client.isLoggedIn, isFalse);
+    expect(await client.restoreAccount(), isFalse);
+    expect(storage.values, isEmpty);
+  });
 
   test('surfaces the browser challenge as a source entry point', () async {
     final fixture = await File(
@@ -5809,6 +6073,9 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     test(
       'authentication failure updates account state (login=$failingLogin)',
       () async {
+        SharedPreferences.setMockInitialValues({
+          missavAccountBaseUrlKey: MissavClient.accountHosts.first,
+        });
         var loginRequests = 0;
         final adapter = _Adapter((options) {
           if (options.uri.path.endsWith('/api/login') && ++loginRequests == 1) {
@@ -6018,6 +6285,9 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
   test(
     'posts the observed login contract and stores only account-host cookies',
     () async {
+      SharedPreferences.setMockInitialValues({
+        missavAccountBaseUrlKey: 'https://missav.live',
+      });
       final storage = _MemorySecureStorage()..cookie = 'XSRF-TOKEN=token%3D';
       late RequestOptions request;
       final adapter = _Adapter((options) {
@@ -6117,6 +6387,9 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
   });
 
   test('confirms a native login through the home page', () async {
+    SharedPreferences.setMockInitialValues({
+      missavAccountBaseUrlKey: MissavClient.accountHosts.first,
+    });
     final adapter = _Adapter((options) {
       if (options.method == 'POST') {
         return _response(
@@ -6669,6 +6942,11 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
           dio: Dio()
             ..httpClientAdapter = _Adapter((request) {
               requests.add(request);
+              if (request.uri.path == '/en/saved') {
+                return _response(
+                  '<body x-data="{user: {name: \'ws viewer\'}}"></body>',
+                );
+              }
               return request.uri.path.endsWith('/saved')
                   ? _response('<main><h1>Saved</h1></main>')
                   : _response(_searchCatalogHtml(['public']));
@@ -6679,6 +6957,9 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
         addTearDown(restored.dispose);
         await restored.initialize();
         expect(restored.accountHostUrl, 'https://missav.ai');
+        expect(await restored.restoreAccount(), isTrue);
+        expect(restored.accountName, 'ws viewer');
+        expect(requests.single.uri, Uri.parse('https://missav.ws/en/saved'));
 
         await restored.browse('https://missav.ai/cn/release');
         await restored.browse('https://missav.ws/cn/saved');
@@ -6756,35 +7037,41 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       },
     );
 
-    test('restores a legacy cookie against the selected origin', () async {
-      SharedPreferences.setMockInitialValues({
-        missavAccountBaseUrlKey: 'https://missav.ws',
+    for (final savedHost in [null, 'https://missav.ws']) {
+      test('restores a legacy cookie with saved host $savedHost', () async {
+        SharedPreferences.setMockInitialValues({
+          if (savedHost != null) missavAccountBaseUrlKey: savedHost,
+        });
+        final storage = _MemorySecureStorage()..cookie = 'session=legacy';
+        final requests = <RequestOptions>[];
+        final client = MissavClient(
+          dio: Dio()
+            ..httpClientAdapter = _Adapter((request) {
+              requests.add(request);
+              return request.uri.path.endsWith('/saved')
+                  ? _response('<main><h1>Saved</h1></main>')
+                  : _response(_searchCatalogHtml(['public']));
+            }),
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: storage,
+        );
+        addTearDown(client.dispose);
+        await client.initialize();
+
+        await client.browse('https://missav.ai/cn/saved');
+        final expectedHost = savedHost ?? MissavClient.origin;
+        final otherHost = savedHost == null
+            ? MissavClient.accountHosts.first
+            : MissavClient.origin;
+        await client.browse('$otherHost/cn/release');
+
+        expect(requests.map((request) => request.uri.origin), [
+          expectedHost,
+          otherHost,
+        ]);
+        expect(_cookieHeader(requests[0]), 'session=legacy');
+        expect(_cookieHeader(requests[1]), isEmpty);
       });
-      final storage = _MemorySecureStorage()..cookie = 'session=legacy';
-      final requests = <RequestOptions>[];
-      final client = MissavClient(
-        dio: Dio()
-          ..httpClientAdapter = _Adapter((request) {
-            requests.add(request);
-            return request.uri.path.endsWith('/saved')
-                ? _response('<main><h1>Saved</h1></main>')
-                : _response(_searchCatalogHtml(['public']));
-          }),
-        metadataDio: _emptyMetadataDio(),
-        secureStorage: storage,
-      );
-      addTearDown(client.dispose);
-      await client.initialize();
-
-      await client.browse('https://missav.ai/cn/saved');
-      await client.browse('https://missav.ai/cn/release');
-
-      expect(requests.map((request) => request.uri.origin), [
-        'https://missav.ws',
-        'https://missav.ai',
-      ]);
-      expect(_cookieHeader(requests[0]), 'session=legacy');
-      expect(_cookieHeader(requests[1]), isEmpty);
-    });
+    }
   });
 }

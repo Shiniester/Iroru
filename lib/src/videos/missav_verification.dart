@@ -518,6 +518,10 @@ Future<String> navigateMissavDocument(
       );
     }
     final finalUri = Uri.parse(document['url'] as String);
+    if (uri.pathSegments.lastOrNull == 'saved' &&
+        finalUri.pathSegments.lastOrNull == 'login') {
+      throw MissavAuthenticationException(sourceUrl: uri.toString());
+    }
     if (_isMissavHomePath(finalUri) && !_isMissavHomePath(uri)) {
       throw MissavException(
         'MissAV redirected the page to its home page.',

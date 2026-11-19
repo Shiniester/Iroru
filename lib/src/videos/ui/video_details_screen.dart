@@ -19,6 +19,7 @@ import '../../widgets/work_detail/work_detail_section_title.dart';
 import '../../widgets/work_detail/work_title_header.dart';
 import '../jable_client.dart';
 import '../missav_client.dart';
+import '../missav_mirrors.dart';
 import '../jable_verification.dart';
 import '../video_download_task.dart';
 import '../video_downloads.dart';
@@ -207,6 +208,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     final isLoggedIn = _client.isLoggedIn;
     final accountName = _client.accountName;
     final sessionChanged = _sessionGeneration != _client.sessionGeneration;
+    final accountRestored = isLoggedIn && !_accountWasLoggedIn;
     if (!sessionChanged &&
         isLoggedIn == _accountWasLoggedIn &&
         accountName == _accountName) {
@@ -222,14 +224,27 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       return;
     }
 
-    if (_loading && !sessionChanged) return;
+    if (!sessionChanged && (_loading || (_savingFavorite && accountRestored))) {
+      return;
+    }
     _loadGeneration++;
-    unawaited(_reloadAfterClientChanged());
+    unawaited(_reloadAfterClientChanged(refreshStreams: sessionChanged));
   }
 
-  Future<void> _reloadAfterClientChanged() async {
+  Future<void> _reloadAfterClientChanged({bool refreshStreams = false}) async {
     final generation = _loadGeneration;
     if (!await _waitForRouteIdle(generation)) return;
+    final details = _details;
+    final uri = Uri.tryParse(details?.video.pageUrl ?? '');
+    if (_client.isLoggedIn &&
+        details != null &&
+        uri != null &&
+        uri.hasAuthority &&
+        !missavOfficialHosts.contains(uri.host)) {
+      _resetMissavRelated();
+      await _initialize(supplement: refreshStreams ? null : details);
+      return;
+    }
     setState(() {
       _details = null;
       _resetMissavRelated();
@@ -660,6 +675,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       return;
     }
     final favorite = !_favorite;
+    final restoreNeeded =
+        widget.video.sourceKey == 'missav' && !_client.isLoggedIn;
+    final generation = _client.sessionGeneration;
     setState(() => _savingFavorite = true);
     try {
       if (widget.video.sourceKey == 'jable') {
@@ -677,10 +695,13 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           await account.setVideoFavorite(details, favorite);
         }
       } else {
-        if (!_client.isLoggedIn) {
+        final signedIn = await _client.restoreAccount();
+        if (!mounted || !_routeReadiness.isIdle) return;
+        if (!signedIn) {
           await _loginRequired();
           return;
         }
+        if (generation != _client.sessionGeneration) return;
         await _client.setVideoFavorite(details, favorite);
       }
       if (mounted && identical(_details, details)) {
@@ -695,17 +716,27 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     } catch (_) {
       await _sourceFallback(widget.video.pageUrl);
     } finally {
-      if (mounted) setState(() => _savingFavorite = false);
+      if (mounted) {
+        setState(() => _savingFavorite = false);
+        if (restoreNeeded &&
+            _client.isLoggedIn &&
+            generation == _client.sessionGeneration) {
+          _loadGeneration++;
+          unawaited(_reloadAfterClientChanged());
+        }
+      }
     }
   }
 
   Future<void> _setActorFavorite(VideoLink actor, bool favorite) async {
     if (widget.video.sourceKey != 'missav') return;
-    if (!_client.isLoggedIn) {
-      await _loginRequired();
-      return;
-    }
     try {
+      final signedIn = await _client.restoreAccount();
+      if (!mounted) return;
+      if (!signedIn) {
+        await _loginRequired();
+        return;
+      }
       await _client.setActorFavorite(actor, favorite);
     } on MissavAuthenticationException {
       await _loginRequired();
@@ -874,12 +905,14 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
 
   Future<void> _showPlaylists() async {
     if (widget.video.sourceKey != 'missav') return;
-    if (!_client.isLoggedIn) {
-      await _loginRequired();
-      return;
-    }
     List<VideoLink> playlists;
     try {
+      final signedIn = await _client.restoreAccount();
+      if (!mounted || !_routeReadiness.isIdle) return;
+      if (!signedIn) {
+        await _loginRequired();
+        return;
+      }
       playlists = await _client.playlistsFor(widget.video);
     } on MissavAuthenticationException {
       if (!mounted || !_routeReadiness.isIdle) return;
@@ -887,7 +920,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       return;
     } on MissavException catch (error) {
       if (!mounted || !_routeReadiness.isIdle) return;
-      await _sourceFallback(error.sourceUrl ?? widget.video.pageUrl);
+      await _sourceFallback(error.sourceUrl ?? widget.video.pageUrl, error);
       return;
     } catch (_) {
       if (!mounted || !_routeReadiness.isIdle) return;

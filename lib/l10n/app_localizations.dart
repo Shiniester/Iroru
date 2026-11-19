@@ -7834,6 +7834,12 @@ abstract class S {
   /// **'Signed in'**
   String get videoAccountSignedIn;
 
+  /// No description provided for @videoAccountRestoring.
+  ///
+  /// In en, this message translates to:
+  /// **'Restoring sign-in'**
+  String get videoAccountRestoring;
+
   /// No description provided for @videoAccountSignedOut.
   ///
   /// In en, this message translates to:

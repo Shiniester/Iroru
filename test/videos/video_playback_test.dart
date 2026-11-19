@@ -7094,6 +7094,117 @@ void main() {
     );
   }
 
+  for (final loginFromFavorite in [true, false]) {
+    _testPlayerWidget(
+      'mirror details use the account after login (favorite=$loginFromFavorite)',
+      (tester) async {
+        const video = VideoItem(
+          id: 'dvd-1',
+          title: 'Mirror video',
+          pageUrl: 'https://www.missav05.com/cn/dvd-1',
+        );
+        final anonymous = VideoDetails(
+          video: video,
+          sourceId: 'source-id',
+          streams: _details().streams,
+        );
+        final client = _TestMissavClient(anonymous)
+          ..playlists = const [
+            VideoLink(
+              label: 'Fixture playlist',
+              url: 'https://missav.ai/cn/playlists',
+              kind: VideoLinkKind.playlist,
+              sourceKey: 'playlist-key',
+              isAdded: false,
+            ),
+          ];
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(client: client, library: library);
+        final session = _FakePlaybackSession();
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            _testVideoDetailsScreen(
+              video: video,
+              sessionFactory: () => session,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final s = await S.delegate.load(const Locale('en'));
+        final favorite = find.byTooltip(s.videoFavorites);
+        final playlists = find.byTooltip(s.videoAddToPlaylist);
+        await tester.tap(loginFromFavorite ? favorite : playlists);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(s.login));
+        await tester.pumpAndSettle();
+        final fields = find.byType(TextField);
+        await tester.enterText(fields.first, 'viewer@example.test');
+        await tester.enterText(fields.last, 'password');
+        await tester.tap(find.text(s.login));
+        await tester.pumpAndSettle();
+        expect(find.text('Account B'), findsOneWidget);
+        Navigator.of(tester.element(find.text('Account B'))).pop();
+        await tester.pumpAndSettle();
+
+        await tester.tap(favorite);
+        await tester.pumpAndSettle();
+        expect(client.videoFavoriteChanges, [true]);
+        await tester.tap(playlists);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(CheckboxListTile));
+        await tester.pumpAndSettle();
+        expect(client.addedPlaylists, ['playlist-key']);
+        expect(session.loadStreamCount, 1);
+      },
+    );
+  }
+
+  _testPlayerWidget('first MissAV favorite restores the saved account', (
+    tester,
+  ) async {
+    final restore = Completer<void>();
+    final save = Completer<void>();
+    final client = _TestMissavClient(_details())
+      ..favoriteResponse = save.future;
+    client.accountRestore = () async {
+      await restore.future;
+      client.switchAccount(isFavorite: false);
+      return true;
+    };
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        _testVideoDetailsScreen(
+          video: _video(),
+          sessionFactory: _FakePlaybackSession.new,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.bookmark_outline));
+    await tester.pump();
+    expect(client.videoFavoriteChanges, isEmpty);
+    restore.complete();
+    await tester.pump();
+
+    expect(client.videoFavoriteChanges, [true]);
+    expect(client.detailsCalls, 1);
+    client.detailsResult = _details(isFavorite: true);
+    save.complete();
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.bookmark), findsOneWidget);
+    final strings = await S.delegate.load(const Locale('en'));
+    expect(find.text(strings.videoLoginRequired), findsNothing);
+  });
+
   _testPlayerWidget('account change clears and reloads detail favorite state', (
     tester,
   ) async {
@@ -7917,9 +8028,17 @@ void main() {
   );
 
   _testPlayerWidget(
-    'a new media session reloads the stream for the same account',
+    'a new media session reloads the mirror stream for the same account',
     (tester) async {
-      final client = _TestMissavClient(_details());
+      const video = VideoItem(
+        id: 'dvd-1',
+        title: 'Fixture video',
+        pageUrl: 'https://www.missav05.com/cn/dvd-1',
+      );
+      final client = _TestMissavClient(
+        VideoDetails(video: video, streams: _details().streams),
+        loggedIn: true,
+      );
       final library = await _testLibrary();
       final downloads = _TestVideoDownloads(client: client, library: library);
       final session = _FakePlaybackSession();
@@ -7928,16 +8047,13 @@ void main() {
           client,
           library,
           downloads,
-          _testVideoDetailsScreen(
-            video: _video(),
-            sessionFactory: () => session,
-          ),
+          _testVideoDetailsScreen(video: video, sessionFactory: () => session),
         ),
       );
       await tester.pumpAndSettle();
       client.reconnect();
       await tester.pumpAndSettle();
-      expect(client.isLoggedIn, isFalse);
+      expect(client.isLoggedIn, isTrue);
       expect(client.detailsCalls, 2);
       expect(session.loadStreamCount, 2);
       expect(session.lastStreamUrl, 'http://127.0.0.1:1235/video.m3u8');
@@ -9205,6 +9321,7 @@ class _TestMissavClient extends MissavClient {
   String? _accountName;
   final List<bool> actorFavoriteChanges = [];
   final List<bool> videoFavoriteChanges = [];
+  Future<bool> Function()? accountRestore;
   Future<void>? favoriteResponse;
   MissavVerificationRequiredException? mediaError;
   Completer<VideoDetails>? detailsCompleter;
@@ -9263,10 +9380,29 @@ class _TestMissavClient extends MissavClient {
   @override
   String? get accountName => _accountName;
 
+  @override
+  Future<bool> restoreAccount({bool recheck = false}) =>
+      accountRestore?.call() ?? super.restoreAccount(recheck: recheck);
+
   void switchAccount({required bool isFavorite}) {
     loggedIn = true;
     _accountName = 'Account B';
     detailsResult = _details(isFavorite: isFavorite);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> login({required String email, required String password}) async {
+    _generation++;
+    final anonymous = detailsResult;
+    loggedIn = true;
+    _accountName = 'Account B';
+    detailsResult = VideoDetails(
+      video: anonymous.video,
+      sourceId: anonymous.sourceId,
+      streams: anonymous.streams,
+      isFavorite: false,
+    );
     notifyListeners();
   }
 

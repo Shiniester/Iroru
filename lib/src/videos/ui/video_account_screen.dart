@@ -27,17 +27,22 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   bool _loading = false;
   bool _ready = false;
   bool _checkingAccount = false;
+  bool _restoringAccount = false;
+  bool _restoreFailed = false;
+  late bool _wasLoggedIn;
   bool _obscurePassword = true;
   String? _error;
   MissavVerificationRequiredException? _verificationError;
   String? _pendingLoginHost;
   bool _showOpenSource = false;
   CancelToken? _accessCheckToken;
+  int _restoreGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     _client = ref.read(videoClientProvider)..addListener(_accountChanged);
+    _wasLoggedIn = _client.isLoggedIn;
     unawaited(_initialize());
   }
 
@@ -55,7 +60,39 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     }
     if (!mounted) return;
     setState(() => _ready = true);
-    await _refreshAccount();
+    await _restoreAccount();
+  }
+
+  Future<void> _restoreAccount() async {
+    if (!_client.hasRestorableSession && !_client.isLoggedIn) return;
+    final generation = ++_restoreGeneration;
+    setState(() {
+      _restoringAccount = true;
+      _restoreFailed = false;
+      _error = null;
+      _verificationError = null;
+      _pendingLoginHost = null;
+      _showOpenSource = false;
+    });
+    try {
+      final restored = await _client.restoreAccount(recheck: true);
+      if (!mounted || generation != _restoreGeneration) return;
+      if (restored || _client.isLoggedIn) return;
+      setState(() => _restoreFailed = false);
+    } catch (error) {
+      if (!mounted || generation != _restoreGeneration) return;
+      final needsSourceAction =
+          error is MissavVerificationRequiredException ||
+          error is MissavAccessDeniedException;
+      setState(() {
+        _setAccountError(error, S.of(context).videoSourceUnavailable);
+        _restoreFailed = !needsSourceAction && _client.hasRestorableSession;
+      });
+    } finally {
+      if (mounted && generation == _restoreGeneration) {
+        setState(() => _restoringAccount = false);
+      }
+    }
   }
 
   Future<Object?> _refreshAccount() async {
@@ -81,6 +118,9 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   }
 
   void _cancelAccessCheck() {
+    _restoreGeneration++;
+    _restoringAccount = false;
+    _restoreFailed = false;
     final token = _accessCheckToken;
     _accessCheckToken = null;
     if (token != null && !token.isCancelled) {
@@ -89,7 +129,22 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   }
 
   void _accountChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final justSignedIn = _client.isLoggedIn && !_wasLoggedIn;
+    _wasLoggedIn = _client.isLoggedIn;
+    if (justSignedIn) {
+      _restoreGeneration++;
+      setState(() {
+        _restoringAccount = false;
+        _restoreFailed = false;
+        _error = null;
+        _verificationError = null;
+        _pendingLoginHost = null;
+        _showOpenSource = false;
+      });
+      return;
+    }
+    setState(() {});
   }
 
   Future<void> _verifyAccess() async {
@@ -265,6 +320,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     final loggedIn = _client.isLoggedIn;
+    final restoring = _restoringAccount || _restoreFailed;
     return GlobalAudioPlayerWrapper(
       child: Scaffold(
         appBar: AppBar(title: Text(s.videoSourceAccount)),
@@ -289,6 +345,33 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                         ),
                         const SizedBox(height: 12),
                       ],
+                      if (restoring) ...[
+                        if (_restoringAccount) ...[
+                          Text(
+                            s.videoAccountRestoring,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 16),
+                          const LinearProgressIndicator(
+                            key: ValueKey('video-account-restoring'),
+                          ),
+                        ] else ...[
+                          Text(
+                            _error ?? s.videoSourceUnavailable,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          FilledButton.icon(
+                            onPressed: _restoreAccount,
+                            icon: const Icon(Icons.refresh),
+                            label: Text(s.retry),
+                          ),
+                        ],
+                      ],
                       if (loggedIn) ...[
                         Text(
                           _client.accountName ?? s.videoAccountSignedIn,
@@ -301,7 +384,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                           icon: const Icon(Icons.logout),
                           label: Text(s.logout),
                         ),
-                      ] else ...[
+                      ] else if (!restoring) ...[
                         Text(s.videoLoginRequired, textAlign: TextAlign.center),
                         if (_error != null) ...[
                           const SizedBox(height: 12),

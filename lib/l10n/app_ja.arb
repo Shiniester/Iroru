@@ -1432,6 +1432,7 @@
   "videoInterface": "インターフェース",
   "videoAccountAndSources": "アカウントとソース",
   "videoAccountSignedIn": "ログイン済み",
+  "videoAccountRestoring": "ログインを復元しています",
   "videoAccountSignedOut": "未ログイン",
   "downloadsAndStorage": "ダウンロードとストレージ",
   "videoCardMakers": "メーカー",

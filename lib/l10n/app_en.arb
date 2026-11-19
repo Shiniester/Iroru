@@ -1827,6 +1827,7 @@
   "videoInterface": "Interface",
   "videoAccountAndSources": "Account and sources",
   "videoAccountSignedIn": "Signed in",
+  "videoAccountRestoring": "Restoring sign-in",
   "videoAccountSignedOut": "Not signed in",
   "downloadsAndStorage": "Downloads and storage",
   "videoCardMakers": "Studio",

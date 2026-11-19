@@ -1364,6 +1364,22 @@ void main() {
     );
   });
 
+  test('saved page navigation recognizes an explicit login redirect', () async {
+    await expectLater(
+      navigateMissavDocument(
+        Uri.parse('https://missav.ai/cn/saved'),
+        Completer<void>().future,
+        navigate: (_) async {},
+        read: (_) async => {
+          'url': 'https://missav.ai/cn/login',
+          'html': '<main><h1>Login</h1></main>',
+        },
+        stop: () async {},
+      ),
+      throwsA(isA<MissavAuthenticationException>()),
+    );
+  });
+
   testWidgets(
     'a rejected login snapshot releases the browser retained across a session change',
     (tester) async {

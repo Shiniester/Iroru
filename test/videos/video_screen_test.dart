@@ -5519,6 +5519,9 @@ class _TestMissavClient extends MissavClient {
   }
 
   @override
+  Future<bool> restoreAccount({bool recheck = false}) async => loggedIn;
+
+  @override
   Future<void> initialize() async {}
 
   @override

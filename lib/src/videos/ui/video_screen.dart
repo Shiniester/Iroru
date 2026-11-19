@@ -2131,11 +2131,13 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   Future<void> _setActorFavorite(VideoLink actor, bool favorite) async {
-    if (!_client.isLoggedIn) {
-      await _loginRequired();
-      return;
-    }
     try {
+      final signedIn = await _client.restoreAccount();
+      if (!mounted || _sourceKey != 'missav') return;
+      if (!signedIn) {
+        await _loginRequired();
+        return;
+      }
       await _client.setActorFavorite(actor, favorite);
       final page = _page;
       if (!favorite &&
@@ -2174,30 +2176,32 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   Future<void> _confirmClearWatchHistory() async {
     final page = _page;
     if (page == null) return;
-    if (!_client.isLoggedIn) {
-      await _loginRequired();
-      return;
-    }
-    final s = S.of(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(s.clearHistory),
-        content: Text(s.clearHistoryConfirm),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(s.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(s.confirm),
-          ),
-        ],
-      ),
-    );
-    if (!mounted || confirmed != true) return;
     try {
+      final signedIn = await _client.restoreAccount();
+      if (!mounted || _sourceKey != 'missav') return;
+      if (!signedIn) {
+        await _loginRequired();
+        return;
+      }
+      final s = S.of(context);
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(s.clearHistory),
+          content: Text(s.clearHistoryConfirm),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(s.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(s.confirm),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || confirmed != true) return;
       await _client.clearWatchHistory();
       if (mounted) await _loadUrl(page.url);
     } on MissavAuthenticationException {

@@ -73,6 +73,10 @@ A user's account with a Video Source and the source-owned collections belonging
 to that account.
 _Avoid_: Audio account, comic account
 
+**Video Source Account Session (视频源账号会话)**:
+The period during which a Video Source accepts a sign-in to a Video Source
+Account. A valid session can continue after the app closes and reopens.
+
 **Video Source Verification (视频源验证)**:
 The website check required before a Video Source permits access from the current
 network. It is separate from signing in to a Video Source Account.

@@ -25,7 +25,7 @@ typedef _MissavAccountVerifier =
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('refreshes a saved sign-in before showing the account state', (
+  testWidgets('restores a saved sign-in before showing the account state', (
     tester,
   ) async {
     final client = _TestMissavClient(restoredAccountName: 'saved-viewer');
@@ -40,7 +40,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(client.browserAccessChecks, 1);
+    expect(client.restoreAccountCalls, 1);
+    expect(client.browserAccessChecks, 0);
     expect(find.text('saved-viewer'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
 
@@ -68,43 +69,18 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(client.restoreAccountCalls, 0);
     expect(client.browserAccessChecks, 0);
     expect(find.byType(TextField), findsNWidgets(2));
     expect(find.byKey(const ValueKey('video-account-checking')), findsNothing);
   });
 
-  testWidgets('saved account checks access without blocking the form', (
+  testWidgets('saved account shows restoration before the signed-in state', (
     tester,
   ) async {
-    final check = Completer<void>();
+    final restore = Completer<bool>();
     final client = _TestMissavClient(restoredAccountName: 'saved-viewer')
-      ..accessCheckCompleter = check;
-    await tester.pumpWidget(
-      _app(
-        client,
-        verifier: (_, _, {required sourceUrl}) async =>
-            (verified: false, signedIn: false),
-      ),
-    );
-    await tester.pump();
-
-    expect(client.browserAccessChecks, 1);
-    expect(find.byType(TextField), findsNWidgets(2));
-    expect(
-      find.byKey(const ValueKey('video-account-checking')),
-      findsOneWidget,
-    );
-
-    check.complete();
-    await tester.pumpAndSettle();
-    expect(find.text('saved-viewer'), findsOneWidget);
-    expect(find.byType(TextField), findsNothing);
-  });
-
-  testWidgets('login cancels the background access check', (tester) async {
-    final check = Completer<void>();
-    final client = _TestMissavClient(restoredAccountName: 'saved-viewer')
-      ..accessCheckCompleter = check;
+      ..restoreAccountCompleter = restore;
     final s = await S.delegate.load(const Locale('en'));
     await tester.pumpWidget(
       _app(
@@ -115,15 +91,97 @@ void main() {
     );
     await tester.pump();
 
-    await tester.enterText(find.byType(TextField).first, 'viewer@example.test');
-    await tester.enterText(find.byType(TextField).last, 'password');
-    await tester.tap(find.text(s.login));
+    expect(client.restoreAccountCalls, 1);
+    expect(find.text(s.videoAccountRestoring), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    expect(
+      find.byKey(const ValueKey('video-account-restoring')),
+      findsOneWidget,
+    );
+
+    restore.complete(true);
+    await tester.pumpAndSettle();
+    expect(find.text('saved-viewer'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+  });
+
+  testWidgets('transient restore failure keeps the session and retries', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(restoredAccountName: 'saved-viewer')
+      ..restoreAccountError = const MissavException('Restore failed.');
+    final s = await S.delegate.load(const Locale('en'));
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl}) async =>
+            (verified: false, signedIn: false),
+      ),
+    );
     await tester.pumpAndSettle();
 
-    expect(client.accessCheckCancelled, isTrue);
-    expect(client.isLoggedIn, isTrue);
-    expect(find.text('native-viewer'), findsOneWidget);
-    expect(find.text(s.videoSourceUnavailable), findsNothing);
+    expect(find.text(s.videoSourceUnavailable), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, s.retry), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    expect(client.hasRestorableSession, isTrue);
+
+    client.restoreAccountError = null;
+    await tester.tap(find.text(s.retry));
+    await tester.pumpAndSettle();
+
+    expect(client.restoreAccountCalls, 2);
+    expect(find.text('saved-viewer'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+  });
+
+  for (final previouslySignedIn in [false, true]) {
+    testWidgets(
+      'invalid saved session shows login (signed in: $previouslySignedIn)',
+      (tester) async {
+        final client = _TestMissavClient(savedSession: true);
+        if (previouslySignedIn) client.confirmAccount('previous-viewer');
+        final s = await S.delegate.load(const Locale('en'));
+        await tester.pumpWidget(
+          _app(
+            client,
+            verifier: (_, _, {required sourceUrl}) async =>
+                (verified: false, signedIn: false),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(client.restoreAccountCalls, 1);
+        expect(client.isLoggedIn, isFalse);
+        expect(client.hasRestorableSession, isFalse);
+        expect(find.text(s.videoAccountRestoring), findsNothing);
+        expect(find.byType(TextField), findsNWidgets(2));
+      },
+    );
+  }
+
+  testWidgets('stale restore result keeps an externally confirmed account', (
+    tester,
+  ) async {
+    final restore = Completer<bool>();
+    final client = _TestMissavClient(restoredAccountName: 'saved-viewer')
+      ..restoreAccountCompleter = restore;
+    await tester.pumpWidget(
+      _app(
+        client,
+        verifier: (_, _, {required sourceUrl}) async =>
+            (verified: false, signedIn: false),
+      ),
+    );
+    await tester.pump();
+
+    client.confirmAccount('external-viewer');
+    await tester.pump();
+    expect(find.text('external-viewer'), findsOneWidget);
+
+    restore.complete(false);
+    await tester.pumpAndSettle();
+    expect(find.text('external-viewer'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets('verification button accepts a manual web sign-in', (
@@ -154,26 +212,37 @@ void main() {
     expect(find.byType(TextField), findsNothing);
   });
 
-  testWidgets('verification refreshes a restored sign-in on the same page', (
+  testWidgets('restore verification keeps the existing recovery flow', (
     tester,
   ) async {
-    final client = _TestMissavClient();
+    const challengeUrl = 'https://missav.ai/en/api/login';
+    final client = _TestMissavClient(savedSession: true)
+      ..restoreAccountError = const MissavVerificationRequiredException(
+        sourceUrl: challengeUrl,
+      );
+    final requests = <({String sourceUrl})>[];
     final s = await S.delegate.load(const Locale('en'));
     await tester.pumpWidget(
       _app(
         client,
         verifier: (_, _, {required sourceUrl}) async {
+          requests.add((sourceUrl: sourceUrl));
           client.restoredAccountName = 'web-viewer';
           return (verified: true, signedIn: false);
         },
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.text(s.videoVerificationRequired), findsOneWidget);
+    expect(find.text(s.videoVerifyAccess), findsOneWidget);
     expect(find.byType(TextField), findsNWidgets(2));
 
     await tester.tap(find.text(s.videoVerifyAccess));
     await tester.pumpAndSettle();
 
+    expect(requests, [(sourceUrl: challengeUrl)]);
+    expect(client.restoreAccountCalls, 1);
+    expect(client.browserAccessChecks, 1);
     expect(find.text('web-viewer'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
     expect(client.nativeLoginCalls, 0);
@@ -636,21 +705,24 @@ Widget _app(
 );
 
 class _TestMissavClient extends MissavClient {
-  _TestMissavClient({this.restoredAccountName})
-    : super(secureStorage: _TestSecureStorage());
+  _TestMissavClient({this.restoredAccountName, bool? savedSession})
+    : savedSession = savedSession ?? restoredAccountName != null,
+      super(secureStorage: _TestSecureStorage());
 
   String? restoredAccountName;
+  bool savedSession;
   bool _loggedIn = false;
   String? _name;
+  int restoreAccountCalls = 0;
   int browserAccessChecks = 0;
   int logoutCalls = 0;
   final nativeLogins = <({String email, String password})>[];
   int get nativeLoginCalls => nativeLogins.length;
   String? nativeLoginChallengeUrl;
   MissavException? nativeLoginError;
+  MissavException? restoreAccountError;
   MissavException? accessCheckError;
-  Completer<void>? accessCheckCompleter;
-  bool accessCheckCancelled = false;
+  Completer<bool>? restoreAccountCompleter;
   bool rejectLogin = false;
   bool failLogin = false;
 
@@ -661,8 +733,7 @@ class _TestMissavClient extends MissavClient {
   bool get isLoggedIn => _loggedIn;
 
   @override
-  bool get hasRestorableSession =>
-      restoredAccountName != null || accessCheckError != null;
+  bool get hasRestorableSession => savedSession || accessCheckError != null;
 
   @override
   String? get accountName => _name;
@@ -671,29 +742,41 @@ class _TestMissavClient extends MissavClient {
   Future<void> initialize() async {}
 
   @override
+  Future<bool> restoreAccount({bool recheck = false}) async {
+    if (_loggedIn && !recheck) return true;
+    restoreAccountCalls++;
+    if (restoreAccountError case final error?) throw error;
+    final restored =
+        await restoreAccountCompleter?.future ?? restoredAccountName != null;
+    if (!restored) {
+      savedSession = false;
+      restoredAccountName = null;
+      _loggedIn = false;
+      _name = null;
+      return false;
+    }
+    if (restoredAccountName case final name?) {
+      confirmAccount(name);
+      return true;
+    }
+    return _loggedIn;
+  }
+
+  @override
   Future<void> checkBrowserAccess({
     Map<String, dynamic>? browserUser,
     CancelToken? cancelToken,
   }) async {
     browserAccessChecks++;
     if (accessCheckError case final error?) throw error;
-    if (cancelToken != null) {
-      await Future.any<void>([
-        accessCheckCompleter?.future ?? Future.value(),
-        cancelToken.whenCancel.then<void>((_) {
-          accessCheckCancelled = true;
-          throw const MissavException('access check cancelled');
-        }),
-      ]);
-    } else {
-      await accessCheckCompleter?.future;
-    }
+    if (cancelToken?.cancelError case final error?) throw error;
     if (restoredAccountName case final name?) confirmAccount(name);
   }
 
   @override
   Future<void> logout() async {
     logoutCalls++;
+    savedSession = false;
     _loggedIn = false;
     _name = null;
     notifyListeners();
@@ -716,6 +799,7 @@ class _TestMissavClient extends MissavClient {
   }
 
   void confirmAccount(String name) {
+    savedSession = true;
     _loggedIn = true;
     _name = name;
     notifyListeners();
