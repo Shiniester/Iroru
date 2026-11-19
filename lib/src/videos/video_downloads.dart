@@ -341,6 +341,7 @@ class VideoDownloads extends ChangeNotifier {
       uri: uri,
       partialFile: partial,
       cancellation: operation.cancellation,
+      sourceIdentity: task.id,
       headers: headers,
       expectedAudio: true,
       onProgress: (received, total) {
@@ -586,6 +587,7 @@ class VideoDownloads extends ChangeNotifier {
       uri: uri,
       partialFile: partial,
       cancellation: operation.cancellation,
+      sourceIdentity: destination.path,
       headers: _headersFor(task.video, uri, streamHeaders),
       expectedAudio: true,
       onProgress: (received, total) {

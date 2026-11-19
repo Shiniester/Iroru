@@ -780,6 +780,8 @@ void main() {
     await tester.pump();
     await tester.scrollUntilVisible(item, 250, scrollable: scrollable);
     await tester.pumpAndSettle();
+    await tester.ensureVisible(item);
+    await tester.pumpAndSettle();
     await tester.tap(item);
   }
 

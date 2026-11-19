@@ -111,6 +111,7 @@ dev_dependencies:
   json_serializable: ^6.7.1
   build_runner: ^2.4.7
   flutter_launcher_icons: ^0.13.1
+  path_provider_platform_interface: ^2.1.2
 
 dependency_overrides:
   media_kit_libs_android_video:

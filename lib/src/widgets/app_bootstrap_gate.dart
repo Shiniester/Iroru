@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../services/app_bootstrap_coordinator.dart';
 import '../performance/performance_recorder.dart';
+import 'async_state_view.dart';
 
 class AppBootstrapGate extends StatefulWidget {
   const AppBootstrapGate({
@@ -88,44 +89,47 @@ class _AppBootstrapGateState extends State<AppBootstrapGate> {
       debugShowCheckedModeBanner: false,
       home: Scaffold(
         body: SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (failed)
-                      const Icon(Icons.error_outline, size: 44)
-                    else
-                      const CircularProgressIndicator(),
-                    const SizedBox(height: 20),
-                    Text(
-                      failed
-                          ? (isChinese
-                                ? 'Iroru 启动失败'
-                                : 'Iroru failed to start')
-                          : (isChinese ? '正在启动 Iroru…' : 'Starting Iroru…'),
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    if (failed) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        state.error.toString(),
-                        textAlign: TextAlign.center,
-                        maxLines: 4,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+          child: ScrollableStateView(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (failed)
+                        const Icon(Icons.error_outline, size: 44)
+                      else
+                        const CircularProgressIndicator(),
                       const SizedBox(height: 20),
-                      FilledButton.icon(
-                        onPressed: () => unawaited(widget.coordinator.retry()),
-                        icon: const Icon(Icons.refresh),
-                        label: Text(isChinese ? '重试' : 'Retry'),
+                      Text(
+                        failed
+                            ? (isChinese
+                                  ? 'Iroru 启动失败'
+                                  : 'Iroru failed to start')
+                            : (isChinese ? '正在启动 Iroru…' : 'Starting Iroru…'),
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
+                      if (failed) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          state.error.toString(),
+                          textAlign: TextAlign.center,
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 20),
+                        FilledButton.icon(
+                          onPressed: () =>
+                              unawaited(widget.coordinator.retry()),
+                          icon: const Icon(Icons.refresh),
+                          label: Text(isChinese ? '重试' : 'Retry'),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),

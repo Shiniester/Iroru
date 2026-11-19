@@ -91,7 +91,6 @@ class _MainScreenState extends ConsumerState<MainScreen>
   @override
   Future<bool> didPopRoute() async {
     if (defaultTargetPlatform != TargetPlatform.android) return false;
-    if (_navigation?.handlePlayerLaunchBack() ?? false) return true;
     _handleExitBack();
     return true;
   }
@@ -99,7 +98,10 @@ class _MainScreenState extends ConsumerState<MainScreen>
   @override
   Widget build(BuildContext context) {
     final navigation = _navigation!;
-    return PageStorage(
+    final previewActive = navigation.playerLaunchPreviewActive;
+    final consumePreviewBack =
+        defaultTargetPlatform == TargetPlatform.android && previewActive;
+    final tabs = PageStorage(
       bucket: _bucket,
       child: TabPageWarmup(
         key: _pagesKey,
@@ -126,7 +128,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
                     child: NavigatorPopHandler<void>(
                       enabled: navigation.selectedIndex == i,
                       onPopWithResult: (_) {
-                        if (navigation.selectedIndex == i) {
+                        if (!previewActive && navigation.selectedIndex == i) {
                           navigation.tabNavigator(i)?.maybePop<void>();
                         }
                       },
@@ -152,6 +154,15 @@ class _MainScreenState extends ConsumerState<MainScreen>
           ],
         ),
       ),
+    );
+    return PopScope<void>(
+      canPop: !consumePreviewBack,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || defaultTargetPlatform != TargetPlatform.android) return;
+        _lastExitBackAt = null;
+        if (consumePreviewBack) navigation.handlePlayerLaunchBack();
+      },
+      child: tabs,
     );
   }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -6,12 +7,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/models/download_task.dart';
 import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/download_service.dart';
 import 'package:kikoeru_flutter/src/services/speculative_transfer_coordinator.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'audio_player_latest_request_test.dart'
@@ -28,14 +31,15 @@ void main() {
   setUp(() async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
     SpeculativeTransferCoordinator.instance.resetForTest();
+    root = await Directory.systemTemp.createTemp('kiko-cache-independent-');
     SharedPreferences.setMockInitialValues({
       'server_host': 'https://example.invalid',
       'current_user': '{"name":"tester"}',
+      'custom_download_path': root.path,
     });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
-    root = await Directory.systemTemp.createTemp('kiko-cache-independent-');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('plugins.flutter.io/path_provider'),
@@ -451,18 +455,35 @@ void main() {
       isTrue,
     );
 
-    final task = await DownloadService.instance.addTask(
+    const fileName = '试听音频.flac';
+    final task = DownloadTask(
+      id: DownloadTask.createId(
+        workId: 7654321,
+        hash: hash,
+        fileName: fileName,
+      ),
       workId: 7654321,
       workTitle: 'Downloaded test',
-      fileName: '试听音频.flac',
-      downloadUrl: 'https://example.invalid/试听音频.flac',
+      fileName: fileName,
+      downloadUrl: 'https://example.invalid/track.flac',
       hash: hash,
+      totalBytes: bytes.length,
+      downloadedBytes: bytes.length,
+      status: DownloadStatus.completed,
+      createdAt: DateTime.utc(2026),
+      completedAt: DateTime.utc(2026),
     );
+    final downloadedFile = File(p.join(root.path, '7654321', fileName));
+    await downloadedFile.parent.create(recursive: true);
+    await downloadedFile.writeAsBytes(bytes);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('download_tasks', jsonEncode([task.toJson()]));
+    await DownloadService.instance.initialize();
     downloadedTaskId = task.id;
     final track = AudioTrack(
       id: 'downloaded-track',
-      title: '试听音频.flac',
-      url: 'https://example.invalid/试听音频.flac',
+      title: fileName,
+      url: 'https://example.invalid/track.flac',
       hash: hash,
       workId: task.workId,
     );

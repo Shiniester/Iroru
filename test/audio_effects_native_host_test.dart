@@ -146,6 +146,18 @@ void main() {
     skip: library == null,
   );
 
+  for (final scene in [AudioScene.bathroom, AudioScene.muffled]) {
+    test('standalone ${scene.name} keeps silent PCM silent', () async {
+      final frames = List.filled(4800, (0, 0));
+      final capture = await _captureInitialEffects(
+        audioEffectsWav(frames, 48000),
+        AudioEffectsSettings(sceneEnabled: true, scene: scene),
+      );
+
+      expect(audioEffectsPcm(capture), List.filled(frames.length, (0.0, 0.0)));
+    }, skip: library == null);
+  }
+
   test('seek keeps playing after scene history reset', () async {
     final ready = Completer<void>();
     final player = Player(

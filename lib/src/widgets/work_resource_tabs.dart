@@ -183,6 +183,8 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
 
   int get _imagePage => _session.imagePage;
   set _imagePage(int value) => _session.imagePage = value;
+  int get _maxImagePage =>
+      math.max(1, (_images.length / _imagesPerPage).ceil());
 
   bool get _recommendationVisited => _session.recommendationVisited;
   set _recommendationVisited(bool value) =>
@@ -348,7 +350,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         widget.fileTree,
         videoBeforeAudio: widget.videoBeforeAudio,
       );
-      _imagePage = 1;
+      _imagePage = _imagePage.clamp(1, _maxImagePage);
       _imageTargets.clear();
       _resolvedImageTargets.clear();
       for (final signal in _imageTargetSignals.values) {
@@ -1491,8 +1493,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   }
 
   void _changeImagePage(int page) {
-    final maxPage = (_images.length / _imagesPerPage).ceil();
-    if (page < 1 || page > maxPage || page == _imagePage) return;
+    if (page < 1 || page > _maxImagePage || page == _imagePage) return;
     _imagePrefetchQueue.update(
       items: const [],
       visible: const [],

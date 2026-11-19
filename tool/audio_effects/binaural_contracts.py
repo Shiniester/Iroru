@@ -62,6 +62,7 @@ def main():
         baseline,decoded=capture(f'one_channel_dry_{rate}',graphs['dry'],mono_source,rate,chain=True)
         report,neutral=capture(f'one_channel_zero_{rate}',graphs['binaural_mono_0'],mono_source,rate,decoded,chain=True)
         report['passed'] &= neutral==decoded
+        # Nested lavfi modules add a small quantization error to this expansion path.
         report,expanded=capture(f'one_channel_expanded_{rate}',graphs['binaural_mono_100'],mono_source,rate,
             mono_oracle(decoded,rate,1),chain=True,tolerance=1e-4)
         report['passed'] &= any(abs(l-r)>1e-5 for l,r in expanded)

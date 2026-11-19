@@ -541,10 +541,29 @@ jobs:
         run: |
           set -euo pipefail
           simulator=$(xcrun simctl list devices available --json | python3 -c 'import json, sys; devices = json.load(sys.stdin)["devices"]; print(next(device["udid"] for runtime, items in devices.items() if ".iOS-" in runtime for device in items if device.get("isAvailable") and device["name"].startswith("iPhone")))')
-          trap 'xcrun simctl shutdown "$simulator" || true' EXIT
+          log=$(mktemp)
+          trap 'xcrun simctl shutdown "$simulator" || true; rm -f "$log"' EXIT
           xcrun simctl bootstatus "$simulator" -b
-          flutter test --no-pub -d "$simulator" integration_test/audio_apple_playback_test.dart
-          flutter test --no-pub -d "$simulator" integration_test/audio_effects_production_test.dart
+          for test_file in integration_test/audio_apple_playback_test.dart integration_test/audio_effects_production_test.dart; do
+            if flutter test --no-pub -d "$simulator" "$test_file" 2>&1 | tee "$log"; then
+              continue
+            else
+              status=$?
+            fi
+            if grep -Fq 'Xcode build is missing expected TARGET_BUILD_DIR build setting.' "$log"; then
+              printf 'Retrying %s after Flutter could not read TARGET_BUILD_DIR.\n' "$test_file"
+              flutter --verbose test --no-pub -d "$simulator" "$test_file"
+            elif [[ "$test_file" == integration_test/audio_effects_production_test.dart ]] &&
+              grep -Fq 'verified HTTPS video output remains independent from the audio graph (failed)' "$log" &&
+              grep -Fq 'TimeoutException after 0:00:30.000000' "$log"; then
+              printf 'Restarting the simulator and retrying %s after the HTTPS video test timed out.\n' "$test_file"
+              xcrun simctl shutdown "$simulator"
+              xcrun simctl bootstatus "$simulator" -b
+              flutter test --no-pub -d "$simulator" "$test_file"
+            else
+              exit "$status"
+            fi
+          done
 
   ios-build:
     name: iOS Build (Unsigned)

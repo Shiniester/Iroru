@@ -325,6 +325,7 @@ class _Transport implements RemoteAssetTransport {
       statusCode: start == 0 ? HttpStatus.ok : HttpStatus.partialContent,
       contentLength: bytes.length - start,
       headers: {
+        'etag': '"${bytes.length}"',
         if (start > 0)
           'content-range': 'bytes $start-${bytes.length - 1}/${bytes.length}',
       },

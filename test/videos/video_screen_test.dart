@@ -5748,6 +5748,8 @@ Future<ListTile> _videoDrawerTile(WidgetTester tester, String label) async {
   await tester.pumpAndSettle();
   await tester.scrollUntilVisible(labelFinder, 240, scrollable: scrollable);
   await tester.pumpAndSettle();
+  await tester.ensureVisible(labelFinder);
+  await tester.pumpAndSettle();
   final tileFinder = find.ancestor(
     of: labelFinder,
     matching: find.byType(ListTile),

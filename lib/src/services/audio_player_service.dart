@@ -2866,7 +2866,8 @@ class AudioPlayerService {
         direction: PlayerTrackChangeDirection.none,
         sourceToReload: idle ? null : _failedSeekSource,
         initialPosition:
-            _failedSeekPosition ?? (idle ? _player.position : null),
+            _failedSeekPosition ??
+            (idle && published?.id == track.id ? _player.position : null),
       ).future;
       return;
     }
@@ -3151,7 +3152,7 @@ class AudioPlayerService {
     required bool userInitiated,
     bool sliceJump = false,
   }) async {
-    final resumeAfterSeek = _desiredPlaying;
+    final wasPlaying = _desiredPlaying && _player.playing;
     final coverSeekToken =
         currentTrack != null && (_player.playing || _coverSeekToken != null)
         ? Object()
@@ -3198,7 +3199,7 @@ class AudioPlayerService {
         jump: jump,
       );
       if (succeeded) _nativeEffects.resetHistory();
-      if (succeeded && resumeAfterSeek && _desiredPlaying && !_player.playing) {
+      if (succeeded && wasPlaying && _desiredPlaying && !_player.playing) {
         _startPlaybackWithSideEffects();
       }
       return succeeded;
@@ -3576,7 +3577,8 @@ class AudioPlayerService {
       jump,
       () => isCurrentSeekResult(cachedTrackLoad),
     )) {
-      if (_player.processingState != ProcessingState.idle) {
+      if (!isCurrentSeekResult(cachedTrackLoad) ||
+          _player.processingState != ProcessingState.idle) {
         return false;
       }
       // The seek was accepted locally but the player lost its source.
