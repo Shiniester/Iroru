@@ -4460,7 +4460,10 @@ class SEn extends S {
       'All hosts are listed. Unavailable hosts cannot be selected. The selected host is used for browsing, search, and playback.';
 
   @override
-  String get videoMirrorAutomatic => 'Choose the fastest host automatically';
+  String get videoSourceHost => 'Host';
+
+  @override
+  String get videoMirrorAutomatic => 'Choose host automatically';
 
   @override
   String get videoMirrorUseFastest => 'Use fastest';
@@ -4481,7 +4484,7 @@ class SEn extends S {
   String get videoMirrorSelect => 'Use';
 
   @override
-  String get videoMirrorInUse => 'In use';
+  String get videoMirrorSelected => 'Selected';
 
   @override
   String videoMirrorCurrent(String host) {

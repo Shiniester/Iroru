@@ -4,7 +4,8 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
-import 'package:flutter/foundation.dart' show ChangeNotifier;
+import 'package:flutter/foundation.dart'
+    show ChangeNotifier, ValueListenable, ValueNotifier;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
@@ -100,6 +101,7 @@ class JableClient implements VideoSourceClient {
     jableMirrorForBaseUrl,
     jableLastGoodHostKey,
   );
+  final _lastSuccessfulContentHost = ValueNotifier<String?>(null);
   Timer? _mirrorProbeTimer;
   CancelToken? _mirrorProbeToken;
   final SharedPreferences? _providedMirrorPreferences;
@@ -123,6 +125,19 @@ class JableClient implements VideoSourceClient {
   }
 
   bool get usesAutomaticMirror => _mirrorSelection.preferred == null;
+
+  String? get preferredMirrorHost {
+    final baseUrl = _mirrorSelection.preferred;
+    return baseUrl == null ? null : Uri.parse(baseUrl).host;
+  }
+
+  ValueListenable<String?> get lastSuccessfulContentHost =>
+      _lastSuccessfulContentHost;
+
+  void _rememberContentHost(Uri uri) {
+    _mirrorSelection.remember(uri.origin);
+    _lastSuccessfulContentHost.value = uri.host;
+  }
 
   String get activeMirrorHost =>
       _mirrorDio == null || (usesAutomaticMirror && account.isLoggedIn)
@@ -477,7 +492,7 @@ class JableClient implements VideoSourceClient {
           );
     if (isCurrent?.call() == false) return parsedPage;
     if (cancelToken?.cancelError case final error?) throw error;
-    if (!favorites) _mirrorSelection.remember(uri.origin);
+    if (!favorites) _rememberContentHost(uri);
     onParsed?.call(parsedPage);
     _ensureRequestCurrent(generation, locale, uri, cancelToken, content);
     if (isCurrent?.call() == false) return parsedPage;
@@ -638,7 +653,7 @@ class JableClient implements VideoSourceClient {
         sourceUrl: uri.toString(),
       );
     }
-    if (content != null) _mirrorSelection.remember(uri.origin);
+    if (content != null) _rememberContentHost(uri);
     final related = _parseVideos(
       document,
       uri,
@@ -1602,6 +1617,7 @@ class JableClient implements VideoSourceClient {
     _mirrorProbeToken?.cancel();
     _advanceSessionGeneration();
     account.dispose();
+    _lastSuccessfulContentHost.dispose();
     restoreNativeTransport();
     _disposed = true;
     if (_ownsDio) _dio.close(force: true);

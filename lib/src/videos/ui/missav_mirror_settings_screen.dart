@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../widgets/settings_section.dart';
@@ -34,33 +33,21 @@ class _MissavMirrorSettingsScreenState
   late final List<MissavMirror> _mirrors = _isJable
       ? jableMirrors
       : missavMirrors;
-  late final String _preferenceKey = _isJable
-      ? jableMirrorBaseUrlKey
-      : missavMirrorBaseUrlKey;
   late final MissavMirrorProber _prober =
       widget.prober ??
       (_isJable ? createJableMirrorProber() : MissavMirrorProber());
   final Map<String, MissavMirrorLatency> _results = {};
   CancelToken? _cancelToken;
-  String? _preferredBaseUrl;
   bool _testing = false;
   int _probeRun = 0;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
-  }
-
-  Future<void> _load() async {
-    final preferences = await SharedPreferences.getInstance();
-    final saved = videoMirrorForBaseUrl(
-      _mirrors,
-      preferences.getString(_preferenceKey),
-    );
-    if (!mounted) return;
-    setState(() => _preferredBaseUrl = saved?.baseUrl);
-    await _startProbe();
+    if (!_isJable) {
+      ref.read(videoClientProvider).restoreMirrorSelection().ignore();
+    }
+    unawaited(_startProbe());
   }
 
   Future<void> _startProbe() async {
@@ -105,18 +92,9 @@ class _MissavMirrorSettingsScreenState
     }
   }
 
-  Future<void> _select(MissavMirror? mirror) async {
-    final baseUrl = mirror?.baseUrl;
-    if (_isJable) {
-      await ref.read(jableVideoClientProvider).selectMirror(baseUrl);
-    } else {
-      ref.read(videoClientProvider).selectMirror(baseUrl);
-      final preferences = await SharedPreferences.getInstance();
-      await preferences.setString(_preferenceKey, baseUrl ?? '');
-    }
-    if (!mounted) return;
-    setState(() => _preferredBaseUrl = baseUrl);
-  }
+  Future<void> _select(MissavMirror? mirror) => _isJable
+      ? ref.read(jableVideoClientProvider).selectMirror(mirror?.baseUrl)
+      : ref.read(videoClientProvider).saveMirrorSelection(mirror?.baseUrl);
 
   void _useFastest() {
     final available = _results.values
@@ -158,29 +136,31 @@ class _MissavMirrorSettingsScreenState
     if (_isJable) {
       final client = ref.watch(jableVideoClientProvider);
       return ListenableBuilder(
-        listenable: client.account,
+        listenable: Listenable.merge([
+          client.account,
+          client.lastSuccessfulContentHost,
+        ]),
         builder: (context, _) => _buildPage(
           context,
-          usesAutomaticMirror: client.usesAutomaticMirror,
-          activeMirrorHost: client.activeMirrorHost,
+          preferredMirrorHost: client.preferredMirrorHost,
+          activeMirrorHost: client.lastSuccessfulContentHost.value,
         ),
       );
     }
     final client = ref.watch(videoClientProvider);
     return _buildPage(
       context,
-      usesAutomaticMirror: client.usesAutomaticMirror,
+      preferredMirrorHost: client.preferredMirrorHost,
       activeMirrorHost: client.activeMirrorHost,
     );
   }
 
   Widget _buildPage(
     BuildContext context, {
-    required bool usesAutomaticMirror,
-    required String activeMirrorHost,
+    required String? preferredMirrorHost,
+    required String? activeMirrorHost,
   }) {
     final s = S.of(context);
-    final selectedBaseUrl = _preferredBaseUrl;
     final title = _isJable ? s.videoJableMirrorSettings : s.videoMirrorSettings;
     return SettingsSubpageScaffold(
       title: title,
@@ -197,10 +177,19 @@ class _MissavMirrorSettingsScreenState
           SettingsInfoCard(
             icon: Icons.language_outlined,
             title: title,
-            child: Text(
-              _isJable
-                  ? s.videoJableMirrorDescription
-                  : s.videoMirrorDescription,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isJable
+                      ? s.videoJableMirrorDescription
+                      : s.videoMirrorDescription,
+                ),
+                if (activeMirrorHost case final host?) ...[
+                  const SizedBox(height: 8),
+                  Text(s.videoMirrorCurrent(host)),
+                ],
+              ],
             ),
           ),
           if (_testing) ...[
@@ -222,10 +211,7 @@ class _MissavMirrorSettingsScreenState
               SettingsListTile(
                 icon: Icons.auto_mode,
                 title: s.videoMirrorAutomatic,
-                subtitle: usesAutomaticMirror
-                    ? s.videoMirrorCurrent(activeMirrorHost)
-                    : null,
-                trailing: selectedBaseUrl == null
+                trailing: preferredMirrorHost == null
                     ? Icon(
                         Icons.check_circle,
                         color: Theme.of(context).colorScheme.primary,
@@ -241,8 +227,8 @@ class _MissavMirrorSettingsScreenState
                   subtitleStyle: TextStyle(
                     color: _latencyColor(context, _results[mirror.host]),
                   ),
-                  trailing: selectedBaseUrl == mirror.baseUrl
-                      ? Text(s.videoMirrorInUse)
+                  trailing: preferredMirrorHost == mirror.host
+                      ? Text(s.videoMirrorSelected)
                       : TextButton(
                           onPressed:
                               !_testing &&

@@ -4313,7 +4313,10 @@ class SZh extends S {
   String get videoMirrorDescription => '列出全部线路。不可用线路不能选择。浏览、搜索和播放使用所选线路。';
 
   @override
-  String get videoMirrorAutomatic => '自动选择最快线路';
+  String get videoSourceHost => '线路';
+
+  @override
+  String get videoMirrorAutomatic => '自动选择线路';
 
   @override
   String get videoMirrorUseFastest => '使用最快';
@@ -4334,7 +4337,7 @@ class SZh extends S {
   String get videoMirrorSelect => '使用';
 
   @override
-  String get videoMirrorInUse => '使用中';
+  String get videoMirrorSelected => '已选择';
 
   @override
   String videoMirrorCurrent(String host) {
@@ -9320,7 +9323,10 @@ class SZhHant extends SZh {
   String get videoMirrorDescription => '列出全部線路。不可用線路不能選擇。瀏覽、搜尋和播放使用所選線路。';
 
   @override
-  String get videoMirrorAutomatic => '自動選擇最快線路';
+  String get videoSourceHost => '線路';
+
+  @override
+  String get videoMirrorAutomatic => '自動選擇線路';
 
   @override
   String get videoMirrorUseFastest => '使用最快';
@@ -9341,7 +9347,7 @@ class SZhHant extends SZh {
   String get videoMirrorSelect => '使用';
 
   @override
-  String get videoMirrorInUse => '使用中';
+  String get videoMirrorSelected => '已選擇';
 
   @override
   String videoMirrorCurrent(String host) {

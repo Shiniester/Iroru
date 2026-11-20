@@ -1882,7 +1882,11 @@
   "@videoMirrorDescription": {
     "description": "Explains that the list shows all hosts and unavailable hosts cannot be selected."
   },
-  "videoMirrorAutomatic": "Choose the fastest host automatically",
+  "videoSourceHost": "Host",
+  "@videoSourceHost": {
+    "description": "Host settings entry within a named video source group."
+  },
+  "videoMirrorAutomatic": "Choose host automatically",
   "@videoMirrorAutomatic": {
     "description": "Option that selects the fastest reachable MissAV host during access."
   },
@@ -1910,13 +1914,13 @@
   "@videoMirrorSelect": {
     "description": "Action that selects a MissAV mirror."
   },
-  "videoMirrorInUse": "In use",
-  "@videoMirrorInUse": {
-    "description": "Indicates the currently selected MissAV mirror."
+  "videoMirrorSelected": "Selected",
+  "@videoMirrorSelected": {
+    "description": "Indicates the mirror selected manually in video source settings."
   },
   "videoMirrorCurrent": "Current: {host}",
   "@videoMirrorCurrent": {
-    "description": "Shows the MissAV host currently serving content.",
+    "description": "Shows the current content host for this video source.",
     "placeholders": {
       "host": {
         "type": "String"

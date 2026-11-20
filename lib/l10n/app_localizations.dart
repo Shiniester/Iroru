@@ -7966,10 +7966,16 @@ abstract class S {
   /// **'All hosts are listed. Unavailable hosts cannot be selected. The selected host is used for browsing, search, and playback.'**
   String get videoMirrorDescription;
 
+  /// Host settings entry within a named video source group.
+  ///
+  /// In en, this message translates to:
+  /// **'Host'**
+  String get videoSourceHost;
+
   /// Option that selects the fastest reachable MissAV host during access.
   ///
   /// In en, this message translates to:
-  /// **'Choose the fastest host automatically'**
+  /// **'Choose host automatically'**
   String get videoMirrorAutomatic;
 
   /// Action that selects the fastest host from the current speed test.
@@ -8008,13 +8014,13 @@ abstract class S {
   /// **'Use'**
   String get videoMirrorSelect;
 
-  /// Indicates the currently selected MissAV mirror.
+  /// Indicates the mirror selected manually in video source settings.
   ///
   /// In en, this message translates to:
-  /// **'In use'**
-  String get videoMirrorInUse;
+  /// **'Selected'**
+  String get videoMirrorSelected;
 
-  /// Shows the MissAV host currently serving content.
+  /// Shows the current content host for this video source.
   ///
   /// In en, this message translates to:
   /// **'Current: {host}'**

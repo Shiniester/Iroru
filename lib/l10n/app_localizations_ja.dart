@@ -4336,7 +4336,10 @@ class SJa extends S {
       'すべての回線を表示します。利用できない回線は選択できません。選択した回線を一覧、検索、再生に使用します。';
 
   @override
-  String get videoMirrorAutomatic => '最速の回線を自動選択';
+  String get videoSourceHost => '回線';
+
+  @override
+  String get videoMirrorAutomatic => '回線を自動選択';
 
   @override
   String get videoMirrorUseFastest => '最速を使用';
@@ -4357,7 +4360,7 @@ class SJa extends S {
   String get videoMirrorSelect => '使用';
 
   @override
-  String get videoMirrorInUse => '使用中';
+  String get videoMirrorSelected => '選択済み';
 
   @override
   String videoMirrorCurrent(String host) {

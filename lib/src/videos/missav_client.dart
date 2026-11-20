@@ -185,6 +185,11 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   String? get accountName => _accountName;
   String get activeMirrorHost => Uri.parse(_baseUrl).host;
   bool get usesAutomaticMirror => _preferredMirror == null;
+  String? get preferredMirrorHost {
+    final baseUrl = _preferredMirror;
+    return baseUrl == null ? null : Uri.parse(baseUrl).host;
+  }
+
   static const accountHosts = missavOfficialBaseUrls;
   String _accountBaseUrl = accountHosts.first;
   String get accountHostUrl => _accountBaseUrl;
@@ -346,6 +351,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   void resumeContentBrowsing() => selectMirror(_preferredMirror);
 
+  Future<void> saveMirrorSelection(String? baseUrl) async {
+    if (_disposed) return;
+    selectMirror(baseUrl);
+    await _persistContentHost(missavMirrorBaseUrlKey, _preferredMirror);
+  }
+
   Future<void> selectAccountHost(String baseUrl) async {
     if (_disposed || !accountHosts.contains(baseUrl)) return;
     if (_accountBaseUrl != baseUrl) {
@@ -423,7 +434,9 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   Future<void> _persistContentHost(String key, String? baseUrl) async {
     try {
-      await _contentPreferences?.setString(key, baseUrl ?? '');
+      final preferences =
+          _contentPreferences ?? await SharedPreferences.getInstance();
+      await preferences.setString(key, baseUrl ?? '');
     } catch (_) {
       // A preference write failure must not fail the page load.
     }
@@ -445,32 +458,42 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
+  Future<void> restoreMirrorSelection() async {
+    final generation = _sessionGeneration;
+    final preferences = _contentPreferences =
+        await SharedPreferences.getInstance();
+    if (generation != _sessionGeneration || _disposed) return;
+    final savedMirror = preferences.getString(missavMirrorBaseUrlKey);
+    final mirror = missavMirrorForBaseUrl(savedMirror);
+    final previousMirror = _preferredMirror;
+    final previousBaseUrl = _baseUrl;
+    _mirrorSelection.restore(preferences, mirror);
+    if (_mirrorSelection.initial case final base? when !_contentHostReady) {
+      _baseUrl = base;
+      _homeUrl = '$base$_localePrefix';
+    }
+    if (_preferredMirror != previousMirror || _baseUrl != previousBaseUrl) {
+      notifyListeners();
+    }
+    if (savedMirror != null && savedMirror.isNotEmpty && mirror == null) {
+      await preferences.setString(missavMirrorBaseUrlKey, '');
+    }
+  }
+
   Future<void> _loadSession() async {
     final generation = _sessionGeneration;
     String? savedAccountHost;
     try {
       try {
-        final preferences = _contentPreferences =
-            await SharedPreferences.getInstance();
-        final savedMirror = preferences.getString(missavMirrorBaseUrlKey);
-        final mirror = missavMirrorForBaseUrl(savedMirror);
+        await restoreMirrorSelection();
         if (generation == _sessionGeneration && !_disposed) {
-          _mirrorSelection.restore(preferences, mirror);
-          final accountHost = preferences.getString(missavAccountBaseUrlKey);
+          final accountHost = _contentPreferences?.getString(
+            missavAccountBaseUrlKey,
+          );
           if (accountHosts.contains(accountHost)) {
             savedAccountHost = accountHost;
             _accountBaseUrl = accountHost!;
           }
-          if (!_contentHostReady) {
-            final base = _mirrorSelection.initial;
-            if (base != null) {
-              _baseUrl = base;
-              _homeUrl = '$base$_localePrefix';
-            }
-          }
-        }
-        if (savedMirror != null && savedMirror.isNotEmpty && mirror == null) {
-          await preferences.setString(missavMirrorBaseUrlKey, '');
         }
       } catch (_) {
         // A missing preference store leaves automatic mirror selection on.
