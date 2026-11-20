@@ -1221,7 +1221,11 @@ class _FixtureJableDownloadClient extends JableClient {
   }
 
   @override
-  Future<VideoDetails> detailsForDownload(VideoItem item) {
+  Future<VideoDetails> detailsForDownload(
+    VideoItem item, {
+    bool useOriginalHost = true,
+  }) {
+    if (!useOriginalHost) return details(item, includeAccountState: false);
     downloadCalls++;
     downloadPageUrls.add(item.pageUrl);
     return resolveDownload(item);

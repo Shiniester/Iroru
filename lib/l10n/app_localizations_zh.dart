@@ -4301,6 +4301,12 @@ class SZh extends S {
   String get videoJableLoginRequired => '登录 Jable 后可查看和管理视频收藏。';
 
   @override
+  String get videoJableMirrorSettings => 'Jable 线路';
+
+  @override
+  String get videoJableMirrorDescription => '手动选线适用于浏览、搜索和播放。已登录时，自动选线使用官方线路。';
+
+  @override
   String get videoMirrorSettings => 'MissAV 线路';
 
   @override
@@ -9300,6 +9306,12 @@ class SZhHant extends SZh {
 
   @override
   String get videoJableLoginRequired => '登入 Jable 後可查看及管理影片收藏。';
+
+  @override
+  String get videoJableMirrorSettings => 'Jable 線路';
+
+  @override
+  String get videoJableMirrorDescription => '手動選線適用於瀏覽、搜尋和播放。已登入時，自動選線使用官方線路。';
 
   @override
   String get videoMirrorSettings => 'MissAV 線路';

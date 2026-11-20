@@ -1493,6 +1493,8 @@
   "videoAccountBrowserLogin": "网页登录",
   "videoJableAccount": "Jable 账号",
   "videoJableLoginRequired": "登录 Jable 后可查看和管理视频收藏。",
+  "videoJableMirrorSettings": "Jable 线路",
+  "videoJableMirrorDescription": "手动选线适用于浏览、搜索和播放。已登录时，自动选线使用官方线路。",
   "videoMirrorSettings": "MissAV 线路",
   "videoMirrorDescription": "列出全部线路。不可用线路不能选择。浏览、搜索和播放使用所选线路。",
   "videoMirrorAutomatic": "自动选择最快线路",

@@ -66,10 +66,16 @@ const missavMirrors = <MissavMirror>[
 String missavMirrorDomain(String host) =>
     host.toLowerCase().replaceFirst(RegExp(r'^www\.'), '');
 
-MissavMirror? missavMirrorForBaseUrl(String? baseUrl) {
+MissavMirror? missavMirrorForBaseUrl(String? baseUrl) =>
+    videoMirrorForBaseUrl(missavMirrors, baseUrl);
+
+MissavMirror? videoMirrorForBaseUrl(
+  Iterable<MissavMirror> mirrors,
+  String? baseUrl,
+) {
   if (baseUrl == null || baseUrl.isEmpty) return null;
   final normalized = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
-  for (final mirror in missavMirrors) {
+  for (final mirror in mirrors) {
     if (mirror.baseUrl == normalized) return mirror;
   }
   return null;
@@ -94,8 +100,12 @@ class MissavMirrorLatency {
 typedef MissavMirrorProbeCallback = void Function(MissavMirrorLatency result);
 
 class MissavMirrorProber {
-  MissavMirrorProber({Dio? dio, this.timeout = const Duration(seconds: 12)})
-    : _dio = dio ?? _createDio();
+  MissavMirrorProber({
+    Dio? dio,
+    this.timeout = const Duration(seconds: 12),
+    this._probePath = '/cn',
+    this._acceptsResponse,
+  }) : _dio = dio ?? _createDio();
 
   static const _userAgent =
       'Mozilla/5.0 (Linux; Android 10; K) '
@@ -103,6 +113,8 @@ class MissavMirrorProber {
       'Chrome/149.0.0.0 Mobile Safari/537.36';
   final Dio _dio;
   final Duration timeout;
+  final String _probePath;
+  final bool Function(MissavMirror, Response<String>)? _acceptsResponse;
 
   static Dio _createDio() {
     final dio = Dio(
@@ -125,7 +137,7 @@ class MissavMirrorProber {
     CancelToken? cancelToken,
   }) => probeContent(
     mirror,
-    '/cn',
+    _probePath,
     cancelToken: cancelToken,
     contentTimeout: timeout,
   );
@@ -190,7 +202,7 @@ class MissavMirrorProber {
             requestTimeout,
             onTimeout: () {
               requestToken.cancel();
-              throw TimeoutException('MissAV mirror probe timed out.');
+              throw TimeoutException('Video mirror probe timed out.');
             },
           );
       stopwatch.stop();
@@ -202,7 +214,10 @@ class MissavMirrorProber {
           body.contains('_cf_chl_opt') ||
           body.contains('id="challenge-form"');
       final validBody = body.contains('<html');
-      if (response.statusCode == HttpStatus.ok && validBody && !challenge) {
+      if (response.statusCode == HttpStatus.ok &&
+          validBody &&
+          !challenge &&
+          (_acceptsResponse?.call(mirror, response) ?? true)) {
         return MissavMirrorLatency(
           mirror: mirror,
           millis: stopwatch.elapsedMilliseconds,

@@ -15,6 +15,7 @@ import '../services/proxy_config.dart';
 import '../services/remote_asset_cache.dart';
 import 'missav_browser_adapter.dart';
 import 'missav_mirrors.dart';
+import 'video_mirror_selection.dart';
 import 'video_models.dart';
 import 'video_source_client.dart';
 
@@ -157,16 +158,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   String _userAgent = _defaultUserAgent;
   String _baseUrl = origin;
   bool _contentHostReady = false;
-  String? _preferredMirror;
-  String? _cachedContentHost;
-  String? _probedContentHost;
+  final _mirrorSelection = VideoMirrorSelection(
+    missavMirrorForBaseUrl,
+    missavLastGoodHostKey,
+  );
+  String? get _preferredMirror => _mirrorSelection.preferred;
   String? get _automaticProbeHost =>
-      _preferredMirror == null && !_useBrowserForContent
-      ? _probedContentHost
-      : null;
+      _useBrowserForContent ? null : _mirrorSelection.automaticProbe;
   Timer? _mirrorProbeTimer;
   CancelToken? _mirrorProbeToken;
-  bool _mirrorProbeFinished = false;
   String? _accountName;
   String _locale = 'cn';
   String _homeUrl = '$origin/cn';
@@ -331,13 +331,14 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final mirror = missavMirrorForBaseUrl(baseUrl);
     _advanceSessionGeneration();
     _useBrowserForContent = false;
-    _preferredMirror = mirror?.baseUrl;
+    _mirrorSelection.select(mirror);
     _contentHostReady = true;
     if (mirror != null) {
       _baseUrl = mirror.baseUrl;
       _homeUrl = '${mirror.baseUrl}$_localePrefix';
     } else {
-      _baseUrl = _cachedContentHost ?? _contentHosts.firstOrNull ?? origin;
+      _baseUrl =
+          _mirrorSelection.initial ?? _contentHosts.firstOrNull ?? origin;
       _homeUrl = '$_baseUrl$_localePrefix';
     }
     notifyListeners();
@@ -373,11 +374,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
     if (_useBrowserForContent) return;
     if (_contentHostReady) return;
-    _baseUrl =
-        _preferredMirror ??
-        _cachedContentHost ??
-        _contentHosts.firstOrNull ??
-        origin;
+    _baseUrl = _mirrorSelection.initial ?? _contentHosts.firstOrNull ?? origin;
     _homeUrl = '$_baseUrl$_localePrefix';
     _contentHostReady = true;
   }
@@ -385,7 +382,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   bool get _canProbeMirrors =>
       _initialized &&
       !_disposed &&
-      !_mirrorProbeFinished &&
+      !_mirrorSelection.probeFinished &&
       !_isLoggedIn &&
       (!hasRestorableSession || _confirmedGuest) &&
       !_useBrowserForContent &&
@@ -407,10 +404,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   }
 
   Future<void> _probeContentHosts() async {
-    final mirrors = {
-      if (_cachedContentHost case final cached?) cached,
-      ..._contentHosts,
-    }.map(missavMirrorForBaseUrl).whereType<MissavMirror>().take(3).toList();
+    final mirrors = _mirrorSelection.probeCandidates(_contentHosts);
     if (mirrors.isEmpty) return;
     final token = _mirrorProbeToken = CancelToken();
     try {
@@ -419,12 +413,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         timeout: _contentHostTimeout,
       ).probeAll(mirrors, cancelToken: token, concurrency: 1);
       if (!identical(_mirrorProbeToken, token) || !_canProbeMirrors) return;
-      _mirrorProbeFinished = true;
-      _probedContentHost = results
-          .where((result) => result.isAvailable)
-          .firstOrNull
-          ?.mirror
-          .baseUrl;
+      _mirrorSelection.acceptProbeResults(results);
     } catch (_) {
       return;
     } finally {
@@ -465,18 +454,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
             await SharedPreferences.getInstance();
         final savedMirror = preferences.getString(missavMirrorBaseUrlKey);
         final mirror = missavMirrorForBaseUrl(savedMirror);
-        final cachedRaw = preferences.getString(missavLastGoodHostKey);
-        final cachedHost = missavMirrorForBaseUrl(cachedRaw);
         if (generation == _sessionGeneration && !_disposed) {
-          _preferredMirror ??= mirror?.baseUrl;
-          _cachedContentHost ??= cachedHost?.baseUrl;
+          _mirrorSelection.restore(preferences, mirror);
           final accountHost = preferences.getString(missavAccountBaseUrlKey);
           if (accountHosts.contains(accountHost)) {
             savedAccountHost = accountHost;
             _accountBaseUrl = accountHost!;
           }
           if (!_contentHostReady) {
-            final base = _preferredMirror ?? _cachedContentHost;
+            final base = _mirrorSelection.initial;
             if (base != null) {
               _baseUrl = base;
               _homeUrl = '$base$_localePrefix';
@@ -485,9 +471,6 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         }
         if (savedMirror != null && savedMirror.isNotEmpty && mirror == null) {
           await preferences.setString(missavMirrorBaseUrlKey, '');
-        }
-        if (cachedRaw != null && cachedRaw.isNotEmpty && cachedHost == null) {
-          await preferences.setString(missavLastGoodHostKey, '');
         }
       } catch (_) {
         // A missing preference store leaves automatic mirror selection on.
@@ -3800,9 +3783,7 @@ class _ContentLineLoader {
   Iterable<String> _contentHosts() {
     if (_client._useBrowserForContent) return const [MissavClient.origin];
     return {
-      if (_client._preferredMirror case final mirror?) mirror,
-      if (_client._automaticProbeHost case final probed?) probed,
-      if (_client._cachedContentHost case final cached?) cached,
+      ..._client._mirrorSelection.prioritized,
       if (_client._contentHosts.isEmpty)
         _client._remapSource(_sourceUri, baseUrl: MissavClient.origin).origin,
       for (final baseUrl in _client._contentHosts)
@@ -3846,11 +3827,7 @@ class _ContentLineLoader {
       _client._homeUrl = '$baseUrl${_client._localePrefix}';
     }
     _client._updateHomeUrl(document, uri);
-    if (missavMirrorForBaseUrl(baseUrl) != null &&
-        _client._cachedContentHost != baseUrl) {
-      _client._cachedContentHost = baseUrl;
-      unawaited(_client._persistContentHost(missavLastGoodHostKey, baseUrl));
-    }
+    _client._mirrorSelection.remember(baseUrl);
   }
 
   static bool _isContentHostFailure(MissavException error) {
@@ -3860,30 +3837,14 @@ class _ContentLineLoader {
       return true;
     }
     final cause = error.cause;
-    if (cause is! DioException) return false;
-    return switch (cause.type) {
-      DioExceptionType.connectionTimeout ||
-      DioExceptionType.sendTimeout ||
-      DioExceptionType.receiveTimeout ||
-      DioExceptionType.connectionError ||
-      DioExceptionType.badCertificate => true,
-      DioExceptionType.unknown => cause.error is IOException,
-      _ => false,
-    };
+    return cause is DioException && isVideoMirrorConnectionFailure(cause);
   }
 
   void _clearHostFailure(String baseUrl, {required bool challenged}) {
-    if (_client._probedContentHost == baseUrl) {
-      _client._probedContentHost = null;
-    }
-    final clearCache = _client._cachedContentHost == baseUrl;
+    final clearCache = _client._mirrorSelection.forget(baseUrl);
     final clearPreference = challenged && _client._preferredMirror == baseUrl;
-    if (clearCache) _client._cachedContentHost = null;
-    if (clearPreference) _client._preferredMirror = null;
-    if (clearCache) {
-      unawaited(_client._persistContentHost(missavLastGoodHostKey, null));
-    }
     if (clearPreference) {
+      _client._mirrorSelection.select(null);
       unawaited(_client._persistContentHost(missavMirrorBaseUrlKey, null));
     }
     if (clearCache || clearPreference) _client._notifyContentHostChanged();

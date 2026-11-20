@@ -158,6 +158,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   final Set<(VideoSearchFilterKind, String)> _verifyingFilterPages = {};
   VideoSearchResults? _results;
   String _resultsQuery = '';
+  ({String query, List<VideoLink> filters})? _submittedSearch;
   _VideoSearchInputType _inputType = _VideoSearchInputType.keyword;
   int _highlightedSuggestionIndex = -1;
   int _localPage = 1;
@@ -372,15 +373,20 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   }
 
   void _refreshPublicJableSearch() {
-    final query = _query.text.trim();
-    final filters = List<VideoLink>.unmodifiable(_filters);
+    final submittedSearch = _submittedSearch;
     _invalidateAccountResults();
     final request = _request;
     _loadFocusedFilterPageAfterFrame();
-    if (query.isEmpty && filters.isEmpty) return;
+    if (submittedSearch == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && request == _request) {
-        unawaited(_runSearch(query, filters: filters, recordHistory: false));
+        unawaited(
+          _runSearch(
+            submittedSearch.query,
+            filters: submittedSearch.filters,
+            recordHistory: false,
+          ),
+        );
       }
     });
   }
@@ -587,6 +593,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     final query = value.trim();
     final filtersSnapshot = List<VideoLink>.unmodifiable(filters ?? _filters);
     if (query.isEmpty && filtersSnapshot.isEmpty) {
+      _submittedSearch = null;
       _request++;
       _retryAction = null;
       setState(() {
@@ -601,6 +608,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       if (_scrollController.hasClients) _scrollController.jumpTo(0);
       return;
     }
+    _submittedSearch = (query: query, filters: filtersSnapshot);
     _retryAction = () =>
         _runSearch(query, filters: filtersSnapshot, recordHistory: false);
     final request = ++_request;
@@ -677,6 +685,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   void _clearInput() {
     _request++;
     _retryAction = null;
+    _submittedSearch = null;
     _query.clear();
     _filterQuery.clear();
     _filters.clear();

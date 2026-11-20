@@ -7942,6 +7942,18 @@ abstract class S {
   /// **'Sign in to Jable to view and manage your video favorites.'**
   String get videoJableLoginRequired;
 
+  /// Settings entry and page title for the Jable mirror host speed test and selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Jable host'**
+  String get videoJableMirrorSettings;
+
+  /// Explains Jable content host selection in manual and automatic modes.
+  ///
+  /// In en, this message translates to:
+  /// **'Manual selection applies to browsing, search, and playback. When signed in, automatic mode uses the official host.'**
+  String get videoJableMirrorDescription;
+
   /// Settings entry for the MissAV mirror host speed test.
   ///
   /// In en, this message translates to:

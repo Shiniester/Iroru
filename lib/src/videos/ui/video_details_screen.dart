@@ -689,16 +689,27 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         widget.video.storageKey == previous.video.storageKey &&
         _jableAccount?.revision == revision;
     if (!await _routeReadiness.waitForIdle() || !isCurrent()) return;
-    late final VideoDetails fresh;
+    late final ({String? id, bool? selected}) favorite;
     try {
-      fresh = await _sourceClient.details(previous.video);
+      final client = _sourceClient;
+      final previousHost = Uri.tryParse(previous.video.pageUrl)?.host;
+      if (client is JableClient &&
+          (!client.usesAutomaticMirror ||
+              previousHost != Uri.parse(JableClient.origin).host)) {
+        final marker = await client.account.favoriteStateForVideo(previous);
+        if (marker == null) return;
+        favorite = marker;
+      } else {
+        final fresh = await client.details(previous.video);
+        favorite = (id: fresh.sourceId, selected: fresh.isFavorite);
+      }
     } catch (_) {
       if (isCurrent()) await _sourceFallback();
       return;
     }
     if (!isCurrent()) return;
     setState(() {
-      _favorite = fresh.isFavorite ?? false;
+      _favorite = favorite.selected ?? false;
       // Account changes must not reopen the active HLS stream.
       _details = VideoDetails(
         video: previous.video,
@@ -706,8 +717,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         metadata: previous.metadata,
         related: previous.related,
         streams: previous.streams,
-        sourceId: fresh.sourceId,
-        isFavorite: fresh.isFavorite,
+        sourceId: favorite.id,
+        isFavorite: favorite.selected,
       );
     });
   }
@@ -727,12 +738,12 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         final account = ref.read(jableVideoClientProvider).account;
         try {
           await account.setVideoFavorite(details, favorite);
-        } on JableVerificationRequiredException {
+        } on JableVerificationRequiredException catch (error) {
           if (!mounted || !identical(_details, details)) return;
           final verified = await ref.read(jableAccessVerifierProvider)(
             context,
             ref.read(jableVideoClientProvider),
-            sourceUrl: details.video.pageUrl,
+            sourceUrl: error.sourceUrl ?? JableClient.origin,
           );
           if (!verified || !mounted || !identical(_details, details)) return;
           await account.setVideoFavorite(details, favorite);

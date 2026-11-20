@@ -15,6 +15,7 @@ import 'package:iroru/l10n/app_localizations.dart';
 import 'package:iroru/src/services/proxy_config.dart';
 import 'package:iroru/src/utils/global_keys.dart';
 import 'package:iroru/src/videos/jable_client.dart';
+import 'package:iroru/src/videos/jable_mirrors.dart';
 import 'package:iroru/src/videos/jable_verification.dart';
 import 'package:iroru/src/videos/missav_client.dart';
 import 'package:iroru/src/videos/ui/video_playback_panel.dart';
@@ -123,6 +124,16 @@ void main() {
 
       try {
         await client.initialize();
+        final pinnedMirror = useMirror && !account
+            ? jableMirrors.firstWhere(
+                (candidate) =>
+                    candidate.host == Uri.tryParse(selectedPage)?.host,
+                orElse: () => jableMirrors.first,
+              )
+            : null;
+        if (pinnedMirror != null) {
+          await client.selectMirror(pinnedMirror.baseUrl);
+        }
         if (useMirror) {
           expect(client.account.isLoggedIn, isFalse);
           debugPrint(
@@ -137,8 +148,12 @@ void main() {
         final catalog = await client.browse(client.homeUrl);
         expect(catalog.videos, isNotEmpty);
         if (useMirror) {
-          _expectJableHost('catalog', catalog.url, _mirrorHost);
-          _expectJableVideoHosts('catalog', catalog.videos, _mirrorHost);
+          final host = _expectJableHost(
+            'catalog',
+            catalog.url,
+            pinnedMirror?.host,
+          );
+          _expectJableVideoHosts('catalog', catalog.videos, host);
         }
         measurements['catalogCount'] = catalog.videos.length;
         debugPrint('JABLE_LIVE catalogCount=${catalog.videos.length}');
@@ -161,8 +176,12 @@ void main() {
         final search = await client.search(video.id);
         expect(search.videos.any((item) => item.id == video.id), isTrue);
         if (useMirror) {
-          _expectJableHost('search', search.url, _mirrorHost);
-          _expectJableVideoHosts('search', search.videos, _mirrorHost);
+          final host = _expectJableHost(
+            'search',
+            search.url,
+            pinnedMirror?.host,
+          );
+          _expectJableVideoHosts('search', search.videos, host);
         }
         measurements['searchMatched'] = true;
         debugPrint(
@@ -171,7 +190,11 @@ void main() {
         final details = await client.details(video);
         expect(details.streams, isNotEmpty);
         if (useMirror) {
-          _expectJableHost('details', details.video.pageUrl, _mirrorHost);
+          _expectJableHost(
+            'details',
+            details.video.pageUrl,
+            pinnedMirror?.host,
+          );
         }
         final stream = details.streams.first;
         expect(
@@ -200,7 +223,7 @@ void main() {
           phase.value = '退出账号并检查镜像恢复';
           await client.account.logout();
           expect(client.account.isLoggedIn, isFalse);
-          await _expectPublicRoutes(client, video, _mirrorHost);
+          await _expectPublicRoutes(client, video, null);
           measurements['accountLogout'] = true;
           debugPrint('JABLE_LIVE accountLogout=true mirrorRestored=true');
           verifiedAll = true;
@@ -409,29 +432,33 @@ void main() {
 }
 
 const _officialHost = 'jable.tv';
-const _mirrorHost = 'jable1.net';
 
 Future<void> _expectPublicRoutes(
   JableClient client,
   VideoItem video,
-  String host,
+  String? host,
 ) async {
   final catalog = await client.browse(client.homeUrl);
-  _expectJableHost('catalog', catalog.url, host);
-  _expectJableVideoHosts('catalog', catalog.videos, host);
+  final catalogHost = _expectJableHost('catalog', catalog.url, host);
+  _expectJableVideoHosts('catalog', catalog.videos, catalogHost);
   final search = await client.search(video.id);
-  _expectJableHost('search', search.url, host);
-  _expectJableVideoHosts('search', search.videos, host);
+  final searchHost = _expectJableHost('search', search.url, host);
+  _expectJableVideoHosts('search', search.videos, searchHost);
   expect(search.videos.any((item) => item.id == video.id), isTrue);
   final details = await client.details(video);
   _expectJableHost('details', details.video.pageUrl, host);
   expect(details.streams, isNotEmpty);
 }
 
-void _expectJableHost(String route, String url, String host) {
+String _expectJableHost(String route, String url, String? host) {
   final actual = Uri.parse(url).host;
-  expect(actual, host, reason: '$route should use $host');
+  expect(
+    actual,
+    host ?? isIn(jableMirrors.map((mirror) => mirror.host)),
+    reason: '$route should use ${host ?? 'a Jable mirror'}',
+  );
   debugPrint('JABLE_LIVE ${route}Host=$actual');
+  return actual;
 }
 
 void _expectJableVideoHosts(

@@ -299,8 +299,11 @@ class VideoDownloads extends ChangeNotifier {
         : null;
     final hasPartialMedia = jable != null && await _hasPartialMedia(task);
     _ensureCurrent(operation);
-    final details = jable != null && hasPartialMedia
-        ? await jable.detailsForDownload(task.video)
+    final details = jable != null
+        ? await jable.detailsForDownload(
+            task.video,
+            useOriginalHost: hasPartialMedia,
+          )
         : await source.details(task.video, includeAccountState: false);
     _ensureCurrent(operation);
     final stream = _selectStream(details, task.quality);

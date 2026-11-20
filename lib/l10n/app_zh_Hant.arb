@@ -1450,6 +1450,8 @@
   "videoAccountBrowserLogin": "網頁登入",
   "videoJableAccount": "Jable 帳號",
   "videoJableLoginRequired": "登入 Jable 後可查看及管理影片收藏。",
+  "videoJableMirrorSettings": "Jable 線路",
+  "videoJableMirrorDescription": "手動選線適用於瀏覽、搜尋和播放。已登入時，自動選線使用官方線路。",
   "videoMirrorSettings": "MissAV 線路",
   "videoMirrorDescription": "列出全部線路。不可用線路不能選擇。瀏覽、搜尋和播放使用所選線路。",
   "videoMirrorAutomatic": "自動選擇最快線路",

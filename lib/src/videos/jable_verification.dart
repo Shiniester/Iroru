@@ -414,7 +414,7 @@ Future<Webview> _createJableDesktopBrowser({required bool hidden}) async =>
       ),
     );
 
-Future<String> _navigateJableDesktopDocument(
+Future<(String, Uri)> _navigateJableDesktopDocument(
   Webview browser,
   Uri uri,
   Future<void> cancelled, {
@@ -471,14 +471,14 @@ Future<String> _navigateJableDesktopDocument(
       );
     }
     ensureActive();
-    return markup;
+    return (markup, Uri.parse('$currentUrl'));
   } finally {
     browser.navigationState.removeListener(observeNavigation);
     await errors.cancel();
   }
 }
 
-Future<String> _navigateJableMobileDocument(
+Future<(String, Uri)> _navigateJableMobileDocument(
   WebViewController controller,
   Uri uri,
   Future<void> cancelled, {
@@ -541,7 +541,7 @@ Future<String> _navigateJableMobileDocument(
   );
   final markup = jableDocumentMarkup(raw, android: Platform.isAndroid);
   ensureActive();
-  return markup;
+  return (markup, Uri.parse(currentUrl!));
 }
 
 Future<T> _awaitJableOperation<T>(
@@ -826,7 +826,7 @@ class _JableVerificationState extends State<_JableVerification> {
           if (!_isCurrent) throw StateError('Jable login was cancelled.');
         }
 
-        final markup = browser != null
+        final (markup, _) = browser != null
             ? await _navigateJableDesktopDocument(
                 browser,
                 uri,

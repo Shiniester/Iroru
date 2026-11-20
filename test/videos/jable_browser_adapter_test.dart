@@ -14,9 +14,9 @@ void main() {
         requests++;
       },
       currentUrl: () async => 'https://jable.tv/',
-      navigateDocument: (_, _) async {
+      navigateDocument: (uri, _) async {
         requests++;
-        return '<html></html>';
+        return ('<html></html>', uri);
       },
       disposeBrowser: () async {},
     );
@@ -52,7 +52,7 @@ void main() {
     late final MissavBrowserAdapter adapter;
     adapter = MissavBrowserAdapter.jable(
       currentUrl: () async => 'https://jable.tv/',
-      navigateDocument: (_, _) async => '<html></html>',
+      navigateDocument: (uri, _) async => ('<html></html>', uri),
       disposeBrowser: () async {},
       runJavaScript: (script) async {
         final request =
@@ -110,7 +110,7 @@ void main() {
     'closing Jable browser reports a connection error for its document',
     () async {
       final started = Completer<void>();
-      final document = Completer<String>();
+      final document = Completer<(String, Uri)>();
       var disposals = 0;
       final adapter = MissavBrowserAdapter.jable(
         runJavaScript: (_) async {},
@@ -146,7 +146,10 @@ void main() {
       adapter.close();
       adapter.close();
       await failed;
-      document.complete('<html>late response</html>');
+      document.complete((
+        '<html>late response</html>',
+        Uri.parse('https://jable.tv/'),
+      ));
       await adapter.whenClosed;
       expect(disposals, 1);
     },
@@ -159,7 +162,7 @@ void main() {
         scripts++;
       },
       currentUrl: () async => 'https://missav.ai/cn',
-      navigateDocument: (_, _) async => '<html></html>',
+      navigateDocument: (uri, _) async => ('<html></html>', uri),
       disposeBrowser: () async {},
     );
     addTearDown(() async {

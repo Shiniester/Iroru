@@ -1450,6 +1450,8 @@
   "videoAccountBrowserLogin": "ウェブでログイン",
   "videoJableAccount": "Jable アカウント",
   "videoJableLoginRequired": "Jable にログインすると、お気に入りの動画を表示・管理できます。",
+  "videoJableMirrorSettings": "Jable 回線",
+  "videoJableMirrorDescription": "手動で選んだ回線は閲覧、検索、再生に適用されます。ログイン中に自動選択を使うと、公式回線に接続します。",
   "videoMirrorSettings": "MissAV 回線",
   "videoMirrorDescription": "すべての回線を表示します。利用できない回線は選択できません。選択した回線を一覧、検索、再生に使用します。",
   "videoMirrorAutomatic": "最速の回線を自動選択",

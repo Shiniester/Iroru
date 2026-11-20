@@ -40,6 +40,14 @@ class JableAccount extends ChangeNotifier {
   void _setLoggedIn(bool value) {
     if (_disposed || value == _isLoggedIn) return;
     _isLoggedIn = value;
+    if (_client.usesAutomaticMirror) {
+      _contentChanged();
+    } else {
+      _changed();
+    }
+  }
+
+  void _contentChanged() {
     _contentGeneration++;
     _changed();
   }
@@ -61,13 +69,13 @@ class JableAccount extends ChangeNotifier {
 
     final uri = Uri.parse(favoritesUrl);
     final generation = _client._generation;
-    final document = await _client._loadDocument(uri);
+    final (document, page) = await _client._loadDocumentPage(uri);
     _client._ensureGeneration(generation, uri);
     if (hasFavoritesList(document)) {
       _setLoggedIn(true);
       return true;
     }
-    if (_isLoginPage(document, uri)) {
+    if (_isLoginUrl(page) || _isLoginPage(document, page)) {
       _setLoggedIn(false);
       return false;
     }
@@ -85,6 +93,27 @@ class JableAccount extends ChangeNotifier {
     return (id: id, selected: button!.classes.contains('active'));
   }
 
+  Future<({String id, bool selected})?> favoriteStateForVideo(
+    VideoDetails details,
+  ) async {
+    if (!isLoggedIn) return null;
+    try {
+      await _client._prepareOnlineAccess();
+      return await _loadFavoriteControl(_videoUri(details));
+    } on DioException {
+      return null;
+    } on VideoSourceException {
+      return null;
+    }
+  }
+
+  Future<({String id, bool selected})?> _loadFavoriteControl(Uri uri) async {
+    final (document, page) = await _client._loadDocumentPage(uri);
+    return _client._videoId(page.toString()) == _client._videoId(uri.toString())
+        ? _favoriteControl(document)
+        : null;
+  }
+
   Future<void> setVideoFavorite(VideoDetails details, bool favorite) async {
     final videoUri = _videoUri(details);
     await _client._prepareOnlineAccess();
@@ -93,7 +122,12 @@ class JableAccount extends ChangeNotifier {
       throw JableLoginRequiredException(sourceUrl: videoUri.toString());
     }
     _client._ensureGeneration(generation, videoUri);
-    final sourceId = details.sourceId?.trim();
+    final sourceId =
+        details.sourceId?.trim() ??
+        (Uri.parse(details.video.pageUrl).host != JableClient._officialHost
+            ? (await _loadFavoriteControl(videoUri))?.id
+            : null);
+    _client._ensureGeneration(generation, videoUri);
     if (sourceId == null || sourceId.isEmpty) {
       throw VideoSourceException(
         'Jable did not provide a favorite control for this video.',
@@ -452,7 +486,7 @@ class JableAccount extends ChangeNotifier {
         sourceUrl: uri.toString(),
       );
     }
-    return uri;
+    return Uri.parse('${uri.origin}${uri.path}');
   }
 
   bool get _hasSession =>

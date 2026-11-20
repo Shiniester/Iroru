@@ -81,7 +81,7 @@ void main() {
       final oldBrowser = MissavBrowserAdapter.jable(
         runJavaScript: (_) async {},
         currentUrl: () async => 'https://jable.tv/',
-        navigateDocument: (_, __) async => '<html></html>',
+        navigateDocument: (uri, _) async => ('<html></html>', uri),
         disposeBrowser: () async {},
       );
       var newBrowserNavigations = 0;
@@ -90,7 +90,7 @@ void main() {
         currentUrl: () async => 'https://jable.tv/',
         navigateDocument: (uri, _) async {
           newBrowserNavigations++;
-          return '<html><head><title>New session</title></head></html>';
+          return ('<html><head><title>New session</title></head></html>', uri);
         },
         disposeBrowser: () async {},
       );

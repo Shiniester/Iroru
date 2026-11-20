@@ -257,7 +257,12 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final account = _TestJableAccount();
     final staleResults = Completer<VideoSearchResults>();
-    var searchCount = 0;
+    final submitted = <({String query, List<String> filterUrls})>[];
+    const submittedFilter = VideoLink(
+      label: 'Public filter',
+      url: 'https://jable.tv/categories/public-filter/',
+      kind: VideoLinkKind.category,
+    );
     const currentVideo = VideoItem(
       id: 'current-public',
       sourceKey: 'jable',
@@ -278,10 +283,13 @@ void main() {
           sourceKey: 'jable',
           jableAccount: account,
           initialQuery: 'public query',
-          search: (query, _, _) {
-            expect(query, 'public query');
-            searchCount++;
-            return searchCount == 1
+          initialFilters: const [submittedFilter],
+          search: (query, filters, _) {
+            submitted.add((
+              query: query,
+              filterUrls: filters.map((filter) => filter.url).toList(),
+            ));
+            return submitted.length == 1
                 ? staleResults.future
                 : Future.value(
                     const VideoSearchResults.collection([currentVideo]),
@@ -293,19 +301,77 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(searchCount, 1);
+    expect(submitted, hasLength(1));
+
+    await tester.enterText(
+      find.byKey(const ValueKey('video-search-input')),
+      'unsubmitted draft',
+    );
 
     account.expireSession();
     await tester.pump();
     await tester.pumpAndSettle();
-    expect(searchCount, 2);
+    expect(submitted, hasLength(2));
+    for (final search in submitted) {
+      expect(search.query, 'public query');
+      expect(search.filterUrls, [submittedFilter.url]);
+    }
     expect(find.text(currentVideo.title), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('video-search-input')))
+          .controller
+          ?.text,
+      'unsubmitted draft',
+    );
 
     staleResults.complete(const VideoSearchResults.collection([staleVideo]));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text(currentVideo.title), findsOneWidget);
     expect(find.text(staleVideo.title), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('video-search-input')))
+          .controller
+          ?.text,
+      'unsubmitted draft',
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    account.dispose();
+  });
+
+  testWidgets('Jable public generation change ignores an unsubmitted draft', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final account = _TestJableAccount();
+    var searchCount = 0;
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Jable search',
+          sourceKey: 'jable',
+          jableAccount: account,
+          search: (_, _, _) async {
+            searchCount++;
+            return const VideoSearchResults.collection([]);
+          },
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final input = find.byKey(const ValueKey('video-search-input'));
+    await tester.enterText(input, 'draft only');
+
+    account.expireSession();
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(searchCount, 0);
+    expect(tester.widget<TextField>(input).controller?.text, 'draft only');
     await tester.pumpWidget(const SizedBox.shrink());
     account.dispose();
   });

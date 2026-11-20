@@ -4322,6 +4322,13 @@ class SJa extends S {
   String get videoJableLoginRequired => 'Jable にログインすると、お気に入りの動画を表示・管理できます。';
 
   @override
+  String get videoJableMirrorSettings => 'Jable 回線';
+
+  @override
+  String get videoJableMirrorDescription =>
+      '手動で選んだ回線は閲覧、検索、再生に適用されます。ログイン中に自動選択を使うと、公式回線に接続します。';
+
+  @override
   String get videoMirrorSettings => 'MissAV 回線';
 
   @override

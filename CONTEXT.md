@@ -85,7 +85,8 @@ _Avoid_: Video account login
 
 **Content Host (内容线路)**:
 A host that serves a Video Source's catalog and video details. For MissAV,
-Content Hosts are the measured mirrors. Jable uses a Video Source Mirror for
+Content Hosts are the measured mirrors. Jable uses the manually selected
+Video Source Mirror when one is set. In automatic mode, it uses a mirror for
 anonymous access and its Official Host after account confirmation.
 _Avoid_: Source mirror, browsing mirror
 
@@ -102,8 +103,8 @@ A host operated by the Video Source. For MissAV, Official Hosts are
 _Avoid_: Primary mirror, canonical host
 
 **Last Good Content Host (上次可用内容线路)**:
-The Content Host that most recently returned a valid content page. It is tried
-before the measured Content Host order.
+The Video Source Mirror that most recently returned a valid content page.
+It is the first automatic candidate until new measurements select a mirror.
 _Avoid_: Preferred mirror, saved mirror
 
 **Video Source Mirror (视频源镜像)**:

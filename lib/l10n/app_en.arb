@@ -1866,6 +1866,14 @@
   "videoAccountBrowserLogin": "Sign in on website",
   "videoJableAccount": "Jable account",
   "videoJableLoginRequired": "Sign in to Jable to view and manage your video favorites.",
+  "videoJableMirrorSettings": "Jable host",
+  "@videoJableMirrorSettings": {
+    "description": "Settings entry and page title for the Jable mirror host speed test and selection."
+  },
+  "videoJableMirrorDescription": "Manual selection applies to browsing, search, and playback. When signed in, automatic mode uses the official host.",
+  "@videoJableMirrorDescription": {
+    "description": "Explains Jable content host selection in manual and automatic modes."
+  },
   "videoMirrorSettings": "MissAV host",
   "@videoMirrorSettings": {
     "description": "Settings entry for the MissAV mirror host speed test."

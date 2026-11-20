@@ -3,15 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/videos/jable_client.dart';
+import 'package:iroru/src/videos/jable_mirrors.dart';
 import 'package:iroru/src/videos/missav_mirrors.dart';
 import 'package:iroru/src/videos/ui/missav_mirror_settings_screen.dart';
 import 'package:iroru/src/videos/video_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _Prober extends MissavMirrorProber {
-  _Prober({this.unavailableHost});
+  _Prober({this.unavailableHost, this.fastestHost = 'www.missav.watch'});
 
   final String? unavailableHost;
+  final String fastestHost;
 
   @override
   Future<List<MissavMirrorLatency>> probeAll(
@@ -27,7 +30,7 @@ class _Prober extends MissavMirrorProber {
                 mirror: mirror,
                 millis: mirror.host == unavailableHost
                     ? null
-                    : mirror.host == 'www.missav.watch'
+                    : mirror.host == fastestHost
                     ? 20
                     : 300,
                 error: mirror.host == unavailableHost ? 'HTTP 503' : null,
@@ -126,5 +129,65 @@ void main() {
     final preferences = await SharedPreferences.getInstance();
     expect(preferences.getString(missavMirrorBaseUrlKey), isNull);
     expect(container.read(videoClientProvider).usesAutomaticMirror, isTrue);
+  });
+
+  testWidgets('Jable mirror settings use Jable hosts independently', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      missavMirrorBaseUrlKey: missavMirrors.first.baseUrl,
+    });
+    tester.view.physicalSize = const Size(390, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final mirrorDio = Dio();
+    final jableClient = JableClient(mirrorDio: mirrorDio);
+    addTearDown(() {
+      jableClient.dispose();
+      mirrorDio.close(force: true);
+    });
+    final container = ProviderContainer(
+      overrides: [jableVideoClientProvider.overrideWithValue(jableClient)],
+    );
+    addTearDown(container.dispose);
+    final jableHost = jableMirrors.first.host;
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: S.supportedLocales,
+          localizationsDelegates: S.localizationsDelegates,
+          theme: ThemeData(useMaterial3: true),
+          home: MissavMirrorSettingsScreen.jable(
+            prober: _Prober(fastestHost: jableHost),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final s = S.of(tester.element(find.byType(MissavMirrorSettingsScreen)));
+    expect(find.text(s.videoJableMirrorSettings), findsWidgets);
+    expect(find.text(jableHost), findsOneWidget);
+    expect(find.text(missavMirrors.first.host), findsNothing);
+
+    await tester.tap(find.text(jableHost));
+    await tester.pumpAndSettle();
+
+    final client = container.read(jableVideoClientProvider);
+    expect(client.activeMirrorHost, jableHost);
+    expect(client.usesAutomaticMirror, isFalse);
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences.getString(jableMirrorBaseUrlKey),
+      jableMirrors.first.baseUrl,
+    );
+
+    await tester.tap(find.text(s.videoMirrorAutomatic));
+    await tester.pumpAndSettle();
+
+    expect(client.usesAutomaticMirror, isTrue);
   });
 }

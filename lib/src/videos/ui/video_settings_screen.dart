@@ -128,7 +128,8 @@ class _VideoSettingsScreenState extends ConsumerState<VideoSettingsScreen> {
     final s = S.of(context);
     final downloads = ref.read(videoDownloadsProvider);
     final missav = ref.watch(videoClientProvider);
-    final jableAccount = ref.read(jableVideoClientProvider).account;
+    final jable = ref.watch(jableVideoClientProvider);
+    final jableAccount = jable.account;
     final history = ref.watch(unifiedSearchHistoryProvider);
     final historyCount = history.entries
         .where((entry) => entry.context.contentType == 'video')
@@ -216,6 +217,21 @@ class _VideoSettingsScreenState extends ConsumerState<VideoSettingsScreen> {
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => const JableAccountScreen(),
+                    ),
+                  ),
+                ),
+              ),
+              ListenableBuilder(
+                listenable: jableAccount,
+                builder: (context, _) => SettingsNavigationTile(
+                  icon: Icons.speed,
+                  title: s.videoJableMirrorSettings,
+                  subtitle: jable.usesAutomaticMirror
+                      ? s.videoMirrorAutomatic
+                      : jable.activeMirrorHost,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const MissavMirrorSettingsScreen.jable(),
                     ),
                   ),
                 ),

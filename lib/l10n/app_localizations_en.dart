@@ -4446,6 +4446,13 @@ class SEn extends S {
       'Sign in to Jable to view and manage your video favorites.';
 
   @override
+  String get videoJableMirrorSettings => 'Jable host';
+
+  @override
+  String get videoJableMirrorDescription =>
+      'Manual selection applies to browsing, search, and playback. When signed in, automatic mode uses the official host.';
+
+  @override
   String get videoMirrorSettings => 'MissAV host';
 
   @override
