@@ -85,10 +85,12 @@ jobs:
       - name: Verify selected release source configuration
         run: |
           set -euo pipefail
-          if [[ ! -f scripts/ci/android_release.py ]]; then
-            echo '::error::Selected commit predates the Android release APK helper. Choose a commit that includes the new release configuration.'
+          gate="scripts/ci/validate_release_source.py"
+          if [[ ! -f "$gate" ]]; then
+            echo '::error::Selected commit predates the required release configuration. Choose a commit that includes the new release configuration.'
             exit 1
           fi
+          python3 "$gate" android --root .
 
       - name: Download Android libmpv artifacts
         uses: actions/download-artifact@v6
@@ -123,18 +125,13 @@ jobs:
             echo '::error::Version must use MAJOR.MINOR.PATCH-beta.N, for example 4.5.3-beta.1.'
             exit 1
           fi
-          # Use the same versionCode sequence for manual and reusable runs.
-          # ponytail: bounded version slots; use a shared release counter if these limits are reached.
-          build_number="$(python3 - "$version" <<'PY'
-          import sys
-
-          major, minor, patch, beta = map(int, sys.argv[1].replace('-beta.', '.').split('.'))
-          build_number = ((major * 100 + minor) * 1000 + patch) * 1000 + beta
-          if minor >= 100 or patch >= 1000 or beta >= 1000 or build_number + 2000 > 2100000000:
-              raise SystemExit('Beta versionCode requires minor < 100, patch/beta < 1000 and an Android-compatible major.')
-          print(build_number)
-          PY
-          )"
+          if ! latest_stable_tag="$(gh api "repos/${GH_REPO}/releases/latest" --jq '.tag_name' 2>/dev/null)"; then
+            echo '::error::No published stable release found; cannot choose a Beta version base.'
+            exit 1
+          fi
+          latest_stable="${latest_stable_tag#v}"
+          build_number="$(python3 scripts/ci/android_release.py version-code \
+            --version "$version" --latest-stable "$latest_stable")"
           tag="v${version}"
           if gh release view "$tag" >/dev/null 2>&1 ||
              gh api "repos/${GH_REPO}/git/ref/tags/${tag}" >/dev/null 2>&1; then
@@ -145,29 +142,8 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
 
-      - name: Configure Separate Beta Application
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          replacements = {
-              Path('android/app/build.gradle.kts'): (
-                  'applicationId = "com.meteor.iroru"',
-                  'applicationId = "com.meteor.iroru.beta"',
-              ),
-              Path('android/app/src/main/AndroidManifest.xml'): (
-                  'android:label="Iroru"',
-                  'android:label="Iroru Beta"',
-              ),
-          }
-          for path, (old, new) in replacements.items():
-              source = path.read_text(encoding='utf-8')
-              if source.count(old) != 1:
-                  raise SystemExit(f'Expected exactly one Beta configuration target in {path}')
-              path.write_text(source.replace(old, new), encoding='utf-8')
-          PY
-
       - name: Prepare Android Signing
+        id: android_signing
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -194,6 +170,7 @@ jobs:
           keyPassword=$ANDROID_KEY_PASSWORD
           EOF
           chmod 600 android/app/release-key.jks android/key.properties
+          echo "configured=true" >> "$GITHUB_OUTPUT"
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -249,7 +226,7 @@ jobs:
           flutter build apk --release --target-platform android-arm64 --split-per-abi --build-name="$VERSION" --build-number="$BUILD_NUMBER"
           apk_name="$(python3 scripts/ci/android_release.py name \
             --version "$VERSION" \
-            --package-id com.meteor.iroru.beta)"
+            --package-id com.meteor.iroru)"
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
             "dist/$apk_name"
           echo "apk_name=$apk_name" >> "$GITHUB_OUTPUT"
@@ -259,6 +236,7 @@ jobs:
           APK_NAME: ${{ steps.package.outputs.apk_name }}
           EXPECTED_VERSION: ${{ steps.version.outputs.version }}
           EXPECTED_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          SIGNING_CONFIGURED: ${{ steps.android_signing.outputs.configured }}
         run: |
           set -euo pipefail
           arm64_apk="dist/$APK_NAME"
@@ -270,10 +248,11 @@ jobs:
           fi
           python3 scripts/ci/android_release.py verify \
             --apk "$arm64_apk" \
-            --package-id com.meteor.iroru.beta \
+            --package-id com.meteor.iroru \
             --expected-version "$EXPECTED_VERSION" \
             --base-version-code "$EXPECTED_BUILD_NUMBER" \
-            --signing-policy signed \
+            --signing-policy release \
+            --signing-configured "$SIGNING_CONFIGURED" \
             --forbid-debuggable
 
       - name: Upload Beta Artifacts
@@ -312,7 +291,7 @@ jobs:
             test -s "$asset"
           done
           printf '%s\n\nBranch: %s\nWorkflow event SHA (github.sha): %s\nSelected release commit: %s\n\n%s\n' \
-            'Android Beta: installs alongside Iroru as Iroru Beta with separate app data. Users of the previous installation identity must perform a fresh install; existing app data does not carry over.' \
+            'Android Beta: install this APK to run the Beta release of Iroru. This installation uses its own app data and does not import data from the previous standalone Iroru Beta app. The previous app and its data remain on the device.' \
             "$GITHUB_REF_NAME" "$GITHUB_SHA" "$RELEASE_COMMIT" \
             "$RELEASE_NOTES" > "$RUNNER_TEMP/beta-release-notes.md"
           gh release create "$TAG" --target "$RELEASE_COMMIT" \

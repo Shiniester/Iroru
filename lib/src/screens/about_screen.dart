@@ -56,12 +56,10 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
     final updateService = ref.read(updateServiceProvider);
     var version = 'Unknown';
     var buildNumber = '';
-    var packageName = '';
     try {
       final info = await PackageInfo.fromPlatform();
       version = info.version;
       buildNumber = info.buildNumber;
-      packageName = info.packageName;
     } catch (error, stackTrace) {
       debugPrint('AboutScreen: failed to load app version: $error');
       debugPrint(stackTrace.toString());
@@ -77,7 +75,7 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
     }
 
     final updateChannel = await updateService.getUpdateChannel(
-      packageName: packageName,
+      currentVersion: version,
     );
     _selectedUpdateChannel = updateChannel;
 
@@ -174,9 +172,7 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                       color: Theme.of(context).colorScheme.onSecondaryContainer,
                     ),
                     title: Text(
-                      updateInfo.isCrossChannel
-                          ? S.of(context).updateChannelVersionAvailable
-                          : S.of(context).newVersionFound,
+                      S.of(context).newVersionFound,
                       style: TextStyle(
                         color: Theme.of(
                           context,
@@ -200,18 +196,6 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                             ).colorScheme.onSecondaryContainer,
                           ),
                         ),
-                        if (updateInfo.isCrossChannel) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            S.of(context).crossChannelUpdateNotice,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSecondaryContainer,
-                                ),
-                          ),
-                        ],
                         if (updateState.status == UpdateStatus.downloading) ...[
                           const SizedBox(height: 8),
                           LinearProgressIndicator(
@@ -397,7 +381,7 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
         SnackBarUtil.showInfo(context, S.of(context).noBetaRelease);
         break;
       case UpdateCheckOutcome.upToDate:
-        SnackBarUtil.showInfo(context, S.of(context).alreadyLatestVersion);
+        SnackBarUtil.showInfo(context, S.of(context).noNewerVersion);
         break;
       case UpdateCheckOutcome.failed:
         SnackBarUtil.showError(context, S.of(context).checkUpdateFailed);

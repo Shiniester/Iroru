@@ -65,11 +65,13 @@ beyond all existing tags and releases, including drafts. The conventional level
 determines whether to publish a Beta, without changing its version-base rule.
 Release notes contain the subjects of commits that trigger an update.
 
-Android Beta build numbers encode the version as
-`((major * 100 + minor) * 1000 + patch) * 1000 + beta`, shared by manual and
-automatic builds. Minor must be below 100; patch and Beta sequence below 1000.
-The result plus the legacy arm64 offset of 2000 must fit Android's versionCode
-limit of 2100000000. Unsupported versions stop before building.
+Android build numbers encode the version as
+`((major * 100 + minor) * 1000 + patch) * 1000 + slot`. Stable uses slot `999`,
+and Beta uses its sequence number from `1` to `998`. Minor must be below `100`,
+and patch must be below `1000`. The result plus the arm64 offset of `2000` must
+fit the versionCode limit of `2100000000`. Both manual and automatic releases
+use this rule, so a stable release can install over any Beta with the same
+version base.
 
 ## Codex turn auto-commit messages
 
@@ -88,15 +90,17 @@ commits use `git commit` with a conventional message directly.
 
 ## Publication and queue
 
-The full-platform stable, Android-only stable, and Android Beta workflows use
-the same Android APK naming and validation script. The release job consumes
+The full-platform stable, Android-only stable, and Android Beta workflows build
+`com.meteor.iroru` with the same release certificate. The release job consumes
 the filename produced by the Android build job. Validation checks the package
-name, version, ABI, and the signing rules for that workflow.
+name, version, ABI, and release certificate.
 
-The first stable release and the first Beta release that change the installation
-identity must state that users of the previous identity need a fresh install.
-Existing app data stays with the old installation. See
-[ADR 0014](../adr/0014-iroru-independent-installation.md).
+Publish a stable release with the shared update rules before publishing the first
+Beta with the shared installation. In that release, state that the unified app
+uses its own data and does not import data from the former standalone Iroru Beta.
+Direct those users to the unified APK and keep the old app and data in place.
+Manual Beta releases use the latest stable release's next PATCH base. See
+[ADR 0015](../adr/0015-iroru-android-shared-installation.md).
 
 Publication uses the built-in `GITHUB_TOKEN`, or `RELEASE_TOKEN` when configured.
 For targets changing `.github/workflows/` relative to the default branch, set

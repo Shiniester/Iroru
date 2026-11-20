@@ -80,9 +80,7 @@ class UpdateDialog extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  updateInfo.isCrossChannel
-                      ? S.of(context).updateChannelVersionAvailable
-                      : S.of(context).newVersionFound,
+                  S.of(context).newVersionFound,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -115,15 +113,6 @@ class UpdateDialog extends ConsumerWidget {
                     ),
                 style: theme.textTheme.bodyMedium,
               ),
-              if (updateInfo.isCrossChannel) ...[
-                const SizedBox(height: 8),
-                Text(
-                  S.of(context).crossChannelUpdateNotice,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
               if (updateInfo.assetSize != null &&
                   updateInfo.assetSize! > 0) ...[
                 const SizedBox(height: 6),

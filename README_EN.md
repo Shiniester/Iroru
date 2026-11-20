@@ -88,6 +88,10 @@ Download the latest version from [GitHub Releases](https://github.com/Shiniester
 
 Platforms: Android (arm64-v8a), iOS (unsigned IPA), Windows (installer / portable), macOS (Apple Silicon, DMG), Linux (x64)
 
+On Android, choose **Stable** or **Beta** under **About → Update channel**. If you
+only have the former standalone Iroru Beta, install Iroru from GitHub Releases.
+The unified app uses its own data and does not import data from the old app.
+
 ### Installing after the app ID change
 
 Iroru requires a fresh installation after the app ID change. The new installation starts with empty local data. The previous app and its data stay in place. Older versions may still show an update notification.

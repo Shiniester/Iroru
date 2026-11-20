@@ -604,13 +604,6 @@ class SEn extends S {
   String get noBetaRelease => 'No beta release is available yet.';
 
   @override
-  String get updateChannelVersionAvailable => 'Selected channel version';
-
-  @override
-  String get crossChannelUpdateNotice =>
-      'Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.';
-
-  @override
   String get author => 'Author';
 
   @override
@@ -642,7 +635,7 @@ class SEn extends S {
   String get view => 'View';
 
   @override
-  String get alreadyLatestVersion => 'Already the latest version';
+  String get noNewerVersion => 'No newer version in this channel';
 
   @override
   String get checkUpdateFailed =>

@@ -22,8 +22,13 @@ RELEASE_CERT_SHA256 = (
 )
 VERSION_CODE_SPLIT_OFFSET = 2000
 MAX_ANDROID_VERSION_CODE = 2_100_000_000
+STABLE_VERSION_CODE_SLOT = 999
+MAX_BETA_VERSION_CODE_SLOT = 998
 ARM64_ABI = "arm64-v8a"
 _SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
+_ANDROID_VERSION = re.compile(
+    r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-beta\.([1-9]\d*))?\Z"
+)
 _CERT_DIGEST = re.compile(
     r"certificate SHA-256 digest:\s*([0-9a-fA-F: ]+)", re.IGNORECASE
 )
@@ -59,6 +64,55 @@ def apk_basename(version_label: str, package_id: str) -> str:
         if not _SAFE_NAME.fullmatch(value):
             raise VerificationError(f"Invalid Android APK {label}: {value!r}")
     return f"Iroru-android-arm64-v8a_{version_label}_{package_id}.apk"
+
+
+def version_code_base(
+    version: str,
+    *,
+    latest_stable: str | None = None,
+) -> int:
+    """Return the base versionCode, optionally enforcing the Beta base rule."""
+    match = _ANDROID_VERSION.fullmatch(version)
+    if not match:
+        raise VerificationError(
+            f"Invalid Android release version: {version!r}; expected "
+            "MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-beta.N."
+        )
+    major, minor, patch = map(int, match.group(1, 2, 3))
+    beta = match.group(4)
+    slot = STABLE_VERSION_CODE_SLOT if beta is None else int(beta)
+    if (
+        minor >= 100
+        or patch >= 1000
+        or (beta is not None and slot > MAX_BETA_VERSION_CODE_SLOT)
+    ):
+        raise VerificationError(
+            "Android versionCode requires minor < 100, patch < 1000, "
+            f"and Beta sequence 1..{MAX_BETA_VERSION_CODE_SLOT}."
+        )
+    if latest_stable is not None:
+        stable_match = _ANDROID_VERSION.fullmatch(latest_stable)
+        if beta is None or stable_match is None or stable_match.group(4):
+            raise VerificationError(
+                "A Beta version and a stable latest release are required "
+                "for Beta version validation."
+            )
+        stable = tuple(map(int, stable_match.group(1, 2, 3)))
+        expected = (stable[0], stable[1], stable[2] + 1)
+        base = (major, minor, patch)
+        if base != expected:
+            raise VerificationError(
+                f"Beta base {major}.{minor}.{patch} must be the next PATCH "
+                f"after latest stable {latest_stable}: "
+                f"{expected[0]}.{expected[1]}.{expected[2]}."
+            )
+    code = ((major * 100 + minor) * 1000 + patch) * 1000 + slot
+    if code + VERSION_CODE_SPLIT_OFFSET > MAX_ANDROID_VERSION_CODE:
+        raise VerificationError(
+            f"Android versionCode {code + VERSION_CODE_SPLIT_OFFSET} exceeds "
+            "the platform limit."
+        )
+    return code
 
 
 def _parse_badging(
@@ -321,6 +375,13 @@ def _parser() -> argparse.ArgumentParser:
     name.add_argument("--version", dest="version_label", required=True)
     name.add_argument("--package-id", required=True)
 
+    version_code = commands.add_parser(
+        "version-code",
+        help="Print the base versionCode for a release version.",
+    )
+    version_code.add_argument("--version", dest="version_label", required=True)
+    version_code.add_argument("--latest-stable")
+
     verify = commands.add_parser("verify", help="Verify one release APK.")
     verify.add_argument("--apk", type=Path, required=True)
     verify.add_argument("--package-id", required=True)
@@ -345,6 +406,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "name":
             print(apk_basename(args.version_label, args.package_id))
+            return 0
+
+        if args.command == "version-code":
+            print(
+                version_code_base(
+                    args.version_label,
+                    latest_stable=args.latest_stable,
+                )
+            )
             return 0
 
         aapt = args.aapt or discover_android_tool("aapt", args.android_home)

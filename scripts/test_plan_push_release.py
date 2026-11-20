@@ -246,6 +246,29 @@ def check():
     else:
         raise AssertionError("An occupied stable version must stop publication")
 
+    for base_version, branch, bump in (
+        ((20, 99, 999), "main", "patch"),
+        ((20, 99, 0), "main", "minor"),
+        ((20, 99, 0), "main", "major"),
+    ):
+        try:
+            planner.next_version(base_version, branch, bump, set())
+        except ValueError as error:
+            assert "versionCode" in str(error)
+        else:
+            raise AssertionError("A version outside the Android versionCode limit must stop publication")
+    try:
+        planner.next_version(
+            base,
+            "feature/player",
+            "patch",
+            {"v4.8.2-beta.998"},
+        )
+    except ValueError as error:
+        assert "Beta sequence" in str(error)
+    else:
+        raise AssertionError("Beta slot 999 must not collide with the stable slot")
+
     messages = [
         "fix(core): repair favorites\n\nThis prose mentions BREAKING CHANGE: but is not a footer.",
         "feat(ui): add filters",

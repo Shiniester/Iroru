@@ -172,7 +172,6 @@ void main() {
         currentVersion: '4.4.0',
         releaseUrl: 'https://example.com/old-beta',
         hasNewVersion: false,
-        isCrossChannel: true,
       ),
     );
 
@@ -203,7 +202,7 @@ class _QueuedUpdateService extends UpdateService {
   int get channelRevision => _revision;
 
   @override
-  Future<UpdateChannel> getUpdateChannel({String? packageName}) async =>
+  Future<UpdateChannel> getUpdateChannel({String? currentVersion}) async =>
       UpdateChannel.stable;
 
   @override

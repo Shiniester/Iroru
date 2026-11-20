@@ -1,5 +1,8 @@
 # Iroru 使用独立安装标识和数据目录
 
+Android 测试版的独立安装由 [ADR 0015](0015-iroru-android-shared-installation.md)
+取代。
+
 Iroru 使用新的安装标识，以便与旧版分别安装。Android、iOS、macOS 和 Linux
 使用 `com.meteor.iroru`。Iroru Beta 使用 `com.meteor.iroru.beta`。
 Windows 使用新的 Inno Setup `AppId`。macOS 发布包中的应用文件名为

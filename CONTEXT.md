@@ -779,7 +779,7 @@ _Avoid_: guest demo account, offline account
 
 **Update Channel (更新渠道)**:
 The release family selected for Iroru update checks: Stable Release or Beta
-Release.
+Release. On Android, both channels update the same Iroru installation.
 
 **Stable Release (正式版)**:
 A published Iroru version intended for regular use.
@@ -789,5 +789,5 @@ A published Iroru version intended for testing changes before a Stable Release.
 _Avoid_: Development build, nightly build
 
 **Iroru Beta**:
-The Android testing edition of Iroru. It is installed alongside the stable app
-and keeps separate app data.
+The former standalone Android app for testing Iroru. Existing installations
+keep their own app data.

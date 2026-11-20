@@ -589,13 +589,6 @@ class SJa extends S {
   String get noBetaRelease => 'No beta release is available yet.';
 
   @override
-  String get updateChannelVersionAvailable => 'Selected channel version';
-
-  @override
-  String get crossChannelUpdateNotice =>
-      'Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.';
-
-  @override
   String get author => '作者';
 
   @override
@@ -627,7 +620,7 @@ class SJa extends S {
   String get view => '表示';
 
   @override
-  String get alreadyLatestVersion => '最新バージョンです';
+  String get noNewerVersion => 'このチャンネルに新しいバージョンはありません';
 
   @override
   String get checkUpdateFailed => 'アップデートの確認に失敗しました。ネットワーク接続を確認してください';

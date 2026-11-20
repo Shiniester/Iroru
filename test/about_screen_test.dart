@@ -100,18 +100,17 @@ void main() {
       expect(
         find.descendant(
           of: find.byType(AlertDialog),
-          matching: find.text('所选渠道版本'),
+          matching: find.text('发现新版本'),
         ),
         findsOneWidget,
       );
       expect(
         find.descendant(
           of: find.byType(AlertDialog),
-          matching: find.text('Android 正式版与测试版是独立应用，数据分别保存。安装后不会替换当前应用。'),
+          matching: find.text('v4.5.0-beta.1'),
         ),
         findsOneWidget,
       );
-      expect(find.text('发现新版本'), findsNothing);
     },
   );
 
@@ -386,7 +385,7 @@ class _FakeUpdateService extends UpdateService {
   int get channelRevision => _revision;
 
   @override
-  Future<UpdateChannel> getUpdateChannel({String? packageName}) async =>
+  Future<UpdateChannel> getUpdateChannel({String? currentVersion}) async =>
       channel;
 
   @override
@@ -406,11 +405,10 @@ class _FakeUpdateService extends UpdateService {
     final selected = channel ?? this.channel;
     if (selected == UpdateChannel.beta && !betaAvailable) return null;
     return UpdateInfo(
-      latestVersion: selected == UpdateChannel.beta ? '4.3.0-beta.1' : '4.5.0',
+      latestVersion: selected == UpdateChannel.beta ? '4.5.0-beta.1' : '4.5.0',
       currentVersion: '4.4.0',
       releaseUrl: 'https://example.com/${selected.name}',
       hasNewVersion: true,
-      isCrossChannel: selected != UpdateChannel.stable,
     );
   }
 

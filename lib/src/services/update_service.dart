@@ -31,8 +31,8 @@ class UpdateService {
   static const String _stableGithubApiUrl = '$_releasesGithubApiUrl/latest';
   static const String _releasePageUrl =
       'https://github.com/$_releaseRepository/releases/latest';
-  static const String _stableAndroidPackageName = 'com.meteor.iroru';
-  static const String _betaPackageName = '$_stableAndroidPackageName.beta';
+  static const String _androidPackageName = 'com.meteor.iroru';
+  static final RegExp _betaVersion = RegExp(r'^\d+\.\d+\.\d+-beta\.\d+$');
 
   static const String _keyUpdateChannel = 'update_channel';
   static const String _keyLastCheckedVersion = 'last_checked_version';
@@ -70,15 +70,17 @@ class UpdateService {
        _androidAbi =
            androidAbi ?? (!kIsWeb && Platform.isAndroid ? Abi.current() : null);
 
-  Future<UpdateChannel> getUpdateChannel({String? packageName}) async {
+  Future<UpdateChannel> getUpdateChannel({String? currentVersion}) async {
     final prefs = await SharedPreferences.getInstance();
     final savedChannel = prefs.getString(_keyUpdateChannel);
     for (final channel in UpdateChannel.values) {
       if (savedChannel == channel.name) return channel;
     }
 
-    packageName ??= (await PackageInfo.fromPlatform()).packageName;
-    return _installedChannel(packageName);
+    currentVersion ??= (await PackageInfo.fromPlatform()).version;
+    return _betaVersion.hasMatch(currentVersion)
+        ? UpdateChannel.beta
+        : UpdateChannel.stable;
   }
 
   Future<void> setUpdateChannel(UpdateChannel channel) {
@@ -113,22 +115,21 @@ class UpdateService {
   }) async {
     final checkRevision = ++_checkRevision;
     final channelRevision = _channelRevision;
-    final packageInfo = await PackageInfo.fromPlatform();
-    final currentVersion = packageInfo.version;
-    final installedChannel = _installedChannel(packageInfo.packageName);
+    final currentVersion = (await PackageInfo.fromPlatform()).version;
     final prefs = await SharedPreferences.getInstance();
     final selectedChannel =
-        channel ?? await getUpdateChannel(packageName: packageInfo.packageName);
+        channel ?? await getUpdateChannel(currentVersion: currentVersion);
     if (!_isCurrentCheck(checkRevision, channelRevision)) return null;
-    final isCrossChannel = selectedChannel != installedChannel;
-    final versionKey = _cacheKey(_keyLastCheckedVersion, selectedChannel);
     final checkedAtKey = _cacheKey(_keyLastCheckTime, selectedChannel);
     final now = DateTime.now().millisecondsSinceEpoch;
+    final lastCheckedVersion = _cachedVersion(prefs, selectedChannel);
 
-    if (!force && now - (prefs.getInt(checkedAtKey) ?? 0) < 3600000) {
-      final lastCheckedVersion = prefs.getString(versionKey);
-      if (lastCheckedVersion == null || lastCheckedVersion.isEmpty) return null;
-      if (lastCheckedVersion == currentVersion && !isCrossChannel) return null;
+    if (!force &&
+        lastCheckedVersion != null &&
+        now - (prefs.getInt(checkedAtKey) ?? 0) < 3600000) {
+      if (lastCheckedVersion.isEmpty || lastCheckedVersion == currentVersion) {
+        return null;
+      }
 
       return UpdateInfo(
         latestVersion: lastCheckedVersion,
@@ -136,9 +137,7 @@ class UpdateService {
         releaseUrl:
             prefs.getString(_cacheKey(_keyLastReleaseUrl, selectedChannel)) ??
             _releasePageUrl,
-        hasNewVersion:
-            isCrossChannel ||
-            _compareVersions(currentVersion, lastCheckedVersion) < 0,
+        hasNewVersion: _compareVersions(currentVersion, lastCheckedVersion) < 0,
         releaseNotes: prefs.getString(
           _cacheKey(_keyLastReleaseNotes, selectedChannel),
         ),
@@ -149,7 +148,6 @@ class UpdateService {
           _cacheKey(_keyLastAssetName, selectedChannel),
         ),
         assetSize: prefs.getInt(_cacheKey(_keyLastAssetSize, selectedChannel)),
-        isCrossChannel: isCrossChannel,
       );
     }
 
@@ -171,7 +169,7 @@ class UpdateService {
 
     final releaseNotes = data['body'] as String?;
     final releaseUrl = data['html_url'] as String? ?? _releasePageUrl;
-    final matchedAsset = _findReleaseAsset(data, selectedChannel);
+    final matchedAsset = _findReleaseAsset(data);
     final downloadUrl = matchedAsset?['browser_download_url'] as String?;
     final assetName = matchedAsset?['name'] as String?;
     final assetSize = matchedAsset?['size'] as int?;
@@ -196,13 +194,11 @@ class UpdateService {
       latestVersion: latestVersion,
       currentVersion: currentVersion,
       releaseUrl: releaseUrl,
-      hasNewVersion:
-          isCrossChannel || _compareVersions(currentVersion, latestVersion) < 0,
+      hasNewVersion: _compareVersions(currentVersion, latestVersion) < 0,
       releaseNotes: releaseNotes,
       downloadUrl: downloadUrl,
       assetName: assetName,
       assetSize: assetSize,
-      isCrossChannel: isCrossChannel,
     );
   }
 
@@ -220,7 +216,7 @@ class UpdateService {
       }
       final data = response.data as Map<String, dynamic>;
       if (data['draft'] == true || data['prerelease'] == true) return null;
-      if (_androidAbi != null && _findReleaseAsset(data, channel) == null) {
+      if (_androidAbi != null && _findReleaseAsset(data) == null) {
         return null;
       }
       return data;
@@ -240,9 +236,8 @@ class UpdateService {
       for (final release in releases.whereType<Map<String, dynamic>>()) {
         if (release['draft'] == true || release['prerelease'] != true) continue;
         final tag = _normalizeVersion(release['tag_name'] as String? ?? '');
-        if (RegExp(r'^\d+\.\d+\.\d+-beta\.\d+$').hasMatch(tag) &&
-            (_androidAbi == null ||
-                _findReleaseAsset(release, channel) != null)) {
+        if (_betaVersion.hasMatch(tag) &&
+            (_androidAbi == null || _findReleaseAsset(release) != null)) {
           return release;
         }
       }
@@ -251,21 +246,14 @@ class UpdateService {
     }
   }
 
-  Map<String, dynamic>? _findReleaseAsset(
-    Map<String, dynamic> release,
-    UpdateChannel channel,
-  ) {
+  Map<String, dynamic>? _findReleaseAsset(Map<String, dynamic> release) {
     final assets = release['assets'] as List<dynamic>? ?? [];
     final androidAbi = _androidAbi;
     if (androidAbi == null) return findPlatformAsset(assets);
 
-    final packageName = channel == UpdateChannel.beta
-        ? _betaPackageName
-        : _stableAndroidPackageName;
-    final candidates = assets.whereType<Map<String, dynamic>>().where((asset) {
-      final name = asset['name'] as String?;
-      return name != null && name.endsWith('_$packageName.apk');
-    });
+    final candidates = assets.whereType<Map<String, dynamic>>().where(
+      (asset) => _isAndroidUpdateAsset(asset['name'] as String?),
+    );
     return findPlatformAsset(
       candidates.toList(),
       targetPlatform: 'android',
@@ -278,13 +266,22 @@ class UpdateService {
       .replaceFirst(RegExp(r'\(.*\)'), '')
       .trim();
 
-  UpdateChannel _installedChannel(String packageName) =>
-      packageName == _betaPackageName
-      ? UpdateChannel.beta
-      : UpdateChannel.stable;
+  bool _isAndroidUpdateAsset(String? name) =>
+      _androidAbi == Abi.androidArm64 &&
+      name != null &&
+      name.endsWith('_$_androidPackageName.apk');
 
   String _cacheKey(String key, UpdateChannel channel) =>
       '${key}_${channel.name}';
+
+  String? _cachedVersion(SharedPreferences prefs, UpdateChannel channel) {
+    final version = prefs.getString(_cacheKey(_keyLastCheckedVersion, channel));
+    if (version == null || version.isEmpty || _androidAbi == null) {
+      return version;
+    }
+    final assetName = prefs.getString(_cacheKey(_keyLastAssetName, channel));
+    return _isAndroidUpdateAsset(assetName) ? version : null;
+  }
 
   bool _isCurrentCheck(int checkRevision, int channelRevision) =>
       checkRevision == _checkRevision && channelRevision == _channelRevision;
@@ -534,13 +531,10 @@ class UpdateService {
   Future<bool> shouldShowRedDot({UpdateChannel? channel}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = (await PackageInfo.fromPlatform()).version;
       final selectedChannel =
-          channel ??
-          await getUpdateChannel(packageName: packageInfo.packageName);
-      final lastCheckedVersion = prefs.getString(
-        _cacheKey(_keyLastCheckedVersion, selectedChannel),
-      );
+          channel ?? await getUpdateChannel(currentVersion: currentVersion);
+      final lastCheckedVersion = _cachedVersion(prefs, selectedChannel);
       final lastNotifiedVersion = prefs.getString(
         _cacheKey(_keyLastNotifiedVersion, selectedChannel),
       );
@@ -549,13 +543,7 @@ class UpdateService {
         return false;
       }
 
-      final currentVersion = packageInfo.version;
-      final isCrossChannel =
-          selectedChannel != _installedChannel(packageInfo.packageName);
-
-      // Show red dot if there's a new version and it hasn't been notified
-      return (isCrossChannel ||
-              _compareVersions(currentVersion, lastCheckedVersion) < 0) &&
+      return _compareVersions(currentVersion, lastCheckedVersion) < 0 &&
           lastCheckedVersion != lastNotifiedVersion;
     } catch (e) {
       return false;
@@ -566,14 +554,9 @@ class UpdateService {
   Future<void> markAsNotified({UpdateChannel? channel}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final packageInfo = await PackageInfo.fromPlatform();
-      final selectedChannel =
-          channel ??
-          await getUpdateChannel(packageName: packageInfo.packageName);
-      final lastCheckedVersion = prefs.getString(
-        _cacheKey(_keyLastCheckedVersion, selectedChannel),
-      );
-      if (lastCheckedVersion != null) {
+      final selectedChannel = channel ?? await getUpdateChannel();
+      final lastCheckedVersion = _cachedVersion(prefs, selectedChannel);
+      if (lastCheckedVersion != null && lastCheckedVersion.isNotEmpty) {
         await prefs.setString(
           _cacheKey(_keyLastNotifiedVersion, selectedChannel),
           lastCheckedVersion,
@@ -690,7 +673,6 @@ class UpdateInfo {
   final String? downloadUrl;
   final String? assetName;
   final int? assetSize;
-  final bool isCrossChannel;
 
   const UpdateInfo({
     required this.latestVersion,
@@ -701,7 +683,6 @@ class UpdateInfo {
     this.downloadUrl,
     this.assetName,
     this.assetSize,
-    this.isCrossChannel = false,
   });
 
   @override

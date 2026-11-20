@@ -9,6 +9,8 @@ from pathlib import Path
 ANDROID_SOURCE_FILES = {
     "scripts/ci/android_release.py": (
         "def apk_basename(",
+        "def version_code_base(",
+        "--latest-stable",
         "def verify_apk(",
         "RELEASE_CERT_SHA256",
     ),

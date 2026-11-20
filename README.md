@@ -89,6 +89,9 @@
 
 支持平台：Android（arm64-v8a）、iOS（未签名 IPA）、Windows（安装包 / 便携版）、macOS（Apple Silicon，DMG）、Linux（x64）
 
+Android 用户可在**关于 → 更新渠道**选择**正式版**或**测试版**。仅安装了旧 Iroru Beta
+时，请从 GitHub Releases 安装 Iroru。统一版使用自己的数据，不导入旧数据。
+
 ### 从旧版换装
 
 更换安装标识后的 Iroru 需要全新安装。新版从空数据开始，旧应用和旧数据留在原处。旧版可能仍会显示新版本提示。

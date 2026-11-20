@@ -1216,18 +1216,6 @@ abstract class S {
   /// **'No beta release is available yet.'**
   String get noBetaRelease;
 
-  /// Dialog title for a release from a different channel.
-  ///
-  /// In en, this message translates to:
-  /// **'Selected channel version'**
-  String get updateChannelVersionAvailable;
-
-  /// Explains separate Android installations and app data when selecting another release channel.
-  ///
-  /// In en, this message translates to:
-  /// **'Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.'**
-  String get crossChannelUpdateNotice;
-
   /// No description provided for @author.
   ///
   /// In en, this message translates to:
@@ -1282,11 +1270,11 @@ abstract class S {
   /// **'View'**
   String get view;
 
-  /// No description provided for @alreadyLatestVersion.
+  /// No description provided for @noNewerVersion.
   ///
   /// In en, this message translates to:
-  /// **'Already the latest version'**
-  String get alreadyLatestVersion;
+  /// **'No newer version in this channel'**
+  String get noNewerVersion;
 
   /// No description provided for @checkUpdateFailed.
   ///

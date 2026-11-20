@@ -283,18 +283,25 @@ void main() {
       },
     );
 
-    test('Android Beta skips APKs for the old and stable installs', () async {
+    test('Android Beta skips legacy APKs in releases and cache', () async {
       const compatible =
           'Iroru-android-arm64-v8a_7.0.1-beta.1_'
+          'com.meteor.iroru.apk';
+      const legacy =
+          'Iroru-android-arm64-v8a_7.0.1-beta.2_'
           'com.meteor.iroru.beta.apk';
+      SharedPreferences.setMockInitialValues({
+        'update_channel': 'beta',
+        'last_checked_version_beta': '7.0.1-beta.2',
+        'last_check_time_beta': DateTime.now().millisecondsSinceEpoch,
+        'last_asset_name_beta': legacy,
+        'last_download_url_beta': 'https://example.com/$legacy',
+      });
       final adapter = _MockHttpClientAdapter(
         (_) => _jsonResponse([
           for (final (version, name) in [
             ('7.0.1-beta.3', 'Iroru-android-arm64-v8a_7.0.1-beta.3.apk'),
-            (
-              '7.0.1-beta.2',
-              'Iroru-android-arm64-v8a_7.0.1-beta.2_com.meteor.iroru.apk',
-            ),
+            ('7.0.1-beta.2', legacy),
             ('7.0.1-beta.1', compatible),
           ])
             {
@@ -313,14 +320,13 @@ void main() {
         dio: Dio()..httpClientAdapter = adapter,
         androidAbi: Abi.androidArm64,
       );
-      final update = await service.checkForUpdates(
-        force: true,
-        channel: UpdateChannel.beta,
-      );
 
+      expect(await service.shouldShowRedDot(), isFalse);
+      final update = await service.checkForUpdates();
       expect(update?.latestVersion, '7.0.1-beta.1');
       expect(update?.downloadUrl, 'https://example.com/$compatible');
-      expect(update?.isCrossChannel, isTrue);
+      expect(update?.hasNewVersion, isTrue);
+      expect(await service.shouldShowRedDot(), isTrue);
     });
 
     test(
@@ -433,11 +439,11 @@ void main() {
     );
 
     test(
-      'default channel follows installed edition until overridden',
+      'default channel follows the installed version until overridden',
       () async {
         PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.1',
           buildNumber: '1',
           buildSignature: '',
@@ -454,8 +460,8 @@ void main() {
       'beta check paginates and accepts only published beta prereleases',
       () async {
         PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.9',
           buildNumber: '1',
           buildSignature: '',
@@ -520,8 +526,8 @@ void main() {
       'beta channel reports no published beta and never falls back to stable',
       () async {
         PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.1',
           buildNumber: '1',
           buildSignature: '',
@@ -559,8 +565,8 @@ void main() {
       'beta request failures propagate instead of reporting no beta release',
       () async {
         PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.1',
           buildNumber: '1',
           buildSignature: '',
@@ -634,9 +640,9 @@ void main() {
 
         expect(stable?.latestVersion, '4.5.0');
         expect(beta?.latestVersion, '4.4.0-beta.1');
-        expect(beta?.hasNewVersion, isTrue);
-        expect(beta?.isCrossChannel, isTrue);
+        expect(beta?.hasNewVersion, isFalse);
         expect(cachedBeta?.latestVersion, '4.4.0-beta.2');
+        expect(cachedBeta?.hasNewVersion, isFalse);
         expect(cachedBeta?.releaseNotes, isNull);
         expect(cachedBeta?.downloadUrl, isNull);
         expect(cachedBeta?.assetName, isNull);
@@ -777,7 +783,7 @@ void main() {
                 }
               : [
                   {
-                    'tag_name': 'v4.3.0-beta.1',
+                    'tag_name': 'v4.4.1-beta.1',
                     'draft': false,
                     'prerelease': true,
                     'assets': [],
@@ -809,8 +815,8 @@ void main() {
       'version comparison orders beta numbers and stable releases',
       () async {
         PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.9',
           buildNumber: '1',
           buildSignature: '',
@@ -847,61 +853,51 @@ void main() {
         });
         final stableInfo = await UpdateService(
           dio: Dio()..httpClientAdapter = stableAdapter,
-        ).checkForUpdates(force: true);
+        ).checkForUpdates(force: true, channel: UpdateChannel.stable);
         expect(stableInfo?.hasNewVersion, isTrue);
       },
     );
 
     test(
-      'cross-channel lower stable stays visible but older same-channel beta does not',
+      'switching from Beta to stable waits for a newer stable version',
       () async {
         PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.2',
           buildNumber: '1',
           buildSignature: '',
         );
+        var stableVersion = '4.5.2';
         final stableAdapter = _MockHttpClientAdapter((_) {
           return _jsonResponse({
-            'tag_name': 'v4.5.2',
+            'tag_name': 'v$stableVersion',
             'draft': false,
             'prerelease': false,
-            'assets': [],
+            'assets': [
+              {
+                'name':
+                    'Iroru-android-arm64-v8a_${stableVersion}_com.meteor.iroru.apk',
+              },
+            ],
           });
         });
-        final stableInfo = await UpdateService(
+        final service = UpdateService(
           dio: Dio()..httpClientAdapter = stableAdapter,
-        ).checkForUpdates(force: true, channel: UpdateChannel.stable);
-
-        expect(stableInfo?.latestVersion, '4.5.2');
-        expect(stableInfo?.isCrossChannel, isTrue);
-        expect(stableInfo?.hasNewVersion, isTrue);
-
-        PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
-          version: '4.5.3-beta.10',
-          buildNumber: '1',
-          buildSignature: '',
+          androidAbi: Abi.androidArm64,
         );
-        final betaAdapter = _MockHttpClientAdapter((_) {
-          return _jsonResponse([
-            {
-              'tag_name': 'v4.5.3-beta.9',
-              'draft': false,
-              'prerelease': true,
-              'assets': [],
-            },
-          ]);
-        });
-        final betaInfo = await UpdateService(
-          dio: Dio()..httpClientAdapter = betaAdapter,
-        ).checkForUpdates(force: true, channel: UpdateChannel.beta);
+        await service.setUpdateChannel(UpdateChannel.stable);
+        final stableInfo = await service.checkForUpdates(force: true);
+        expect(stableInfo?.latestVersion, '4.5.2');
+        expect(stableInfo?.hasNewVersion, isFalse);
+        expect((await service.checkForUpdates())?.hasNewVersion, isFalse);
+        expect(await service.shouldShowRedDot(), isFalse);
 
-        expect(betaInfo?.latestVersion, '4.5.3-beta.9');
-        expect(betaInfo?.isCrossChannel, isFalse);
-        expect(betaInfo?.hasNewVersion, isFalse);
+        stableVersion = '4.5.3';
+        final newerStable = await service.checkForUpdates(force: true);
+        expect(newerStable?.latestVersion, '4.5.3');
+        expect(newerStable?.hasNewVersion, isTrue);
+        expect(await service.shouldShowRedDot(), isTrue);
       },
     );
 
