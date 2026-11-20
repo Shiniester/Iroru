@@ -12,6 +12,21 @@ enum VideoLinkKind {
 
 enum VideoSearchFilterKind { genre, actor, studio, series }
 
+String? stableVideoHistoryUrl(String? value) {
+  final uri = Uri.tryParse(value?.trim() ?? '');
+  if (uri == null ||
+      (uri.scheme != 'http' && uri.scheme != 'https') ||
+      uri.host.isEmpty) {
+    return null;
+  }
+  return Uri(
+    scheme: uri.scheme,
+    host: uri.host,
+    port: uri.hasPort ? uri.port : null,
+    path: uri.path,
+  ).toString();
+}
+
 class VideoItem {
   const VideoItem({
     required this.id,

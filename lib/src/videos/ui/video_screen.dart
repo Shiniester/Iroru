@@ -34,6 +34,7 @@ import 'video_catalog_sort.dart';
 import 'video_collection_view.dart';
 import 'video_details_screen.dart';
 import 'video_downloads_screen.dart';
+import 'video_local_history_screen.dart';
 import 'video_search_screen.dart';
 
 typedef _VideoPageCacheKey = ({
@@ -1744,6 +1745,14 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     );
   }
 
+  Future<void> _openLocalHistory() {
+    _pausePlaylistCoverAccess();
+    return pushBottomDockRoute(
+      context,
+      builder: (_) => const VideoLocalHistoryScreen(),
+    );
+  }
+
   Future<void> _openDetails(VideoItem video) async {
     _client.cancelBackgroundMirrorProbe();
     _pausePlaylistCoverAccess();
@@ -2549,6 +2558,12 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
             icon: Icons.download_outlined,
             title: s.videoDownloads,
             onTap: _openDownloads,
+          ),
+          LibraryDrawerTile(
+            key: const ValueKey('video-local-history'),
+            icon: Icons.history,
+            title: s.localHistory,
+            onTap: _openLocalHistory,
           ),
         ],
       ),

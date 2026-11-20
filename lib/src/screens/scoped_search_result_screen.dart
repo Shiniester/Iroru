@@ -27,6 +27,7 @@ import '../utils/string_utils.dart';
 import '../utils/work_cover_prefetch.dart';
 import '../widgets/enhanced_work_card.dart';
 import '../widgets/history_work_card.dart';
+import '../widgets/local_history_card.dart';
 import 'offline_work_detail_screen.dart';
 import '../widgets/scrollable_appbar.dart';
 import '../widgets/virtualized_sliver_collection.dart';
@@ -757,7 +758,7 @@ class _ScopedSearchResultScreenState
             ? collectionListCoverSizeForTitle(
                 context,
                 titleStyle: widget.query.scope == SearchScope.history
-                    ? historyWorkCardTitleStyle(context)
+                    ? localHistoryCardTitleStyle(context)
                     : enhancedWorkCardListTitleStyle(context),
               )
             : null;

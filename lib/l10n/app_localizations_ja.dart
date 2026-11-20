@@ -505,7 +505,7 @@ class SJa extends S {
   String get downloadPath => 'ダウンロードパス';
 
   @override
-  String get downloadPathSubtitle => 'ダウンロードファイルの保存先をカスタマイズ';
+  String get downloadPathSubtitle => '音声、漫画、動画のダウンロード先を設定';
 
   @override
   String get maxConcurrentDownloads => '最大同時ダウンロード数';
@@ -3371,7 +3371,7 @@ class SJa extends S {
 
   @override
   String activeDownloadsWarning(int count) {
-    return '$count 件のダウンロードが進行中です。パスを切り替える前に完了またはキャンセルしてください';
+    return '$count 件のダウンロードを処理中です。一時停止するか、完了してから保存先を変更してください。';
   }
 
   @override
@@ -3383,7 +3383,7 @@ class SJa extends S {
   String get confirmMigrateFiles => 'ファイル移行の確認';
 
   @override
-  String get migrateFilesToNewDir => '既存のダウンロードファイルを新しいディレクトリに移行します：';
+  String get migrateFilesToNewDir => '既存のダウンロードと字幕ライブラリを次のフォルダーに移動します。';
 
   @override
   String get migrationMayTakeTime => 'この操作はファイルの数とサイズによって時間がかかる場合があります。';
@@ -3395,8 +3395,7 @@ class SJa extends S {
   String get restoreDefaultPath => 'デフォルトパスに戻す';
 
   @override
-  String get restoreDefaultPathConfirm =>
-      'ダウンロードパスをデフォルトの場所に戻し、すべてのファイルを移行します。\n\n続行しますか？';
+  String get restoreDefaultPathConfirm => '既定の保存先に戻すと、既存のダウンロードと字幕ライブラリも移動します。';
 
   @override
   String get defaultPathRestored => 'デフォルトパスに復元しました';
@@ -3428,11 +3427,14 @@ class SJa extends S {
   String get setCustomPath => 'カスタムパスを設定';
 
   @override
+  String get saveDownloadsInFilesApp => 'ダウンロードを「ファイル」に保存';
+
+  @override
   String get usageInstructions => '使用方法';
 
   @override
   String get downloadPathUsageDesc =>
-      '• パスをカスタマイズすると、既存のファイルは自動的に新しい場所に移行されます\n• 移行中はアプリを閉じないでください\n• 十分な空き容量のあるディレクトリを選択してください\n• デフォルトパスに戻すと、ファイルも自動的に戻されます';
+      '音声、漫画、動画は保存先の中で別々のフォルダーに入ります。保存先の変更や既定の設定への復元に伴い、既存のダウンロードと字幕ライブラリも移動します。移動先には十分な空き容量が必要です。';
 
   @override
   String get llmTranslationSettings => 'LLM翻訳設定';
@@ -4171,6 +4173,12 @@ class SJa extends S {
 
   @override
   String get libraryHistory => '履歴';
+
+  @override
+  String get localHistory => 'ローカル履歴';
+
+  @override
+  String get noLocalHistory => 'ローカル履歴はありません';
 
   @override
   String get libraryFavorites => 'お気に入り';

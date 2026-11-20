@@ -204,7 +204,7 @@ void main() {
       File('${directory.path}/$folder/メモ.md').writeAsStringSync('memo');
       File('${directory.path}/$folder/非表示/秘密.md').writeAsStringSync('secret');
       SharedPreferences.setMockInitialValues({
-        'custom_download_path': directory.path,
+        StorageService.customDownloadPathKey: directory.path,
         'locale_language': 'en',
         TranslationLanguagePreferencesNotifier.keyTargetLanguage:
             targetLanguage.value,
@@ -434,7 +434,7 @@ void main() {
                 ? 'zh_Hans'
                 : 'zh_Hant';
             SharedPreferences.setMockInitialValues({
-              'custom_download_path': directory.path,
+              StorageService.customDownloadPathKey: directory.path,
               'locale_language': 'en',
               TranslationLanguagePreferencesNotifier.keyTargetLanguage:
                   chinese.target,
@@ -601,7 +601,7 @@ void main() {
             final sourceCode = scenario.lang == 'CHI_HANS' ? 'zh-cn' : 'zh-tw';
             final targetCode = scenario.target == 'ja' ? 'ja' : 'zh_Hans';
             SharedPreferences.setMockInitialValues({
-              'custom_download_path': directory.path,
+              StorageService.customDownloadPathKey: directory.path,
               'locale_language': 'en',
               TranslationLanguagePreferencesNotifier.keyTargetLanguage:
                   scenario.target,
@@ -1199,7 +1199,7 @@ void main() {
             'mediaStreamUrl': mediaUrl,
           };
           SharedPreferences.setMockInitialValues({
-            'custom_download_path': directory.path,
+            StorageService.customDownloadPathKey: directory.path,
             'locale_language': 'en',
             TranslationLanguagePreferencesNotifier.keyTargetLanguage:
                 TranslationTargetLanguage.english.value,

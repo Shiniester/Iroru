@@ -101,26 +101,20 @@ class _OfflineFileExplorerWidgetState
 
   Set<String> get _expandedFolders => _session.expandedFolders;
 
+  Future<String> _audioDownloadRootPath() async =>
+      (await DownloadPathService.getDirectory(DownloadFolder.audio)).path;
+
   FilePreviewResolver get _previewResolver => FilePreviewResolver(
-    downloadRootPath: () async {
-      final downloadDir = await DownloadPathService.getDownloadDirectory();
-      return downloadDir.path;
-    },
+    downloadRootPath: _audioDownloadRootPath,
   );
 
   FileSizeResolver get _fileSizeResolver => FileSizeResolver(
-    downloadRootPath: () async {
-      final downloadDir = await DownloadPathService.getDownloadDirectory();
-      return downloadDir.path;
-    },
+    downloadRootPath: _audioDownloadRootPath,
   );
 
   AudioFileUrlResolver get _audioUrlResolver => AudioFileUrlResolver(
     resolveDownloadedPath: (_, __) async => null,
-    downloadRootPath: () async {
-      final downloadDir = await DownloadPathService.getDownloadDirectory();
-      return downloadDir.path;
-    },
+    downloadRootPath: _audioDownloadRootPath,
     resolveCachedAudioPath: (_) async => null,
   );
 
@@ -206,13 +200,17 @@ class _OfflineFileExplorerWidgetState
         _errorMessage = null;
       });
 
-      final downloadDir = await DownloadPathService.getDownloadDirectory();
-      if (!_isCurrentLoad(generation)) return;
-      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
-
       final workDir = widget.localWorkDirPath != null
           ? Directory(widget.localWorkDirPath!)
-          : Directory(p.join(downloadDir.path, widget.work.id.toString()));
+          : Directory(
+              p.join(
+                DownloadFolder.audio
+                    .inRoot(await DownloadPathService.getDownloadDirectory())
+                    .path,
+                widget.work.id.toString(),
+              ),
+            );
+      if (!_isCurrentLoad(generation)) return;
 
       final workDirectoryExists = await workDir.exists();
       if (!_isCurrentLoad(generation)) return;

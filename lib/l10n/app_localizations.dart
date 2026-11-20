@@ -1063,7 +1063,7 @@ abstract class S {
   /// No description provided for @downloadPathSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Customize download file save location'**
+  /// **'Set the download location for audio, comics, and videos'**
   String get downloadPathSubtitle;
 
   /// No description provided for @maxConcurrentDownloads.
@@ -6169,7 +6169,7 @@ abstract class S {
   /// No description provided for @activeDownloadsWarning.
   ///
   /// In en, this message translates to:
-  /// **'{count} download tasks are in progress. Please cancel or complete them before switching paths'**
+  /// **'{count} download tasks are active. Pause them or wait for them to finish before changing the path.'**
   String activeDownloadsWarning(int count);
 
   /// No description provided for @setPathFailedWithError.
@@ -6187,7 +6187,7 @@ abstract class S {
   /// No description provided for @migrateFilesToNewDir.
   ///
   /// In en, this message translates to:
-  /// **'Existing downloaded files will be migrated to the new directory:'**
+  /// **'Existing downloads and the subtitle library will move to this folder.'**
   String get migrateFilesToNewDir;
 
   /// No description provided for @migrationMayTakeTime.
@@ -6211,7 +6211,7 @@ abstract class S {
   /// No description provided for @restoreDefaultPathConfirm.
   ///
   /// In en, this message translates to:
-  /// **'Restore download path to default location and migrate all files.\n\nContinue?'**
+  /// **'Restoring the default path moves existing downloads and the subtitle library to the default folder.'**
   String get restoreDefaultPathConfirm;
 
   /// No description provided for @defaultPathRestored.
@@ -6268,6 +6268,12 @@ abstract class S {
   /// **'Set Custom Path'**
   String get setCustomPath;
 
+  /// iOS button to move app downloads into the app's Downloads folder in the Files app.
+  ///
+  /// In en, this message translates to:
+  /// **'Save Downloads in Files'**
+  String get saveDownloadsInFilesApp;
+
   /// No description provided for @usageInstructions.
   ///
   /// In en, this message translates to:
@@ -6277,7 +6283,7 @@ abstract class S {
   /// No description provided for @downloadPathUsageDesc.
   ///
   /// In en, this message translates to:
-  /// **'• After customizing the path, all existing files will be automatically migrated\n• Do not close the app during migration\n• Choose a directory with sufficient storage space\n• When restoring the default path, files will be migrated back automatically'**
+  /// **'Audio, comics, and videos use separate folders under the download path. Changing the path or restoring the default moves existing downloads and the subtitle library. The destination needs enough free space.'**
   String get downloadPathUsageDesc;
 
   /// No description provided for @llmTranslationSettings.
@@ -7659,6 +7665,18 @@ abstract class S {
   /// In en, this message translates to:
   /// **'History'**
   String get libraryHistory;
+
+  /// On-device history, separate from a video source account's watch history.
+  ///
+  /// In en, this message translates to:
+  /// **'Local history'**
+  String get localHistory;
+
+  /// No description provided for @noLocalHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'No local history'**
+  String get noLocalHistory;
 
   /// No description provided for @libraryFavorites.
   ///

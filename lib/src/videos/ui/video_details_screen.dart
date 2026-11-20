@@ -44,6 +44,21 @@ VideoVerificationRequired videoVerificationFor(
         ? JableVerificationRequiredException(sourceUrl: video.pageUrl)
         : MissavVerificationRequiredException(sourceUrl: video.pageUrl));
 
+Map<String, Object?> _videoHistoryDetails(VideoItem video) {
+  final cover = stableVideoHistoryUrl(video.cover);
+  final pageUrl = stableVideoHistoryUrl(video.pageUrl);
+  return {
+    'title': video.title,
+    'sourceKey': video.sourceKey,
+    'videoId': video.id,
+    'storageKey': video.storageKey,
+    if (cover != null) 'cover': cover,
+    if (pageUrl != null) 'pageUrl': pageUrl,
+    if (video.durationSeconds case final seconds? when seconds > 0)
+      'durationMs': seconds * 1000,
+  };
+}
+
 class VideoDetailsScreen extends ConsumerStatefulWidget {
   const VideoDetailsScreen({
     super.key,
@@ -114,8 +129,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       : null;
 
   VideoDownloadTask? get _availableTask =>
-      widget.downloadedTask ??
       _downloads.forVideo(widget.video.storageKey) ??
+      widget.downloadedTask ??
       _downloadedTask;
 
   VideoDownloadTask? get _completedDownloadTask {
@@ -1392,6 +1407,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         key: _playerKey,
         videoId: details.video.storageKey,
         title: details.video.title,
+        historyDetails: _videoHistoryDetails(details.video),
         autoPlayOnStart: widget.autoPlayVideo,
         onPlayNextRelated: nextRelated == null
             ? null

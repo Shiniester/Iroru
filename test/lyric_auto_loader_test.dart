@@ -7,7 +7,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:iroru/src/models/audio_track.dart';
 import 'package:iroru/src/providers/audio_provider.dart';
 import 'package:iroru/src/providers/lyric_provider.dart';
+import 'package:iroru/src/providers/player_work_details_provider.dart';
 import 'package:iroru/src/providers/settings_provider.dart';
+import 'package:iroru/src/services/download_path_service.dart';
 import 'package:iroru/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -205,18 +207,26 @@ void main() {
     autoLoaderSubscription.close();
   });
 
-  test('auto loader rebuilds an offline subtitle tree after restart', () async {
+  test('offline subtitles and work details restore after relocation', () async {
     final tempDir = await Directory.systemTemp.createTemp(
       'lyric_offline_session_restore_',
     );
-    final discDir = Directory('${tempDir.path}/Disc');
-    await discDir.create();
+    final initial = Directory('${tempDir.path}/initial');
+    final destination = Directory('${tempDir.path}/destination');
+    final workDir = Directory('${initial.path}/audio/123');
+    final discDir = Directory('${workDir.path}/Disc');
+    await discDir.create(recursive: true);
+    await StorageService.setString(
+      StorageService.customDownloadPathKey,
+      initial.path,
+    );
     final audioFile = File('${discDir.path}/track01.mp3');
     final subtitleFile = File('${discDir.path}/track01.lrc');
     await audioFile.writeAsBytes([0]);
     await subtitleFile.writeAsString('[00:01.00]offline restored');
-    await File('${tempDir.path}/work_metadata.json').writeAsString(jsonEncode({
+    await File('${workDir.path}/work_metadata.json').writeAsString(jsonEncode({
       'id': 123,
+      'title': 'Offline work',
       'children': [
         {
           'type': 'folder',
@@ -236,6 +246,10 @@ void main() {
         },
       ],
     }));
+
+    final migration = await DownloadPathService.setCustomPath(destination.path);
+    expect(migration.success, isTrue);
+    expect(await audioFile.exists(), isFalse);
 
     final trackChanges = StreamController<AudioTrack?>();
     final container = ProviderContainer(
@@ -257,20 +271,28 @@ void main() {
 
     final autoLoaderSubscription =
         container.listen<void>(lyricAutoLoaderProvider, (_, __) {});
-    trackChanges.add(AudioTrack(
+    final track = AudioTrack(
       id: 'remote-audio-hash',
       url: audioFile.uri.toString(),
       title: 'track01.mp3',
       workId: 123,
       hash: 'remote-audio-hash',
       sourcePath: audioFile.path,
-      subtitleWorkDirPath: tempDir.path,
-    ));
+      subtitleWorkDirPath: workDir.path,
+    );
+    trackChanges.add(track);
 
     await _waitForLyricText(container, 'offline restored');
     final restoredContext = container.read(fileListControllerProvider);
     expect(restoredContext.workId, 123);
-    expect(restoredContext.subtitleWorkDirPath, tempDir.path);
+    expect(restoredContext.subtitleWorkDirPath, workDir.path);
+    final details = await PlayerWorkDetailsRepository().load(
+      track: track,
+      fileTree: restoredContext.files,
+      canUseRemoteMetadata: false,
+      loadRemoteWork: (_) => throw StateError('must stay offline'),
+    );
+    expect(details.work.title, 'Offline work');
 
     autoLoaderSubscription.close();
   });

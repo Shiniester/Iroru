@@ -30,6 +30,7 @@ import 'playback_session_store.dart';
 import 'proxy_config.dart';
 import 'audio_slice_store.dart';
 import 'download_path_service.dart';
+import 'download_service.dart';
 import 'storage_service.dart';
 import 'shared_http_client.dart';
 import 'speculative_transfer_coordinator.dart';
@@ -1957,12 +1958,12 @@ class AudioPlayerService {
       }
 
       if (!loaded && localPath != null) {
-        final localFile = File(localPath);
-        if (await localFile.exists() &&
+        final resolvedPath = await _resolveLocalTrackPath(track, localPath);
+        if (resolvedPath != null &&
             (cachedPath == null ||
-                !p.equals(p.normalize(localPath), p.normalize(cachedPath)))) {
+                !p.equals(p.normalize(resolvedPath), p.normalize(cachedPath)))) {
           final playbackPath =
-              await _prepareLocalPlaybackPath(localPath) ?? localPath;
+              await _prepareLocalPlaybackPath(resolvedPath) ?? resolvedPath;
           _ensureCurrentTrackLoad(request);
           performanceRecorder.markPlaybackPhase(
             performanceRequestId,
@@ -1984,7 +1985,7 @@ class AudioPlayerService {
           _releaseCachedPlaybackLease();
           await _prepareHapticsForDownloadedFile(
             track,
-            downloadPath: localPath,
+            downloadPath: resolvedPath,
             analysisPath: playbackPath,
           );
           _log.captureOutput('[Audio] 使用本地文件播放: ${track.title}');
@@ -4754,9 +4755,29 @@ class AudioPlayerService {
     );
   }
 
+  Future<String?> _resolveLocalTrackPath(
+    AudioTrack track,
+    String originalPath,
+  ) async {
+    if (await File(originalPath).exists()) return originalPath;
+    final workId = track.workId;
+    if (workId == null) return null;
+    final downloads = DownloadService.instance;
+    final originalWorkDir = track.subtitleWorkDirPath;
+    if (originalWorkDir != null && p.isWithin(originalWorkDir, originalPath)) {
+      final workDir = await downloads.getWorkDirectory(workId);
+      final relativePath = p.relative(originalPath, from: originalWorkDir);
+      final movedPath = p.join(workDir.path, relativePath);
+      if (await File(movedPath).exists()) return movedPath;
+    }
+    return downloads.getDownloadedFilePath(workId, track.hash);
+  }
+
   Future<bool> _isInDownloadDirectory(String filePath) async {
     try {
-      final downloadDir = await DownloadPathService.getDownloadDirectory();
+      final downloadDir = await DownloadPathService.getDirectory(
+        DownloadFolder.audio,
+      );
       final root = p.normalize(downloadDir.path);
       final path = p.normalize(filePath);
 

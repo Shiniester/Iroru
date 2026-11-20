@@ -192,7 +192,11 @@ class DownloadService implements DownloadTaskRepository {
   int get activeDownloadCount => _summary.active;
 
   // 检查是否有任务正在下载
-  bool get hasActiveDownloads => activeDownloadCount > 0;
+  bool get hasActiveDownloads =>
+      activeDownloadCount > 0 ||
+      _pendingTaskAdds.isNotEmpty ||
+      _runningDownloads.isNotEmpty ||
+      _finalizingChapterDownloads.isNotEmpty;
 
   static const String _tasksKey = 'download_tasks';
 
@@ -214,10 +218,8 @@ class DownloadService implements DownloadTaskRepository {
     }
   }
 
-  Future<Directory> _getDownloadDirectory() async {
-    // 使用 DownloadPathService 获取下载目录（支持自定义路径）
-    return await DownloadPathService.getDownloadDirectory();
-  }
+  Future<Directory> _getDownloadDirectory() =>
+      DownloadPathService.getDirectory(DownloadFolder.audio);
 
   // 公开方法，用于获取下载根目录
   Future<Directory> getDownloadDirectory() async {
@@ -274,6 +276,17 @@ class DownloadService implements DownloadTaskRepository {
 
     final loadedMetadata = await _loadWorkMetadata(workId);
     return _workDirectoryForMetadata(downloadDir, workId, loadedMetadata);
+  }
+
+  Future<Directory?> resolveOfflineWorkDirectory(
+    int? workId,
+    String? storedPath,
+  ) async {
+    if (workId == null || storedPath == null || storedPath.isEmpty) return null;
+    final storedDirectory = Directory(storedPath);
+    if (await storedDirectory.exists()) return storedDirectory;
+    final currentDirectory = await getWorkDirectory(workId);
+    return await currentDirectory.exists() ? currentDirectory : null;
   }
 
   Future<void> updateWorkMetadata(

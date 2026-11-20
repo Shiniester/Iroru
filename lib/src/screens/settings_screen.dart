@@ -120,7 +120,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         MediaQuery.of(context).orientation == Orientation.landscape;
     final cards = [
       _buildAccountCard(context),
-      if (widget.audioOnly) _buildDownloadAndCacheCard(context),
+      _buildDownloadAndCacheCard(context),
       _buildAppearanceAndAboutCard(context),
     ];
 
@@ -446,24 +446,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget _buildDownloadAndCacheCard(BuildContext context) {
     return SettingsSectionList(
       children: [
-        SettingsNavigationTile(
-          icon: Icons.folder_outlined,
-          title: S.of(context).downloadPath,
-          subtitle: S.of(context).downloadPathSubtitle,
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const DownloadPathSettingsScreen(),
-              ),
-            );
-          },
-        ),
-        SettingsNavigationTile(
-          icon: Icons.storage,
-          title: S.of(context).cacheManagement,
-          subtitle: S.of(context).currentCache(_cacheSize),
-          onTap: _showCacheManagementDialog,
-        ),
+        if (widget.audioOnly)
+          SettingsNavigationTile(
+            icon: Icons.storage,
+            title: S.of(context).cacheManagement,
+            subtitle: S.of(context).currentCache(_cacheSize),
+            onTap: _showCacheManagementDialog,
+          )
+        else
+          SettingsNavigationTile(
+            icon: Icons.folder_outlined,
+            title: S.of(context).downloadPath,
+            subtitle: S.of(context).downloadPathSubtitle,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const DownloadPathSettingsScreen(),
+                ),
+              );
+            },
+          ),
       ],
     );
   }

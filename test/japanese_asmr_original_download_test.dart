@@ -26,7 +26,8 @@ void main() {
         request.response.add(audio);
         await request.response.close();
       });
-      final workDir = Directory('${root.path}/-7')..createSync();
+      final workDir = Directory('${root.path}/audio/-7')
+        ..createSync(recursive: true);
       final metadataFile = File('${workDir.path}/work_metadata.json');
       await metadataFile.writeAsString(
         jsonEncode({
@@ -121,7 +122,7 @@ void main() {
         createdAt: DateTime.utc(2026),
       );
       SharedPreferences.setMockInitialValues({
-        'custom_download_path': root.path,
+        StorageService.customDownloadPathKey: root.path,
         'download_tasks': jsonEncode([
           task.toJson(),
           secondTask.toJson(),

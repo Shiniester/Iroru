@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../comics/comic_providers.dart';
+import '../providers/lyric_provider.dart';
+import '../providers/settings_provider.dart';
 import '../services/download_path_service.dart';
 import '../services/download_service.dart';
 import '../services/log_service.dart';
-import '../providers/settings_provider.dart';
 import '../utils/snackbar_util.dart';
+import '../videos/video_providers.dart';
 import '../widgets/settings_section.dart';
 
 class DownloadPathSettingsScreen extends ConsumerStatefulWidget {
@@ -54,8 +57,10 @@ class _DownloadPathSettingsScreenState
       if (!mounted) return;
       setState(() => _isLoading = false);
       if (mounted) {
-        _showSnackBar(S.of(context).loadPathFailedWithError('$e'),
-            isError: true);
+        _showSnackBar(
+          S.of(context).loadPathFailedWithError('$e'),
+          isError: true,
+        );
       }
     }
   }
@@ -66,84 +71,27 @@ class _DownloadPathSettingsScreenState
       return;
     }
 
-    // 检查是否有下载任务正在进行
-    if (DownloadService.instance.hasActiveDownloads) {
-      final count = DownloadService.instance.activeDownloadCount;
-      _showSnackBar(S.of(context).activeDownloadsWarning(count), isError: true);
-      return;
-    }
+    if (!_canChangePath()) return;
 
     setState(() => _isLoading = true);
 
     try {
       final selectedPath = await DownloadPathService.pickCustomDirectory();
-
-      if (selectedPath == null) {
-        setState(() => _isLoading = false);
-        return; // 用户取消选择
-      }
-
-      // 显示确认对话框
-      if (mounted) {
-        final confirmed = await _showMigrationConfirmDialog(selectedPath);
-        if (!confirmed) {
-          setState(() => _isLoading = false);
-          return;
-        }
-      }
-
-      // 开始迁移
-      setState(() {
-        _isLoading = false;
-        _isMigrating = true;
-      });
-
-      final result = await DownloadPathService.setCustomPath(selectedPath);
-
-      if (!mounted) return;
-      setState(() => _isMigrating = false);
-
-      if (result.success) {
-        await _loadPaths();
-
-        // 触发 DownloadService 重新加载
-        await DownloadService.instance.reloadMetadataFromDisk();
-
-        // 触发字幕库刷新（路径已更改）
-        ref.read(subtitleLibraryRefreshTriggerProvider.notifier).state++;
-
-        // 延迟显示成功消息
-        if (mounted) {
-          Future.microtask(() {
-            if (mounted) {
-              _showSnackBar(result.message);
-            }
-          });
-        }
-      } else {
-        // 延迟显示错误消息
-        if (mounted) {
-          Future.microtask(() {
-            if (mounted) {
-              _showSnackBar(result.message, isError: true);
-            }
-          });
-        }
-      }
+      if (!mounted || selectedPath == null) return;
+      if (!await _showMigrationConfirmDialog(selectedPath) || !mounted) return;
+      await _migrate(
+        () => DownloadPathService.setCustomPath(selectedPath),
+        S.of(context).setPathFailedWithError,
+      );
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        _isMigrating = false;
-      });
-
-      // 延迟显示错误消息
-      Future.microtask(() {
-        if (mounted) {
-          _showSnackBar(S.of(context).setPathFailedWithError('$e'),
-              isError: true);
-        }
-      });
+      if (mounted) {
+        _showSnackBar(
+          S.of(context).setPathFailedWithError('$e'),
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -166,10 +114,7 @@ class _DownloadPathSettingsScreenState
               ),
               child: SelectableText(
                 newPath,
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                ),
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
               ),
             ),
             const SizedBox(height: 12),
@@ -196,12 +141,7 @@ class _DownloadPathSettingsScreenState
   }
 
   Future<void> _resetToDefault() async {
-    // 检查是否有下载任务正在进行
-    if (DownloadService.instance.hasActiveDownloads) {
-      final count = DownloadService.instance.activeDownloadCount;
-      _showSnackBar(S.of(context).activeDownloadsWarning(count), isError: true);
-      return;
-    }
+    if (!_canChangePath()) return;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -221,46 +161,60 @@ class _DownloadPathSettingsScreenState
       ),
     );
 
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
+    await _migrate(
+      DownloadPathService.migrateToDefaultPath,
+      S.of(context).resetPathFailedWithError,
+    );
+  }
 
+  bool _canChangePath() {
+    final audio = DownloadService.instance;
+    final audioCount = audio.activeDownloadCount;
+    final count =
+        (audioCount == 0 && audio.hasActiveDownloads ? 1 : audioCount) +
+        ref.read(comicDownloadsProvider).activeDownloadCount +
+        ref.read(videoDownloadsProvider).activeDownloadCount;
+    if (count == 0) return true;
+
+    _showSnackBar(S.of(context).activeDownloadsWarning(count), isError: true);
+    return false;
+  }
+
+  Future<void> _migrate(
+    Future<MigrationResult> Function() changePath,
+    String Function(String) failureMessage,
+  ) async {
+    if (_isMigrating || !_canChangePath()) return;
+    final comics = ref.read(comicDownloadsProvider);
+    final videos = ref.read(videoDownloadsProvider);
+    final subtitleRefresh = ref.read(
+      subtitleLibraryRefreshTriggerProvider.notifier,
+    );
+    final fileList = ref.read(fileListControllerProvider.notifier);
     setState(() => _isMigrating = true);
 
     try {
-      final result = await DownloadPathService.migrateToDefaultPath();
-
-      if (!result.success) {
-        if (mounted) {
-          _showSnackBar(result.message, isError: true);
-        }
+      final result = await changePath();
+      final root = result.root;
+      if (root == null) {
+        _showSnackBar(result.message, isError: true);
         return;
       }
 
-      await _loadPaths();
-
-      // 触发重新加载
+      comics.setDownloadRoot(root);
+      videos.setDownloadRoot(root);
+      if (mounted &&
+          ref.read(fileListControllerProvider).subtitleWorkDirPath != null) {
+        fileList.clear();
+      }
+      subtitleRefresh.state++;
       await DownloadService.instance.reloadMetadataFromDisk();
-
-      // 延迟显示成功消息
-      if (mounted) {
-        final message = result.message.isNotEmpty
-            ? result.message
-            : S.of(context).defaultPathRestored;
-        Future.microtask(() {
-          if (mounted) {
-            _showSnackBar(message);
-          }
-        });
-      }
+      if (!mounted) return;
+      setState(() => _currentPath = root.path);
+      _showSnackBar(result.message);
     } catch (e) {
-      // 延迟显示错误消息
-      if (mounted) {
-        Future.microtask(() {
-          if (mounted) {
-            _showSnackBar(S.of(context).resetPathFailedWithError('$e'),
-                isError: true);
-          }
-        });
-      }
+      _showSnackBar(failureMessage('$e'), isError: true);
     } finally {
       if (mounted) {
         setState(() => _isMigrating = false);
@@ -273,11 +227,17 @@ class _DownloadPathSettingsScreenState
 
     try {
       if (isError) {
-        SnackBarUtil.showError(context, message,
-            duration: const Duration(seconds: 4));
+        SnackBarUtil.showError(
+          context,
+          message,
+          duration: const Duration(seconds: 4),
+        );
       } else {
-        SnackBarUtil.showInfo(context, message,
-            duration: const Duration(seconds: 2));
+        SnackBarUtil.showInfo(
+          context,
+          message,
+          duration: const Duration(seconds: 2),
+        );
       }
     } catch (e) {
       logOutput('[DownloadPathSettings] 无法显示 SnackBar: $e');
@@ -288,7 +248,7 @@ class _DownloadPathSettingsScreenState
   Widget build(BuildContext context) {
     final hasCustomPath = DownloadPathService.hasCustomPath();
 
-    return SettingsSubpageScaffold(
+    final page = SettingsSubpageScaffold(
       title: S.of(context).downloadPathSettings,
       body: _isMigrating
           ? Center(
@@ -343,9 +303,9 @@ class _DownloadPathSettingsScreenState
                                     hasCustomPath
                                         ? Icons.folder_special
                                         : Icons.folder,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
@@ -354,9 +314,9 @@ class _DownloadPathSettingsScreenState
                                         : S.of(context).defaultPath,
                                     style: TextStyle(
                                       fontWeight: FontWeight.w600,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
                                     ),
                                   ),
                                 ],
@@ -365,9 +325,9 @@ class _DownloadPathSettingsScreenState
                               Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .surfaceContainerHighest,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.surfaceContainerHighest,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: SelectableText(
@@ -386,22 +346,29 @@ class _DownloadPathSettingsScreenState
 
                 // 操作按钮
                 if (DownloadPathService.isPlatformSupported()) ...[
-                  FilledButton.icon(
-                    onPressed:
-                        _isLoading || _isMigrating ? null : _selectCustomPath,
-                    icon: const Icon(Icons.folder_open),
-                    label: Text(hasCustomPath
-                        ? S.of(context).changeCustomPath
-                        : S.of(context).setCustomPath),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
+                  if (!Platform.isIOS || !hasCustomPath)
+                    FilledButton.icon(
+                      onPressed: _isLoading || _isMigrating
+                          ? null
+                          : _selectCustomPath,
+                      icon: const Icon(Icons.folder_open),
+                      label: Text(
+                        Platform.isIOS
+                            ? S.of(context).saveDownloadsInFilesApp
+                            : hasCustomPath
+                            ? S.of(context).changeCustomPath
+                            : S.of(context).setCustomPath,
+                      ),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                      ),
                     ),
-                  ),
                   if (hasCustomPath) ...[
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
-                      onPressed:
-                          _isLoading || _isMigrating ? null : _resetToDefault,
+                      onPressed: _isLoading || _isMigrating
+                          ? null
+                          : _resetToDefault,
                       icon: const Icon(Icons.restore),
                       label: Text(S.of(context).restoreDefaultPath),
                       style: OutlinedButton.styleFrom(
@@ -411,10 +378,9 @@ class _DownloadPathSettingsScreenState
                   ],
                 ] else ...[
                   SettingsSectionCard(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .errorContainer
-                        .withValues(alpha: 0.3),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.errorContainer.withValues(alpha: 0.3),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Text(
@@ -441,9 +407,9 @@ class _DownloadPathSettingsScreenState
                             Icon(
                               Icons.help_outline,
                               size: 20,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
                             ),
                             const SizedBox(width: 8),
                             Text(
@@ -464,5 +430,6 @@ class _DownloadPathSettingsScreenState
               ],
             ),
     );
+    return PopScope(canPop: !_isMigrating, child: page);
   }
 }

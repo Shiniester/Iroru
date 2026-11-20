@@ -1,11 +1,13 @@
 import 'dart:ffi';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqlite3/open.dart' as sqlite;
 import 'package:iroru/src/comics/comic_library.dart';
 import 'package:iroru/src/comics/comic_models.dart';
 import 'package:iroru/src/comics/comic_downloads.dart';
+import 'package:iroru/src/services/local_history_database.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -17,7 +19,10 @@ void main() {
     );
   }
   sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfiNoIsolate;
   late Database db;
+  late Directory historyDirectory;
+  late LocalHistoryDatabase historyDatabase;
   late ComicLibrary library;
   setUp(() async {
     db = await databaseFactoryFfiNoIsolate.openDatabase(
@@ -27,11 +32,20 @@ void main() {
         onCreate: ComicLibrary.createSchema,
       ),
     );
-    library = ComicLibrary(databaseOpener: () => Future.value(db));
+    historyDirectory = await Directory.systemTemp.createTemp('comic-history-');
+    historyDatabase = LocalHistoryDatabase(
+      path: p.join(historyDirectory.path, 'local_history.db'),
+    );
+    library = ComicLibrary(
+      databaseOpener: () => Future.value(db),
+      historyDatabase: historyDatabase,
+    );
   });
   tearDown(() async {
     library.dispose();
+    await (await historyDatabase.database).close();
     await db.close();
+    await historyDirectory.delete(recursive: true);
   });
   test(
     'same IDs from different sources keep independent favorites and progress',
@@ -40,15 +54,18 @@ void main() {
       const b = Comic(source: 'nhentai', id: '42', title: 'B');
       await library.favorite(a, true);
       await library.favorite(b, true);
-      await library.saveProgress(a, '2', 7);
+      await library.saveProgress(a, '2', 7, pageCount: 20);
       await library.saveProgress(b, '42', 18);
       expect((await library.favorites()).length, 2);
       expect((await library.progress(a))!.page, 7);
+      expect((await library.progress(a))!.pageCount, 20);
       expect((await library.progress(b))!.page, 18);
+      expect((await library.progress(b))!.pageCount, isNull);
       await library.favorite(a, false);
       expect(await library.isFavorite(b), true);
-      final restarted = ComicLibrary(databaseOpener: () => Future.value(db));
+      final restarted = ComicLibrary(historyDatabase: historyDatabase);
       expect((await restarted.progress(a))!.chapterId, '2');
+      expect((await restarted.progress(a))!.pageCount, 20);
       restarted.dispose();
     },
   );

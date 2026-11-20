@@ -17,6 +17,9 @@ Audio, Comics, and Videos each retain their browsing history when another entry
 is selected.
 _Avoid_: Player navigation, bottom menu
 
+**Download Root (下载根目录)**:
+音声、漫画和视频下载共用的上级目录。三类下载共用「下载路径」设置。
+
 **Video Screen (视频页)**:
 The app page for browsing videos from a Video Source.
 _Avoid_: Video player, source website
@@ -182,6 +185,11 @@ _Avoid_: Video Resume Position, audio playback history
 **Video Resume Position (视频续播进度)**:
 The saved playback time used to resume a particular video.
 _Avoid_: Video Watch History, Reading Progress
+
+**Local History (本地历史)**:
+This device's most recent playback or reading position for each audio work,
+comic, or video, identified within its media type and source.
+_Avoid_: Video Watch History, Historical Playback Queue
 
 **Video Download (视频下载)**:
 A saved copy of a video for playback without access to its Video Source.

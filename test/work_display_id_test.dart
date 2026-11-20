@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:iroru/src/models/audio_source.dart';
-import 'package:iroru/src/models/history_record.dart';
 import 'package:iroru/src/models/work.dart';
 
 void main() {
@@ -71,28 +70,5 @@ void main() {
         expect(work.getCoverImageUrl('asmr.example', token: 'secret'), isEmpty);
       },
     );
-
-    test('legacy work history keeps its ID alongside the negative JP ID', () {
-      final legacy = Work.fromJson(const {'id': 1726738, 'title': 'Existing'});
-      const jp = Work(
-        id: -1726738,
-        title: 'Japanese ASMR',
-        sourceId: 'RJ01726738',
-      );
-      final timestamp = DateTime.utc(2026);
-      final legacyRecord = HistoryRecord(
-        work: legacy,
-        lastPlayedTime: timestamp,
-      );
-      final jpRecord = HistoryRecord(work: jp, lastPlayedTime: timestamp);
-
-      expect(Work.fromJson(legacy.toJson()).isJapaneseAsmr, isFalse);
-      expect(HistoryRecord.fromMap(legacyRecord.toMap()).work.id, 1726738);
-      expect(HistoryRecord.fromMap(jpRecord.toMap()).work.id, -1726738);
-      expect(
-        legacyRecord.toMap()['work_id'],
-        isNot(jpRecord.toMap()['work_id']),
-      );
-    });
   });
 }

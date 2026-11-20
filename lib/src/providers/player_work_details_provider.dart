@@ -77,14 +77,21 @@ class PlayerWorkDetailsRepository {
     required Future<Map<String, dynamic>> Function(int workId) loadRemoteWork,
   }) async {
     final workId = track.workId ?? 0;
-    final sourceKey = track.subtitleWorkDirPath == null
+    var sourceKey = track.subtitleWorkDirPath == null
         ? 'online'
         : p.normalize(track.subtitleWorkDirPath!);
     Work? work;
     Object? metadataError;
 
     try {
-      work = await _loadLocalWork(track, fileTree);
+      final workDir = await DownloadService.instance.resolveOfflineWorkDirectory(
+        track.workId,
+        track.subtitleWorkDirPath,
+      );
+      if (workDir != null) {
+        sourceKey = p.normalize(workDir.path);
+        work = await _loadLocalWork(track, workDir, fileTree);
+      }
       if (canUseRemoteMetadata && track.workId != null) {
         try {
           work = Work.fromJson(await loadRemoteWork(track.workId!));
@@ -133,15 +140,12 @@ class PlayerWorkDetailsRepository {
     return result;
   }
 
-  Future<Work?> _loadLocalWork(AudioTrack track, List<dynamic> fileTree) async {
-    final workId = track.workId;
-    final workDirPath = track.subtitleWorkDirPath;
-    if (workId == null || workDirPath == null || workDirPath.isEmpty) {
-      return null;
-    }
-    final workDir = Directory(workDirPath);
-    if (!await workDir.exists()) return null;
-
+  Future<Work> _loadLocalWork(
+    AudioTrack track,
+    Directory workDir,
+    List<dynamic> fileTree,
+  ) async {
+    final workId = track.workId!;
     const metadataService = LocalWorkMetadataService();
     final imported = await metadataService.loadImportedMetadata(
       workDir: workDir,
@@ -276,7 +280,11 @@ class PlayerAudioVariantQueueController {
       },
       resolveCachedAudioPath: CacheService.getCachedAudioFile,
     );
-    final workDir = current.subtitleWorkDirPath;
+    final workDir = (await DownloadService.instance.resolveOfflineWorkDirectory(
+      current.workId,
+      current.subtitleWorkDirPath,
+    ))?.path ??
+        current.subtitleWorkDirPath;
     final isOffline = workDir != null && workDir.isNotEmpty;
     if (!isOffline && details.work.id >= 0 && (auth.host?.isEmpty ?? true)) {
       return const PlayerEnqueueVariantResult(

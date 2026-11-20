@@ -436,7 +436,7 @@ void main() {
       final actualDownload = Directory(p.join(root.path, 'p' * downloadLength));
       await actualDownload.create(recursive: true);
       SharedPreferences.setMockInitialValues({
-        'custom_download_path': actualDownload.path,
+        StorageService.customDownloadPathKey: actualDownload.path,
       });
       await StorageService.initCritical(
         preferences: await SharedPreferences.getInstance(),

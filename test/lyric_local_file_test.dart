@@ -66,7 +66,7 @@ void main() {
           'locale_language': 'en',
           TranslationLanguagePreferencesNotifier.keyTargetLanguage: 'zh_hans',
           AutoSaveTranslatedLyricsNotifier.preferenceKey: autoSave,
-          'custom_download_path': root.path,
+          StorageService.customDownloadPathKey: root.path,
           'translation_cache_auto_zh_Hans_${sourceText.hashCode}': jsonEncode({
             'translation': translatedText,
             'timestamp': DateTime.now().millisecondsSinceEpoch,

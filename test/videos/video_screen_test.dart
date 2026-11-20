@@ -21,6 +21,7 @@ import 'package:iroru/src/services/storage_service.dart';
 import 'package:iroru/src/videos/ui/video_collection_view.dart';
 import 'package:iroru/src/videos/ui/video_details_screen.dart';
 import 'package:iroru/src/videos/ui/video_downloads_screen.dart';
+import 'package:iroru/src/videos/ui/video_local_history_screen.dart';
 import 'package:iroru/src/videos/ui/video_playback_panel.dart';
 import 'package:iroru/src/videos/ui/jable_account_screen.dart';
 import 'package:iroru/src/videos/missav_browser_adapter.dart';
@@ -37,6 +38,8 @@ import 'package:iroru/src/videos/video_models.dart';
 import 'package:iroru/src/videos/video_providers.dart';
 import 'package:iroru/src/widgets/app_bottom_dock.dart';
 import 'package:iroru/src/widgets/pagination_bar.dart';
+
+import 'local_history_database_fake.dart';
 
 typedef _RecommendationHandler =
     Future<VideoRecommendationPage> Function(
@@ -5293,6 +5296,48 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
   });
+
+  testWidgets('local history sidebar entry opens offline history', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Video catalog',
+        url: 'https://missav.ai/cn',
+      ),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    final s = S.of(tester.element(find.byType(VideoScreen)));
+
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    expect(find.text(s.videoWatchHistory), findsOneWidget);
+
+    final localHistory = find.byKey(const ValueKey('video-local-history'));
+    final drawer = find.byKey(
+      const PageStorageKey<String>('library-drawer-scroll'),
+    );
+    await tester.scrollUntilVisible(
+      localHistory,
+      200,
+      scrollable: find.descendant(
+        of: drawer,
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(s.localHistory), findsOneWidget);
+    await tester.tap(localHistory);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(VideoLocalHistoryScreen), findsOneWidget);
+    expect(find.text(s.noLocalHistory), findsOneWidget);
+  });
 }
 
 Widget _app(
@@ -5442,7 +5487,10 @@ class _TestJableAccount extends ChangeNotifier implements JableAccount {
 
 Future<VideoLibrary> _testLibrary() async {
   SharedPreferences.setMockInitialValues({});
-  return VideoLibrary(preferences: await SharedPreferences.getInstance());
+  return VideoLibrary(
+    preferences: await SharedPreferences.getInstance(),
+    historyDatabase: FakeLocalHistoryDatabase(),
+  );
 }
 
 class _EmptyVideoSecureStorage implements FlutterSecureStorage {

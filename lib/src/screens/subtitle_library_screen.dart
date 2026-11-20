@@ -785,7 +785,7 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
     // 监听刷新触发器（例如下载路径更改时）
     ref.listen<int>(subtitleLibraryRefreshTriggerProvider, (previous, next) {
       if (previous != next) {
-        _loadFiles();
+        _initRootPath();
       }
     });
 

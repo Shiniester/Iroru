@@ -90,8 +90,8 @@ void main() {
     try {
       await tester.runAsync(() async {
         root = await Directory.systemTemp.createTemp('history-resume-');
-        workDir = Directory(p.join(root.path, '-7'));
-        await workDir.create();
+        workDir = Directory(p.join(root.path, 'audio', '-7'));
+        await workDir.create(recursive: true);
         for (final task in tasks) {
           await File(p.join(workDir.path, task.fileName)).writeAsBytes([0]);
         }
@@ -99,7 +99,7 @@ void main() {
           p.join(workDir.path, 'work_metadata.json'),
         ).writeAsString(jsonEncode({'id': work.id, 'title': work.title}));
         SharedPreferences.setMockInitialValues({
-          'custom_download_path': root.path,
+          StorageService.customDownloadPathKey: root.path,
           'download_tasks': jsonEncode(
             tasks.map((task) => task.toJson()).toList(),
           ),

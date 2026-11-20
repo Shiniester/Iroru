@@ -74,7 +74,7 @@ void main() {
       );
       addTearDown(container.dispose);
       SharedPreferences.setMockInitialValues({
-        'custom_download_path': directory.path,
+        StorageService.customDownloadPathKey: directory.path,
       });
       await StorageService.initCritical(
         preferences: await SharedPreferences.getInstance(),
@@ -184,7 +184,7 @@ void main() {
     addTearDown(() => directory.deleteSync(recursive: true));
     File('${directory.path}/track.mp3').writeAsBytesSync(const []);
     SharedPreferences.setMockInitialValues({
-      'custom_download_path': directory.path,
+      StorageService.customDownloadPathKey: directory.path,
     });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
@@ -267,7 +267,7 @@ void main() {
     addTearDown(() => directory.deleteSync(recursive: true));
     File('${directory.path}/track.mp3').writeAsBytesSync(const []);
     SharedPreferences.setMockInitialValues({
-      'custom_download_path': directory.path,
+      StorageService.customDownloadPathKey: directory.path,
     });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
@@ -333,7 +333,7 @@ void main() {
       ..createSync();
     File('${explorerDirectory.path}/track.mp3').writeAsBytesSync(const []);
     SharedPreferences.setMockInitialValues({
-      'custom_download_path': directory.path,
+      StorageService.customDownloadPathKey: directory.path,
     });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),

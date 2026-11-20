@@ -7,6 +7,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../services/storage_service.dart';
 import '../../utils/snackbar_util.dart';
+import '../../widgets/app_navigation_scope.dart';
 import '../../widgets/tab_page_motion.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/library_page_scaffold.dart';
@@ -18,7 +19,13 @@ import '../comic_providers.dart';
 import 'comic_widgets.dart';
 import 'comic_search_screen.dart';
 import 'comic_download_screen.dart';
+import 'comic_reader_screen.dart';
 import 'comic_settings_screen.dart';
+
+typedef _ComicBufferSnapshot = ({
+  ComicPageBuffer buffer,
+  Map<String, ComicProgress> history,
+});
 
 class ComicScreen extends ConsumerStatefulWidget {
   const ComicScreen({super.key, this.active = true});
@@ -374,7 +381,7 @@ class _ComicCollection extends ConsumerStatefulWidget {
 
 class _ComicCollectionState extends ConsumerState<_ComicCollection> {
   final _scroll = ScrollController();
-  ComicPageBuffer? _buffer;
+  _ComicBufferSnapshot? _buffer;
   List<Comic> _items = [];
   bool _loading = true;
   bool get _online => widget.tab == 1 && widget.onlineFavorites;
@@ -390,6 +397,8 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
   int? _scrollingRequest;
   int? _interruptedScrollRequest;
   ModalRoute<dynamic>? _route;
+  Map<String, ComicProgress> _historyByComicKey = const {};
+  bool _resumeOpening = false;
 
   void _routeStatusChanged(AnimationStatus _) {
     final request = _pageTurnRequest;
@@ -485,38 +494,92 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
     }
   }
 
-  Future<ComicPageBuffer> _createBuffer() async {
+  Future<void> _resumeFromHistory(ComicProgress progress) async {
+    if (_resumeOpening || !mounted) return;
+    _resumeOpening = true;
+    try {
+      final savedChapter = progress.chapter;
+      final comic = savedChapter == null
+          ? progress.comic.withChapters([
+              ...progress.comic.chapters,
+              ComicChapter(progress.chapterId, progress.chapterId),
+            ])
+          : progress.comic;
+      final chapter = savedChapter ?? comic.chapters.last;
+      final route = MaterialPageRoute<void>(
+        settings: appImmersiveRouteSettings,
+        builder: (_) => ComicReaderScreen(
+          comic: comic,
+          chapter: chapter,
+          initialPage: progress.page,
+        ),
+      );
+      await AppNavigationScope.navigatorOf(context).push(route);
+    } finally {
+      _resumeOpening = false;
+    }
+  }
+
+  Future<_ComicBufferSnapshot> _createBuffer() async {
     final library = ref.read(comicLibraryProvider);
     if (widget.tab == 2) {
-      return ComicPageBuffer.fromItems(
-        (await library.history()).map((progress) => progress.comic).toList(),
+      final history = await library.history();
+      return (
+        buffer: ComicPageBuffer.fromItems(
+          history.map((progress) => progress.comic).toList(),
+        ),
+        history: {for (final progress in history) progress.comic.key: progress},
       );
     }
     if (widget.tab == 3) {
       final downloads = ref.read(comicDownloadsProvider);
       await downloads.ready;
-      return ComicPageBuffer.fromItems(downloads.completedComics);
+      return (
+        buffer: ComicPageBuffer.fromItems(downloads.completedComics),
+        history: const <String, ComicProgress>{},
+      );
     }
     if (widget.tab == 1 && !_online) {
-      return ComicPageBuffer.fromItems(await library.favorites());
+      return (
+        buffer: ComicPageBuffer.fromItems(await library.favorites()),
+        history: const <String, ComicProgress>{},
+      );
     }
-    if (_source == null) return ComicPageBuffer.fromItems(const []);
+    if (_source == null) {
+      return (
+        buffer: ComicPageBuffer.fromItems(const []),
+        history: const <String, ComicProgress>{},
+      );
+    }
     final source = ref
         .read(comicSourcesProvider)
         .firstWhere((source) => source.key == _source);
-    return ComicPageBuffer([
-      ComicPageSource(source.key, (cursor) async {
-        if (_online && source.hasRemoteFavorites && !source.isLoggedIn) {
-          throw const ComicSourceException(
-            'Sign in to this source in comic settings.',
-            loginRequired: true,
-          );
-        }
-        return _online
-            ? source.favorites(cursor: cursor)
-            : source.explore(cursor: cursor);
-      }),
-    ]);
+    return (
+      buffer: ComicPageBuffer([
+        ComicPageSource(source.key, (cursor) async {
+          if (_online && source.hasRemoteFavorites && !source.isLoggedIn) {
+            throw const ComicSourceException(
+              'Sign in to this source in comic settings.',
+              loginRequired: true,
+            );
+          }
+          return _online
+              ? source.favorites(cursor: cursor)
+              : source.explore(cursor: cursor);
+        }),
+      ]),
+      history: const <String, ComicProgress>{},
+    );
+  }
+
+  Map<String, ComicProgress> _historyForPage(
+    List<Comic> comics,
+    Map<String, ComicProgress> history,
+  ) {
+    return {
+      for (final comic in comics)
+        if (history[comic.key] case final progress?) comic.key: progress,
+    };
   }
 
   Future<void> _loadPage(
@@ -547,6 +610,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
       _pendingPage = page;
       if (clearItems) {
         _items = [];
+        _historyByComicKey = const {};
         _page = page;
         _hasMore = false;
       }
@@ -560,17 +624,20 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
       }
     });
     try {
-      var buffer = _buffer;
-      if (reset || buffer == null) buffer = await _createBuffer();
+      var bufferSnapshot = _buffer;
+      if (reset || bufferSnapshot == null) {
+        bufferSnapshot = await _createBuffer();
+      }
       if (!mounted || request != _generation) return;
+      final snapshot = bufferSnapshot;
       var displayPage = page;
-      var result = await buffer.page(
+      var result = await snapshot.buffer.page(
         displayPage,
         ref.read(comicPageSizeProvider),
         retryFailures: retryFailures,
       );
       while (result.items.isEmpty && result.errors.isEmpty && displayPage > 1) {
-        result = await buffer.page(
+        result = await snapshot.buffer.page(
           --displayPage,
           ref.read(comicPageSizeProvider),
         );
@@ -604,10 +671,16 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
       }
       if (!mounted || request != _generation) return;
       setState(() {
-        _buffer = buffer;
+        _buffer = snapshot;
         _errors = result.errors;
         if (result.errors.isEmpty) {
           _items = result.items;
+          if (widget.tab == 2) {
+            _historyByComicKey = _historyForPage(
+              result.items,
+              snapshot.history,
+            );
+          }
           _page = displayPage;
           _pendingPage = displayPage;
           if (reset) {
@@ -618,6 +691,12 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
           _hasMore = result.hasMore;
         } else if (_items.isEmpty && result.items.isNotEmpty) {
           _items = result.items;
+          if (widget.tab == 2) {
+            _historyByComicKey = _historyForPage(
+              result.items,
+              snapshot.history,
+            );
+          }
           _page = displayPage;
           _hasMore = false;
         }
@@ -753,6 +832,8 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
         onRefresh: () => _loadPage(1, reset: true, clearItems: true),
         child: ComicGrid(
           comics: _items,
+          history: _historyByComicKey,
+          onResumeHistory: widget.tab == 2 ? _resumeFromHistory : null,
           downloadedOnly: widget.tab == 3,
           controller: _scroll,
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),

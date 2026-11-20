@@ -6,9 +6,12 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:iroru/src/services/download_path_service.dart';
 import 'package:iroru/src/services/remote_asset_cache.dart';
+import 'package:iroru/src/services/storage_service.dart';
 import 'package:iroru/src/videos/jable_client.dart';
 import 'package:iroru/src/videos/missav_client.dart';
 import 'package:iroru/src/videos/video_download_task.dart';
@@ -16,6 +19,8 @@ import 'package:iroru/src/videos/video_downloads.dart';
 import 'package:iroru/src/videos/video_library.dart';
 import 'package:iroru/src/videos/video_models.dart';
 import 'package:iroru/src/videos/video_source_client.dart';
+
+import 'local_history_database_fake.dart';
 
 void main() {
   late Directory root;
@@ -56,6 +61,55 @@ void main() {
       await server.close(force: true);
     }
     await root.delete(recursive: true);
+  });
+
+  test('completed videos play from the shared root after it changes', () async {
+    final initial = await Directory(p.join(root.path, 'initial')).create();
+    final destination = Directory(p.join(root.path, 'destination'));
+    await preferences.setString(
+      StorageService.customDownloadPathKey,
+      initial.path,
+    );
+    await StorageService.initCritical(preferences: preferences);
+    final server = await _server((request) async {
+      request.response.add(_mp4Fixture());
+      await request.response.close();
+    });
+    const video = VideoItem(
+      id: 'shared-root',
+      title: 'Shared root',
+      pageUrl: 'https://missav.ai/cn/shared-root',
+    );
+    final stream = VideoStream(
+      label: 'Source',
+      url: 'http://127.0.0.1:${server.port}/video.mp4',
+    );
+    final client = _fixtureClient(video, stream);
+    final downloads = await _downloads(client, useSharedRoot: true);
+    await downloads.add(video, stream);
+    await _until(
+      downloads,
+      (task) =>
+          task.status == VideoDownloadStatus.completed &&
+          downloads.activeDownloadCount == 0,
+    );
+    final oldPath = downloads.forVideo(video.id)!.localPath!;
+    expect(p.isWithin(p.join(initial.path, 'videos'), oldPath), isTrue);
+
+    final result = await DownloadPathService.setCustomPath(destination.path);
+    expect(result.success, isTrue);
+    downloads.setDownloadRoot(result.root!);
+    expect(await File(oldPath).exists(), isFalse);
+    final restored = await _downloads(client, useSharedRoot: true);
+    for (final instance in [downloads, restored]) {
+      final task = instance.forVideo(video.id)!;
+      expect(task.status, VideoDownloadStatus.completed);
+      expect(
+        p.isWithin(p.join(destination.path, 'videos'), task.localPath!),
+        isTrue,
+      );
+      expect(await File(task.localPath!).readAsBytes(), _mp4Fixture());
+    }
   });
 
   test(
@@ -979,6 +1033,7 @@ ${_url(cdnServer, '/segment.m4s')}
 Future<VideoDownloads> _downloads(
   MissavClient sourceClient, {
   Map<String, VideoSourceClient>? sourceClients,
+  bool useSharedRoot = false,
 }) async {
   final test = _activeTest;
   final service = VideoDownloads(
@@ -987,7 +1042,7 @@ Future<VideoDownloads> _downloads(
         ? null
         : (sourceKey) => sourceClients[sourceKey] ?? sourceClient,
     library: test.library,
-    rootDirectory: test.root,
+    rootDirectory: useSharedRoot ? null : test.root,
     preferences: test.preferences,
     transport: RemoteAssetTransportHolder.transport(test.httpClient),
   );
@@ -1140,7 +1195,10 @@ class _TestContext {
   final List<JableClient> jableClients;
 
   VideoLibrary get library {
-    final value = VideoLibrary(preferences: preferences);
+    final value = VideoLibrary(
+      preferences: preferences,
+      historyDatabase: FakeLocalHistoryDatabase(),
+    );
     libraries.add(value);
     return value;
   }

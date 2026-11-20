@@ -48,7 +48,7 @@ void main() {
       final root = await Directory.systemTemp.createTemp(
         'chapter_metadata_refresh_',
       );
-      final workDirectory = Directory('${root.path}/-7');
+      final workDirectory = Directory('${root.path}/audio/-7');
       final audioDirectory = Directory('${workDirectory.path}/disc')
         ..createSync(recursive: true);
       await File(
@@ -82,7 +82,7 @@ void main() {
         createdAt: DateTime.utc(2026),
       );
       SharedPreferences.setMockInitialValues({
-        'custom_download_path': root.path,
+        StorageService.customDownloadPathKey: root.path,
         'download_tasks': jsonEncode([task.toJson()]),
       });
       await StorageService.initCritical(

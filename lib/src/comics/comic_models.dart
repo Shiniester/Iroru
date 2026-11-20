@@ -141,11 +141,27 @@ class ComicComment {
 }
 
 class ComicProgress {
-  const ComicProgress(this.comic, this.chapterId, this.page, this.updatedAt);
+  const ComicProgress(
+    this.comic,
+    this.chapterId,
+    this.page,
+    this.updatedAt, {
+    this.pageCount,
+  });
   final Comic comic;
   final String chapterId;
   final int page;
   final DateTime updatedAt;
+  final int? pageCount;
+
+  ComicChapter? get chapter {
+    for (final chapter in comic.chapters) {
+      if (chapter.id == chapterId) return chapter;
+    }
+    return null;
+  }
+
+  String? get chapterTitle => chapter?.title;
 }
 
 class ComicCategory {

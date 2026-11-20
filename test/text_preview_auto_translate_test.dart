@@ -65,7 +65,7 @@ Future<Directory> _createPreviewRoot({
   final directory = Directory.systemTemp.createTempSync('preview_auto_');
   final values = <String, Object>{
     'locale_language': 'en',
-    'custom_download_path': directory.path,
+    StorageService.customDownloadPathKey: directory.path,
     AutoSaveTranslatedLyricsNotifier.preferenceKey: autoSaveTranslated,
   };
   if (source != null && translated != null) {

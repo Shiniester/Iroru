@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:iroru/src/services/download_path_service.dart';
 import 'package:iroru/src/services/storage_service.dart';
 import 'package:iroru/src/comics/comic_downloads.dart';
 import 'package:iroru/src/comics/comic_http.dart';
@@ -88,7 +90,7 @@ void main() {
   setUp(() async {
     root = await Directory.systemTemp.createTemp('kikoflu-comic-test-');
     SharedPreferences.setMockInitialValues({
-      'comic_download_directory': root.path,
+      StorageService.customDownloadPathKey: root.path,
     });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
@@ -100,6 +102,52 @@ void main() {
     library.dispose();
     source.http.dispose();
     await root.delete(recursive: true);
+  });
+
+  test('downloaded comic pages and cover follow the shared root', () async {
+    final initial = await Directory(p.join(root.path, 'initial')).create();
+    final destination = Directory(p.join(root.path, 'destination'));
+    await StorageService.setString(
+      StorageService.customDownloadPathKey,
+      initial.path,
+    );
+    const comic = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Book',
+      cover: 'cover',
+      chapters: [chapter],
+    );
+    final downloads = ComicDownloads(
+      library,
+      (_) => source,
+      imageLoader: (_, _) async => Uint8List.fromList([1, 2, 3]),
+    );
+    addTearDown(downloads.dispose);
+    await downloads.enqueue(comic, [chapter]);
+    await until(
+      downloads,
+      () =>
+          downloads.tasks.single.status == ComicDownloadStatus.complete &&
+          downloads.activeDownloadCount == 0,
+    );
+    final oldPage = downloads.tasks.single.pathFor(0);
+    expect(p.isWithin(p.join(initial.path, 'comics'), oldPage), isTrue);
+
+    final result = await DownloadPathService.setCustomPath(destination.path);
+    expect(result.success, isTrue);
+    downloads.setDownloadRoot(result.root!);
+    expect(await File(oldPage).exists(), isFalse);
+    final restored = ComicDownloads(library, (_) => source);
+    addTearDown(restored.dispose);
+    for (final instance in [downloads, restored]) {
+      final pages = await instance.offlinePages(comic, chapter);
+      final page = pages!.first.localPath!;
+      final cover = instance.completedComics.single.coverPage.localPath!;
+      expect(p.isWithin(p.join(destination.path, 'comics'), page), isTrue);
+      expect(await File(page).readAsBytes(), [1, 2, 3]);
+      expect(await File(cover).readAsBytes(), [1, 2, 3]);
+    }
   });
 
   test('completed comics reuse chapter data across downloaded tasks', () async {

@@ -53,7 +53,7 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({
       'lyric_hint_has_shown': true,
-      'custom_download_path': Directory.systemTemp.path,
+      StorageService.customDownloadPathKey: Directory.systemTemp.path,
     });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),

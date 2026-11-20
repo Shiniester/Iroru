@@ -519,7 +519,8 @@ class SEn extends S {
   String get downloadPath => 'Download Path';
 
   @override
-  String get downloadPathSubtitle => 'Customize download file save location';
+  String get downloadPathSubtitle =>
+      'Set the download location for audio, comics, and videos';
 
   @override
   String get maxConcurrentDownloads => 'Max Concurrent Downloads';
@@ -3467,7 +3468,7 @@ class SEn extends S {
 
   @override
   String activeDownloadsWarning(int count) {
-    return '$count download tasks are in progress. Please cancel or complete them before switching paths';
+    return '$count download tasks are active. Pause them or wait for them to finish before changing the path.';
   }
 
   @override
@@ -3480,7 +3481,7 @@ class SEn extends S {
 
   @override
   String get migrateFilesToNewDir =>
-      'Existing downloaded files will be migrated to the new directory:';
+      'Existing downloads and the subtitle library will move to this folder.';
 
   @override
   String get migrationMayTakeTime =>
@@ -3494,7 +3495,7 @@ class SEn extends S {
 
   @override
   String get restoreDefaultPathConfirm =>
-      'Restore download path to default location and migrate all files.\n\nContinue?';
+      'Restoring the default path moves existing downloads and the subtitle library to the default folder.';
 
   @override
   String get defaultPathRestored => 'Default path restored';
@@ -3526,11 +3527,14 @@ class SEn extends S {
   String get setCustomPath => 'Set Custom Path';
 
   @override
+  String get saveDownloadsInFilesApp => 'Save Downloads in Files';
+
+  @override
   String get usageInstructions => 'Usage Instructions';
 
   @override
   String get downloadPathUsageDesc =>
-      '• After customizing the path, all existing files will be automatically migrated\n• Do not close the app during migration\n• Choose a directory with sufficient storage space\n• When restoring the default path, files will be migrated back automatically';
+      'Audio, comics, and videos use separate folders under the download path. Changing the path or restoring the default moves existing downloads and the subtitle library. The destination needs enough free space.';
 
   @override
   String get llmTranslationSettings => 'LLM Translation Settings';
@@ -4290,6 +4294,12 @@ class SEn extends S {
 
   @override
   String get libraryHistory => 'History';
+
+  @override
+  String get localHistory => 'Local history';
+
+  @override
+  String get noLocalHistory => 'No local history';
 
   @override
   String get libraryFavorites => 'Favorites';

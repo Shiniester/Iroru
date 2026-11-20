@@ -5,10 +5,10 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/cache_file_transaction.dart';
+import '../services/download_path_service.dart';
 import '../services/http_response_stream.dart';
 import '../services/remote_asset_cache.dart';
 import '../services/resumable_file_transfer.dart';
@@ -63,6 +63,18 @@ class VideoDownloads extends ChangeNotifier {
   }
 
   List<VideoDownloadTask> get tasks => List.unmodifiable(_tasks);
+
+  int get activeDownloadCount {
+    final active = {
+      for (final task in _tasks)
+        if (task.status == VideoDownloadStatus.queued ||
+            task.status == VideoDownloadStatus.downloading)
+          task.id,
+      if (_active case final operation?) operation.id,
+      ..._deleting,
+    };
+    return active.isEmpty && _initializing != null ? 1 : active.length;
+  }
 
   VideoDownloadTask? forVideo(String videoId) {
     for (final task in _tasks) {
@@ -205,6 +217,18 @@ class VideoDownloads extends ChangeNotifier {
       }
     }
     if (_tasks.isNotEmpty) await _persist();
+    _notify();
+  }
+
+  void setDownloadRoot(Directory root) {
+    if (_providedRoot != null) return;
+    final directory = DownloadFolder.videos.inRoot(root);
+    _resolvedRoot = directory;
+    _rootFuture = Future.value(directory);
+    for (var index = 0; index < _tasks.length; index++) {
+      final task = _tasks[index];
+      _tasks[index] = task.copyWith(localPath: _localPath(task));
+    }
     _notify();
   }
 
@@ -1018,11 +1042,8 @@ class VideoDownloads extends ChangeNotifier {
   Future<Directory> _root() => _rootFuture ??= () async {
     final root =
         _providedRoot ??
-        Directory(
-          p.join(
-            (await getApplicationSupportDirectory()).path,
-            'video_downloads',
-          ),
+        DownloadFolder.videos.inRoot(
+          await DownloadPathService.getDownloadDirectory(),
         );
     await root.create(recursive: true);
     _resolvedRoot = root;

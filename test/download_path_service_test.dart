@@ -52,14 +52,14 @@ void main() {
   });
 
   test(
-    'preference failures preserve the source and allow retry or fallback',
+    'preference failures preserve the source and allow retry',
     () async {
       const channel = MethodChannel('plugins.flutter.io/shared_preferences');
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       final oldDirectory = Directory(p.join(root.path, 'old'));
       final newDirectory = Directory(p.join(root.path, 'new'));
-      await _writeFile(oldDirectory, '123/track.mp3', 'saved audio');
+      await _writeFile(oldDirectory, 'audio/123/track.mp3', 'saved audio');
       var storedPath = oldDirectory.path;
       var acceptWrites = false;
       messenger.setMockMethodCallHandler(channel, (call) async {
@@ -86,7 +86,7 @@ void main() {
       expect(DownloadPathService.getCustomPath(), oldDirectory.path);
       expect(
         await File(
-          p.join(oldDirectory.path, '123', 'track.mp3'),
+          p.join(oldDirectory.path, 'audio', '123', 'track.mp3'),
         ).readAsString(),
         'saved audio',
       );
@@ -99,35 +99,81 @@ void main() {
 
       expect(retried.success, isTrue);
       expect(storedPath, newDirectory.path);
-      expect(await oldDirectory.exists(), isFalse);
+      expect(await oldDirectory.list().isEmpty, isTrue);
+      for (final folder in DownloadFolder.values) {
+        expect(await folder.inRoot(newDirectory).exists(), isTrue);
+      }
       expect(
         await File(
-          p.join(newDirectory.path, '123', 'track.mp3'),
+          p.join(newDirectory.path, 'audio', '123', 'track.mp3'),
         ).readAsString(),
         'saved audio',
       );
-
-      final support = await _useSupportRoot(root);
-      final missingPath = p.join(root.path, 'missing');
-      await StorageService.setString(
-        StorageService.customDownloadPathKey,
-        missingPath,
-      );
-      expect(
-        (await DownloadPathService.getDownloadDirectory()).path,
-        p.join(support.path, 'downloads'),
-      );
-      expect(DownloadPathService.getCustomPath(), missingPath);
     },
   );
+
+  test('an unavailable custom root remains selected', () async {
+    final missingPath = p.join(root.path, 'missing');
+    await _setCurrentPath(missingPath);
+
+    expect((await DownloadPathService.getDownloadDirectory()).path, missingPath);
+    final result = await DownloadPathService.setCustomPath(
+      p.join(root.path, 'new'),
+    );
+    expect(result.success, isFalse);
+    expect(DownloadPathService.getCustomPath(), missingPath);
+  });
+
+  test('an older custom path is not adopted as the shared root', () async {
+    final support = await _useSupportRoot(root);
+    final oldDirectory = Directory(p.join(root.path, 'old'));
+    await _writeFile(oldDirectory, 'videos/personal.mp4', 'personal file');
+    SharedPreferences.setMockInitialValues({
+      'custom_download_path': oldDirectory.path,
+    });
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+
+    expect(
+      (await DownloadPathService.getDownloadDirectory()).path,
+      p.join(support.path, 'downloads'),
+    );
+    expect(
+      await File(
+        p.join(oldDirectory.path, 'videos', 'personal.mp4'),
+      ).readAsString(),
+      'personal file',
+    );
+  });
+
+  test('a destination cannot claim a folder absent from the source', () async {
+    final source = Directory(p.join(root.path, 'source'));
+    final target = Directory(p.join(root.path, 'target'));
+    await _writeFile(source, 'audio/123/track.mp3', 'audio');
+    await _writeFile(target, 'videos/personal.mp4', 'personal file');
+    await _setCurrentPath(source.path);
+
+    final result = await DownloadPathService.setCustomPath(target.path);
+
+    expect(result.success, isFalse);
+    expect(DownloadPathService.getCustomPath(), source.path);
+    expect(
+      await File(p.join(target.path, 'videos', 'personal.mp4')).readAsString(),
+      'personal file',
+    );
+    expect(await DownloadFolder.audio.inRoot(target).exists(), isFalse);
+  });
 
   test('a staging failure preserves all source directories', () async {
     final oldDirectory = Directory(p.join(root.path, 'old'));
     final newDirectory = Directory(p.join(root.path, 'new'));
-    await _writeFile(oldDirectory, '123/track.mp3', 'first');
-    await _writeFile(oldDirectory, '456/track.mp3', 'second');
+    await _writeFile(oldDirectory, 'audio/123/track.mp3', 'first');
+    await _writeFile(oldDirectory, 'videos/456/index.m3u8', 'second');
     await _setCurrentPath(oldDirectory.path);
-    final blocked = File(p.join(oldDirectory.path, '456', 'track.mp3'));
+    final blocked = File(
+      p.join(oldDirectory.path, 'videos', '456', 'index.m3u8'),
+    );
 
     Future<void> verifyFailure() async {
       final result = await DownloadPathService.setCustomPath(newDirectory.path);
@@ -137,7 +183,7 @@ void main() {
       expect(await blocked.exists(), isTrue);
       expect(
         await File(
-          p.join(oldDirectory.path, '123', 'track.mp3'),
+          p.join(oldDirectory.path, 'audio', '123', 'track.mp3'),
         ).readAsString(),
         'first',
       );
@@ -154,7 +200,7 @@ void main() {
       }
     } else {
       await Link(
-        p.join(oldDirectory.path, '456', 'linked.mp3'),
+        p.join(oldDirectory.path, 'videos', '456', 'linked.m3u8'),
       ).create(blocked.path);
       await verifyFailure();
     }
@@ -165,9 +211,16 @@ void main() {
     () async {
       final oldDirectory = Directory(p.join(root.path, 'old'));
       final newDirectory = Directory(p.join(root.path, 'new'));
-      await _writeFile(oldDirectory, '123/track.mp3', 'numeric work');
-      await _writeFile(oldDirectory, 'RJ123456/voice.mp3', 'RJ work');
-      await _writeFile(oldDirectory, 'subtitle_library/line.srt', 'subtitle');
+      const managedFiles = {
+        'audio/RJ123456/voice.mp3': 'audio',
+        'comics/source/book/chapter/0.image.part': 'partial comic',
+        'videos/456/index.m3u8': 'video',
+        'subtitle_library/line.srt': 'subtitle',
+      };
+      for (final entry in managedFiles.entries) {
+        await _writeFile(oldDirectory, entry.key, entry.value);
+      }
+      await _writeFile(oldDirectory, '123/legacy.mp3', 'legacy layout');
       await _writeFile(oldDirectory, 'unmanaged/keep.txt', 'keep me');
       await _writeFile(oldDirectory, 'root-note.txt', 'keep this too');
       await _setCurrentPath(oldDirectory.path);
@@ -175,28 +228,26 @@ void main() {
       final result = await DownloadPathService.setCustomPath(newDirectory.path);
 
       expect(result.success, isTrue);
-      expect(result.fileCount, 3);
+      expect(result.root?.path, newDirectory.path);
+      expect(result.fileCount, managedFiles.length);
+      for (final entry in managedFiles.entries) {
+        final segments = entry.key.split('/');
+        expect(
+          await File(
+            p.joinAll([newDirectory.path, ...segments]),
+          ).readAsString(),
+          entry.value,
+        );
+        expect(
+          await Directory(p.join(oldDirectory.path, segments.first)).exists(),
+          isFalse,
+        );
+      }
       expect(
         await File(
-          p.join(newDirectory.path, '123', 'track.mp3'),
+          p.join(oldDirectory.path, '123', 'legacy.mp3'),
         ).readAsString(),
-        'numeric work',
-      );
-      expect(
-        await File(
-          p.join(newDirectory.path, 'RJ123456', 'voice.mp3'),
-        ).readAsString(),
-        'RJ work',
-      );
-      expect(
-        await File(
-          p.join(newDirectory.path, 'subtitle_library', 'line.srt'),
-        ).readAsString(),
-        'subtitle',
-      );
-      expect(
-        await Directory(p.join(oldDirectory.path, '123')).exists(),
-        isFalse,
+        'legacy layout',
       );
       expect(
         await File(p.join(oldDirectory.path, 'unmanaged', 'keep.txt')).exists(),
@@ -218,8 +269,8 @@ void main() {
     () async {
       final oldDirectory = Directory(p.join(root.path, 'old'));
       final newDirectory = Directory(p.join(root.path, 'new'));
-      await _writeFile(oldDirectory, '123/source.mp3', 'source');
-      await _writeFile(newDirectory, '123/existing.mp3', 'existing');
+      await _writeFile(oldDirectory, 'videos/123/source.mp4', 'source');
+      await _writeFile(newDirectory, 'videos/123/existing.mp4', 'existing');
       await _setCurrentPath(oldDirectory.path);
 
       final result = await DownloadPathService.setCustomPath(newDirectory.path);
@@ -227,17 +278,21 @@ void main() {
       expect(result.success, isFalse);
       expect(result.message, contains('同名项目'));
       expect(
-        await File(p.join(oldDirectory.path, '123', 'source.mp3')).exists(),
+        await File(
+          p.join(oldDirectory.path, 'videos', '123', 'source.mp4'),
+        ).exists(),
         isTrue,
       );
       expect(
         await File(
-          p.join(newDirectory.path, '123', 'existing.mp3'),
+          p.join(newDirectory.path, 'videos', '123', 'existing.mp4'),
         ).readAsString(),
         'existing',
       );
       expect(
-        await File(p.join(newDirectory.path, '123', 'source.mp3')).exists(),
+        await File(
+          p.join(newDirectory.path, 'videos', '123', 'source.mp4'),
+        ).exists(),
         isFalse,
       );
       expect(
@@ -254,7 +309,7 @@ void main() {
       final nestedDirectory = Directory(
         p.join(oldDirectory.path, 'nested-new'),
       );
-      await _writeFile(oldDirectory, '123/source.mp3', 'source');
+      await _writeFile(oldDirectory, 'audio/123/source.mp3', 'source');
       await _setCurrentPath(oldDirectory.path);
 
       final result = await DownloadPathService.setCustomPath(
@@ -264,7 +319,9 @@ void main() {
       expect(result.success, isFalse);
       expect(result.message, contains('重叠'));
       expect(
-        await File(p.join(oldDirectory.path, '123', 'source.mp3')).exists(),
+        await File(
+          p.join(oldDirectory.path, 'audio', '123', 'source.mp3'),
+        ).exists(),
         isTrue,
       );
       expect(await nestedDirectory.exists(), isFalse);
@@ -280,7 +337,7 @@ void main() {
     () async {
       final oldDirectory = Directory(p.join(root.path, 'old'));
       final nestedDirectory = Directory(p.join(oldDirectory.path, 'nested'));
-      await _writeFile(oldDirectory, '123/source.mp3', 'source');
+      await _writeFile(oldDirectory, 'audio/123/source.mp3', 'source');
       await nestedDirectory.create(recursive: true);
       await _setCurrentPath(oldDirectory.path);
 
@@ -290,7 +347,9 @@ void main() {
       expect(result.success, isTrue);
       expect(result.message, contains('无需迁移'));
       expect(
-        await File(p.join(oldDirectory.path, '123', 'source.mp3')).exists(),
+        await File(
+          p.join(oldDirectory.path, 'audio', '123', 'source.mp3'),
+        ).exists(),
         isTrue,
       );
       expect(
@@ -306,7 +365,12 @@ void main() {
       final support = await _useSupportRoot(root);
       final customDirectory = Directory(p.join(root.path, 'custom'));
       final defaultDirectory = Directory(p.join(support.path, 'downloads'));
-      await _writeFile(customDirectory, '123/track.mp3', 'managed');
+      await _writeFile(customDirectory, 'audio/123/track.mp3', 'managed');
+      await _writeFile(
+        customDirectory,
+        'subtitle_library/track.srt',
+        'subtitle',
+      );
       await _writeFile(customDirectory, 'notes/keep.txt', 'keep');
       await _setCurrentPath(customDirectory.path);
 
@@ -315,12 +379,18 @@ void main() {
       expect(result.success, isTrue);
       expect(
         await File(
-          p.join(defaultDirectory.path, '123', 'track.mp3'),
+          p.join(defaultDirectory.path, 'audio', '123', 'track.mp3'),
         ).readAsString(),
         'managed',
       );
       expect(
-        await Directory(p.join(customDirectory.path, '123')).exists(),
+        await File(
+          p.join(defaultDirectory.path, 'subtitle_library', 'track.srt'),
+        ).readAsString(),
+        'subtitle',
+      );
+      expect(
+        await Directory(p.join(customDirectory.path, 'audio')).exists(),
         isFalse,
       );
       expect(
@@ -339,8 +409,12 @@ void main() {
       final support = await _useSupportRoot(root);
       final customDirectory = Directory(p.join(root.path, 'custom'));
       final defaultDirectory = Directory(p.join(support.path, 'downloads'));
-      await _writeFile(customDirectory, '123/source.mp3', 'source');
-      await _writeFile(defaultDirectory, '123/existing.mp3', 'existing');
+      await _writeFile(customDirectory, 'comics/123/source.image', 'source');
+      await _writeFile(
+        defaultDirectory,
+        'comics/123/existing.image',
+        'existing',
+      );
       await _setCurrentPath(customDirectory.path);
 
       final result = await DownloadPathService.migrateToDefaultPath();
@@ -349,21 +423,18 @@ void main() {
       expect(result.message, contains('同名项目'));
       expect(
         await File(
-          p.join(customDirectory.path, '123', 'source.mp3'),
+          p.join(customDirectory.path, 'comics', '123', 'source.image'),
         ).exists(),
         isTrue,
       );
       expect(
         await File(
-          p.join(defaultDirectory.path, '123', 'existing.mp3'),
+          p.join(defaultDirectory.path, 'comics', '123', 'existing.image'),
         ).readAsString(),
         'existing',
       );
       expect(
-        p.equals(
-          DownloadPathService.getCustomPath()!,
-          customDirectory.path,
-        ),
+        p.equals(DownloadPathService.getCustomPath()!, customDirectory.path),
         isTrue,
       );
     },
@@ -372,25 +443,28 @@ void main() {
   test(
     'migrateToDefaultPath rejects a child of the default download directory',
     () async {
-    final support = await _useSupportRoot(root);
-    final defaultDirectory = Directory(p.join(support.path, 'downloads'));
-    final customDirectory = Directory(
-      p.join(defaultDirectory.path, 'custom'),
-    );
-    await _writeFile(customDirectory, '123/source.mp3', 'source');
-    await _setCurrentPath(customDirectory.path);
+      final support = await _useSupportRoot(root);
+      final defaultDirectory = Directory(p.join(support.path, 'downloads'));
+      final customDirectory = Directory(
+        p.join(defaultDirectory.path, 'custom'),
+      );
+      await _writeFile(customDirectory, 'audio/123/source.mp3', 'source');
+      await _setCurrentPath(customDirectory.path);
 
-    final result = await DownloadPathService.migrateToDefaultPath();
+      final result = await DownloadPathService.migrateToDefaultPath();
 
-    expect(result.success, isFalse);
-    expect(result.message, contains('重叠'));
-    expect(
-      await File(p.join(customDirectory.path, '123', 'source.mp3')).exists(),
-      isTrue,
-    );
-    expect(
-      p.equals(DownloadPathService.getCustomPath()!, customDirectory.path),
-      isTrue,
-    );
-  });
+      expect(result.success, isFalse);
+      expect(result.message, contains('重叠'));
+      expect(
+        await File(
+          p.join(customDirectory.path, 'audio', '123', 'source.mp3'),
+        ).exists(),
+        isTrue,
+      );
+      expect(
+        p.equals(DownloadPathService.getCustomPath()!, customDirectory.path),
+        isTrue,
+      );
+    },
+  );
 }
