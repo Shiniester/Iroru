@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../jable_client.dart';
-import '../jable_verification.dart';
 import '../video_models.dart';
 import '../video_providers.dart';
 import 'video_source_account_page.dart';
@@ -33,11 +32,14 @@ class _JableAccountScreenState extends ConsumerState<JableAccountScreen> {
     await _client.account.checkLogin();
   }
 
-  Future<void> _run(Future<void> Function() action) async {
+  Future<void> _run(
+    Future<void> Function() action, {
+    bool preserveError = false,
+  }) async {
     if (_busy) return;
     setState(() {
       _busy = true;
-      _error = null;
+      if (!preserveError) _error = null;
     });
     try {
       await action();
@@ -48,14 +50,22 @@ class _JableAccountScreenState extends ConsumerState<JableAccountScreen> {
     }
   }
 
+  Future<void> _login() =>
+      _run(() => _openBrowser(login: true), preserveError: true);
+
   Future<void> _openBrowser({required bool login}) async {
-    final checked = await verifyJableAccess(
+    final checked = await ref.read(jableAccessVerifierProvider)(
       context,
       _client,
       sourceUrl: login ? '${JableClient.origin}/login/' : _client.homeUrl,
       requireLogin: login,
     );
-    if (checked && !login) await _check();
+    if (!checked || !mounted) return;
+    if (login) {
+      setState(() => _error = null);
+    } else {
+      await _check();
+    }
   }
 
   @override
@@ -72,9 +82,9 @@ class _JableAccountScreenState extends ConsumerState<JableAccountScreen> {
             : s.videoJableLoginRequired,
         signedIn: account.isLoggedIn,
         busy: _busy,
-        onAccountAction: () => _run(
-          account.isLoggedIn ? account.logout : () => _openBrowser(login: true),
-        ),
+        onAccountAction: account.isLoggedIn
+            ? () => _run(account.logout)
+            : _login,
         error: _error == null
             ? null
             : verificationRequired
@@ -82,6 +92,11 @@ class _JableAccountScreenState extends ConsumerState<JableAccountScreen> {
             : s.videoSourceUnavailable,
         recoveryActions: [
           if (_error != null) ...[
+            if (account.isLoggedIn)
+              OutlinedButton(
+                onPressed: _busy ? null : _login,
+                child: Text(s.login),
+              ),
             TextButton(
               onPressed: _busy ? null : () => _run(_check),
               child: Text(s.retry),

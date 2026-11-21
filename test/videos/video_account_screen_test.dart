@@ -119,7 +119,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(s.videoAccountRestoreFailed), findsOneWidget);
-    expect(find.text(s.login), findsNothing);
+    expect(find.text(s.login), findsOneWidget);
     expect(find.text(s.videoLoginRequired), findsNothing);
     expect(find.text(s.videoVerifyAccess), findsNothing);
     expect(find.text(s.retry), findsOneWidget);
@@ -131,6 +131,34 @@ void main() {
 
     expect(client.restoreAccountCalls, 2);
     expect(find.text('saved-viewer'), findsOneWidget);
+  });
+
+  testWidgets('can start and cancel web login after restoration times out', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(savedSession: true)
+      ..restoreAccountError = TimeoutException('Restore timed out.');
+    final s = await S.delegate.load(const Locale('en'));
+    var loginCalls = 0;
+    await tester.pumpWidget(
+      _app(
+        client,
+        login: (_, _) async {
+          loginCalls++;
+          return false;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(s.login), findsOneWidget);
+    await tester.tap(find.text(s.login));
+    await tester.pumpAndSettle();
+
+    expect(loginCalls, 1);
+    expect(client.hasRestorableSession, isTrue);
+    expect(find.text(s.login), findsOneWidget);
+    expect(find.text(s.retry), findsOneWidget);
   });
 
   testWidgets('verification keeps a confirmed account signed in', (
@@ -148,7 +176,7 @@ void main() {
     expect(client.isLoggedIn, isTrue);
     expect(find.text(s.videoVerificationRequired), findsOneWidget);
     expect(find.text('previous-viewer'), findsOneWidget);
-    expect(find.text(s.login), findsNothing);
+    expect(find.text(s.login), findsOneWidget);
     expect(find.text(s.videoVerifyAccess), findsOneWidget);
     expect(find.text(s.retry), findsOneWidget);
     await tester.ensureVisible(find.text(s.logout));
@@ -227,7 +255,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text(s.videoVerificationRequired), findsOneWidget);
-      expect(find.text(s.login), findsNothing);
+      expect(find.text(s.login), findsOneWidget);
       await tester.tap(find.text(s.videoVerifyAccess));
       await tester.pump();
       expect(
@@ -296,7 +324,7 @@ void main() {
               DateFormat.yMMMd(s.localeName).add_jm().format(retryAt.toLocal()),
             );
       expect(find.text(message), findsOneWidget);
-      expect(find.text(s.login), findsNothing);
+      expect(find.text(s.login), findsOneWidget);
       expect(find.text(s.retry), findsOneWidget);
     });
   }
@@ -340,7 +368,7 @@ class _TestMissavClient extends MissavClient {
   int restoreAccountCalls = 0;
   int browserAccessChecks = 0;
   int logoutCalls = 0;
-  MissavException? restoreAccountError;
+  Object? restoreAccountError;
   Completer<bool>? restoreAccountCompleter;
 
   @override

@@ -1073,6 +1073,57 @@ void main() {
     },
   );
 
+  test(
+    'cancelling recovery releases a WebView with a pending navigation',
+    () async {
+      final oldPlatform = WebViewPlatform.instance;
+      final navigationStarted = Completer<void>();
+      final nativeNavigation = Completer<void>();
+      final webViewPlatform = _FakeWebViewPlatform(
+        Future.value([]),
+        loadRequestCompletion: nativeNavigation.future,
+        onLoadRequest: (params) async {
+          if (params.uri.scheme == 'https') {
+            navigationStarted.complete();
+          }
+        },
+      );
+      WebViewPlatform.instance = webViewPlatform;
+      addTearDown(() {
+        nativeNavigation.complete();
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+
+      final storage = _MemorySecureStorage();
+      final client = MissavClient(secureStorage: storage);
+      addTearDown(client.dispose);
+      await client.importVerifiedSession(
+        cookieHeader: 'session=stored',
+        userAgent: 'stored-agent',
+      );
+      final cancelSignal = Completer<void>();
+      final connection = connectMissavBrowserSession(
+        client,
+        mobile: WebViewController(),
+        cancelSignal: cancelSignal,
+        expectedGeneration: client.sessionGeneration,
+        preserveMobilePageOnFailure: false,
+        checkAccess: false,
+        forAccountRestore: true,
+      );
+      final rejected = expectLater(
+        connection.timeout(const Duration(seconds: 2)),
+        throwsA(isA<StateError>()),
+      );
+      await navigationStarted.future;
+      cancelSignal.complete();
+      await rejected;
+      expect(webViewPlatform.lastController!.networkNavigations, 2);
+      expect(storage.cookie, 'session=stored');
+      expect(client.isLoggedIn, isFalse);
+    },
+  );
+
   testWidgets(
     'saved-session recovery skips import and keeps the stored session',
     (tester) async {

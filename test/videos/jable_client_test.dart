@@ -110,6 +110,85 @@ void main() {
   });
 
   test(
+    'plays the official detail while browser restoration is pending',
+    () async {
+      final storage = _MemorySecureStorage()
+        ..values['iroru.jable_verified_session'] =
+            '{"cookie":"cf_clearance=saved","userAgent":"Saved UA"}';
+      final restoration = Completer<void>();
+      final official = _Adapter(
+        (_) => _html('<script>var hlsUrl = "/official.m3u8";</script>'),
+      );
+      final client = JableClient(
+        dio: Dio()..httpClientAdapter = official,
+        mirrorDio: Dio()..httpClientAdapter = _Adapter((_) => _mirrorCatalog),
+        secureStorage: storage,
+        restoreSavedSession: (_, _) => restoration.future,
+      );
+      addTearDown(client.dispose);
+      addTearDown(() {
+        if (!restoration.isCompleted) restoration.complete();
+      });
+
+      final page = await client.browse(client.homeUrl);
+      expect(page.videos, hasLength(1));
+      final details = client.details(page.videos.single)..ignore();
+      await pumpEventQueue();
+
+      expect(official.requests.map((request) => request.uri.path), [
+        '/videos/one/',
+      ]);
+      expect(
+        (await details).streams.single.url,
+        'https://jable.tv/official.m3u8',
+      );
+    },
+  );
+
+  test(
+    'does not retry a failed browser restoration for official details',
+    () async {
+      final storage = _MemorySecureStorage()
+        ..values['iroru.jable_verified_session'] =
+            '{"cookie":"cf_clearance=saved","userAgent":"Saved UA"}';
+      final restorationFailed = Completer<void>();
+      var restoreAttempts = 0;
+      final mirror = _Adapter((_) async {
+        await restorationFailed.future;
+        return _html('', statusCode: 404);
+      });
+      final official = _Adapter(
+        (_) => _html('<script>var hlsUrl = "/official.m3u8";</script>'),
+      );
+      final client = JableClient(
+        dio: Dio()..httpClientAdapter = official,
+        mirrorDio: Dio()..httpClientAdapter = mirror,
+        secureStorage: storage,
+        restoreSavedSession: (_, _) async {
+          restoreAttempts++;
+          restorationFailed.complete();
+          throw StateError('Browser is offline');
+        },
+      );
+      addTearDown(client.dispose);
+
+      final details = await client.details(
+        const VideoItem(
+          id: 'one',
+          title: 'One',
+          sourceKey: 'jable',
+          pageUrl: 'https://jable1.net/videos/one/',
+        ),
+      );
+
+      expect(mirror.requests.single.uri.path, '/videos/one/');
+      expect(official.requests.single.uri.path, '/videos/one/');
+      expect(details.streams.single.url, 'https://jable.tv/official.m3u8');
+      expect(restoreAttempts, 1);
+    },
+  );
+
+  test(
     'returns to the automatic mirror after a browser login redirect',
     () async {
       final client = _mirrorClient(
@@ -235,7 +314,7 @@ void main() {
       throwsA(isA<VideoSourceException>()),
     );
     expect(mirror.requests.single.uri.host, cached.host);
-    expect(official.requests, isEmpty);
+    expect(official.requests.single.uri.path, '/videos/missing/');
     expect(preferences.getString(jableLastGoodHostKey), cached.baseUrl);
 
     final page = await client.browse(client.homeUrl);

@@ -7333,7 +7333,7 @@ void main() {
       expect(find.byType(VideoAccountScreen), findsOneWidget);
       expect(restoreAttempts, 1);
       expect(find.text(strings.videoSourceUnavailable), findsNothing);
-      expect(find.text(strings.login), findsNothing);
+      expect(find.text(strings.login), findsOneWidget);
       expect(find.text(strings.videoLoginRequired), findsNothing);
       expect(client.videoFavoriteChanges, isEmpty);
       expect(client.playlistsCalls, 0);

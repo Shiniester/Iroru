@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:desktop_webview_window/desktop_webview_window.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -73,6 +74,7 @@ String _cookieDomain(String value) {
 Future<T> _cancelable<T>(Future<T> operation, Completer<void>? cancelSignal) {
   if (cancelSignal == null) return operation;
   if (cancelSignal.isCompleted) {
+    operation.ignore();
     return Future<T>.error(
       StateError('MissAV browser connection was cancelled.'),
     );
@@ -617,22 +619,33 @@ Future<String> missavMobileCookieHeader({bool? android}) async {
 
 Future<String> _mobileCookieHeader() => missavMobileCookieHeader();
 
-Future<void> _disposeDesktopBrowser(Webview browser) async {
+Future<void> _disposeDesktopBrowser(
+  Webview browser, {
+  Completer<void>? cancelSignal,
+}) async {
   try {
-    await browser.evaluateJavaScript('''
+    await _cancelable(
+      browser.evaluateJavaScript('''
 for (const controller of window.__kikoMissavRequests?.values() ?? []) controller.abort();
 window.__kikoMissavRequests?.clear();
-''');
+'''),
+      cancelSignal,
+    );
   } catch (_) {
     // Closing a browser may already have stopped its page scripts.
   }
   browser.removeJavaScriptHandler(MissavBrowserAdapter.channelName);
   try {
-    await browser.setOnUrlRequestCallback(null);
+    await _cancelable(browser.setOnUrlRequestCallback(null), cancelSignal);
   } catch (_) {}
-  try {
-    await browser.launch('about:blank', triggerOnUrlRequestEvent: false);
-  } catch (_) {}
+  if (cancelSignal?.isCompleted != true) {
+    try {
+      await _cancelable(
+        browser.launch('about:blank', triggerOnUrlRequestEvent: false),
+        cancelSignal,
+      );
+    } catch (_) {}
+  }
   try {
     await browser.close();
   } catch (_) {}
@@ -651,44 +664,60 @@ Future<void> _disposeMobileBrowser(
   WebViewController controller, {
   required bool preservePage,
   String channelName = MissavBrowserAdapter.channelName,
+  Completer<void>? cancelSignal,
 }) async {
+  if (!preservePage && identical(_activeMobileBrowserController, controller)) {
+    _activeMobileBrowserController = null;
+    _activeMobileBrowserEntry?.remove();
+    _activeMobileBrowserEntry = null;
+  }
   try {
-    await controller.runJavaScript('window.stop();');
+    await _cancelable(controller.runJavaScript('window.stop();'), cancelSignal);
   } catch (_) {}
   try {
-    await controller.runJavaScript('''
+    await _cancelable(
+      controller.runJavaScript('''
 for (const request of window.__kikoMissavRequests?.values() ?? []) request.abort();
 window.__kikoMissavRequests?.clear();
-''');
+'''),
+      cancelSignal,
+    );
   } catch (_) {}
   try {
-    await controller.removeJavaScriptChannel(channelName);
+    await _cancelable(
+      controller.removeJavaScriptChannel(channelName),
+      cancelSignal,
+    );
   } catch (_) {}
   try {
-    await controller.setNavigationDelegate(
-      NavigationDelegate(
-        onNavigationRequest: (request) =>
-            !request.isMainFrame ||
-                isMissavVerificationUrl(request.url) ||
-                request.url == 'about:blank'
-            ? NavigationDecision.navigate
-            : NavigationDecision.prevent,
+    await _cancelable(
+      controller.setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (request) =>
+              !request.isMainFrame ||
+                  isMissavVerificationUrl(request.url) ||
+                  request.url == 'about:blank'
+              ? NavigationDecision.navigate
+              : NavigationDecision.prevent,
+        ),
       ),
+      cancelSignal,
     );
   } catch (_) {}
 
   if (!preservePage) {
     try {
-      await controller.setNavigationDelegate(NavigationDelegate());
+      await _cancelable(
+        controller.setNavigationDelegate(NavigationDelegate()),
+        cancelSignal,
+      );
     } catch (_) {}
     try {
-      await controller.loadRequest(Uri.parse('about:blank'));
+      await _cancelable(
+        controller.loadRequest(Uri.parse('about:blank')),
+        cancelSignal,
+      );
     } catch (_) {}
-    if (identical(_activeMobileBrowserController, controller)) {
-      _activeMobileBrowserController = null;
-      _activeMobileBrowserEntry?.remove();
-      _activeMobileBrowserEntry = null;
-    }
   }
 }
 
@@ -895,6 +924,9 @@ connectMissavBrowserSession(
   var proxyGeneration = androidProxyGeneration;
   int? importedGeneration;
   late int clientGeneration;
+  final cleanupCancellation = forAccountRestore && !checkAccess
+      ? cancelSignal
+      : null;
   try {
     await _awaitConnectionPhase(
       client.initialize,
@@ -920,7 +952,7 @@ connectMissavBrowserSession(
       }
       previous.close(force: true);
       try {
-        await previous.whenClosed;
+        await _cancelable(previous.whenClosed, cancelSignal);
       } finally {
         _clearBrowserOwner(previous);
       }
@@ -1052,7 +1084,13 @@ connectMissavBrowserSession(
         disposeBrowser: () async {
           disposing = true;
           await resetMedia();
-          await _disposeDesktopBrowser(browser);
+          if (cleanupCancellation?.isCompleted == true) {
+            _clearBrowserOwner(browserAdapter);
+          }
+          await _disposeDesktopBrowser(
+            browser,
+            cancelSignal: cleanupCancellation,
+          );
           _clearBrowserOwner(browserAdapter);
         },
         readCookieHeader: () async =>
@@ -1151,7 +1189,11 @@ connectMissavBrowserSession(
         ),
         disposeBrowser: () async {
           await resetMedia();
-          await _disposeMobileBrowser(mobile, preservePage: preserveMobilePage);
+          await _disposeMobileBrowser(
+            mobile,
+            preservePage: preserveMobilePage,
+            cancelSignal: cleanupCancellation,
+          );
           final proxyToRelease = identical(_activeBrowser, browserAdapter)
               ? _activeBrowserAndroidProxyGeneration
               : null;
@@ -1383,7 +1425,7 @@ connectMissavBrowserSession(
         await adapter.whenClosed;
       } catch (_) {}
     } else if (desktop != null) {
-      await _disposeDesktopBrowser(desktop);
+      await _disposeDesktopBrowser(desktop, cancelSignal: cleanupCancellation);
     }
     rethrow;
   } finally {
@@ -1396,10 +1438,14 @@ connectMissavBrowserSession(
 Future<void> restoreMissavBrowserSession(
   MissavClient client,
   int expectedGeneration,
+  CancelToken cancelToken,
 ) async {
+  final cancelSignal = Completer<void>();
+  cancelToken.whenCancel.then((_) => cancelSignal.complete()).ignore();
   if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
     await connectMissavBrowserSession(
       client,
+      cancelSignal: cancelSignal,
       expectedGeneration: expectedGeneration,
       preserveMobilePageOnFailure: false,
       checkAccess: false,
@@ -1411,7 +1457,7 @@ Future<void> restoreMissavBrowserSession(
   final connectionGeneration = _browserConnectionGeneration;
   void ensureCurrent() => ensureMissavBrowserConnectionCurrent(
     connectionGeneration,
-    null,
+    cancelSignal,
     client: client,
     clientGeneration: expectedGeneration,
   );
@@ -1422,7 +1468,10 @@ Future<void> restoreMissavBrowserSession(
   OverlayEntry? entry;
   var retained = false;
   try {
-    await mobile.setJavaScriptMode(JavaScriptMode.unrestricted);
+    await _cancelable(
+      mobile.setJavaScriptMode(JavaScriptMode.unrestricted),
+      cancelSignal,
+    );
     ensureCurrent();
     entry = OverlayEntry(
       builder: (_) => Offstage(
@@ -1434,11 +1483,12 @@ Future<void> restoreMissavBrowserSession(
       ),
     );
     overlay.insert(entry);
-    await WidgetsBinding.instance.endOfFrame;
+    await _cancelable(WidgetsBinding.instance.endOfFrame, cancelSignal);
     ensureCurrent();
     await connectMissavBrowserSession(
       client,
       mobile: mobile,
+      cancelSignal: cancelSignal,
       expectedGeneration: expectedGeneration,
       preserveMobilePageOnFailure: false,
       checkAccess: false,
@@ -1453,9 +1503,13 @@ Future<void> restoreMissavBrowserSession(
     retained = true;
   } finally {
     if (!retained) {
-      await _disposeMobileBrowser(mobile, preservePage: false);
       entry?.remove();
       entry?.dispose();
+      await _disposeMobileBrowser(
+        mobile,
+        preservePage: false,
+        cancelSignal: cancelSignal,
+      );
     }
   }
 }

@@ -316,7 +316,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
           ? null
           : signedIn
           ? _logout
-          : !hasSession
+          : !hasSession || _restoreFailed
           ? _login
           : null,
       error: restoring
@@ -325,6 +325,11 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
       recoveryActions: restoring
           ? const []
           : [
+              if (signedIn && _restoreFailed)
+                OutlinedButton(
+                  onPressed: _loading ? null : _login,
+                  child: Text(s.login),
+                ),
               if (_restoreFailed && hasSession)
                 TextButton(
                   onPressed: _loading ? null : _restoreAccount,

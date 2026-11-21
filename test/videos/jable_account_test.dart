@@ -3,13 +3,73 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/providers/audio_provider.dart';
 import 'package:iroru/src/videos/jable_client.dart';
+import 'package:iroru/src/videos/ui/jable_account_screen.dart';
 import 'package:iroru/src/videos/video_models.dart';
+import 'package:iroru/src/videos/video_providers.dart';
 
 void main() {
+  testWidgets('can reopen web login after a signed-in account check fails', (
+    tester,
+  ) async {
+    var unavailable = false;
+    final testClient = _createClient(
+      _Adapter(
+        (_) =>
+            _html(unavailable ? '<html>Unavailable</html>' : _favoritesPage()),
+      ),
+    );
+    addTearDown(testClient.dispose);
+    await tester.runAsync(testClient.client.account.checkLogin);
+    expect(testClient.client.account.isLoggedIn, isTrue);
+    unavailable = true;
+    final loginUrls = <String>[];
+    final strings = await S.delegate.load(const Locale('en'));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          jableVideoClientProvider.overrideWithValue(testClient.client),
+          jableAccessVerifierProvider.overrideWithValue((
+            _,
+            _, {
+            required sourceUrl,
+            requireLogin = false,
+          }) async {
+            expect(requireLogin, isTrue);
+            loginUrls.add(sourceUrl);
+            return false;
+          }),
+          currentTrackProvider.overrideWith((ref) => Stream.value(null)),
+        ],
+        child: const MaterialApp(
+          locale: Locale('en'),
+          supportedLocales: S.supportedLocales,
+          localizationsDelegates: S.localizationsDelegates,
+          home: JableAccountScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(strings.retry), findsOneWidget);
+    expect(find.text(strings.logout), findsOneWidget);
+    expect(find.text(strings.login), findsOneWidget);
+    await tester.tap(find.text(strings.login));
+    await tester.pumpAndSettle();
+
+    expect(loginUrls, ['${JableClient.origin}/login/']);
+    expect(testClient.client.account.isLoggedIn, isTrue);
+    expect(find.text(strings.retry), findsOneWidget);
+    expect(find.text(strings.login), findsOneWidget);
+  });
+
   test('recognizes only the exact same-origin favorites paths', () {
     expect(
       JableAccount.isFavoritesUri(
@@ -482,7 +542,10 @@ void main() {
       );
 
       expect(adapter.requests, hasLength(1));
-      expect(testClient.storage.values, contains('iroru.jable_verified_session'));
+      expect(
+        testClient.storage.values,
+        contains('iroru.jable_verified_session'),
+      );
       expect(testClient.client.sessionGeneration, generation);
       testClient.dispose();
     },

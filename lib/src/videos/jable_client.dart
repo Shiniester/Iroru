@@ -572,6 +572,7 @@ class JableClient implements VideoSourceClient {
       item,
       includeAccountState: includeAccountState,
       content: content,
+      allowOfficialFallback: usesAutomaticMirror,
     );
     final uri = Uri.parse(details.video.pageUrl);
     _ensureRequestCurrent(generation, locale, uri, null, content);
@@ -818,7 +819,7 @@ class JableClient implements VideoSourceClient {
     final official = requested.replace(host: _officialHost);
     _ensureContentCurrent(content, official);
     if (cancelToken?.cancelError case final error?) throw error;
-    await _prepareOnlineAccess();
+    if (!details) await _prepareOnlineAccess();
     _ensureContentCurrent(content, official);
     final (document, uri) = await _loadDocumentPage(
       official,

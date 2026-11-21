@@ -432,6 +432,68 @@ void main() {
         expect(details.streams, isNotEmpty);
       });
 
+      testWidgets('keeps looking after both first mirrors lack streams', (
+        tester,
+      ) async {
+        await begin(tester);
+        for (final host in hosts.take(2)) {
+          responses[host]!.complete(
+            _response('<main><h1>Metadata only</h1></main>'),
+          );
+          await tester.pump(Duration.zero);
+        }
+
+        expect(requested(), hosts.take(3));
+        responses[hosts[2]]!.complete(_response(detail));
+        await tester.pump(Duration.zero);
+
+        final details = await pending;
+        expect(Uri.parse(details.video.pageUrl).origin, hosts[2]);
+        expect(details.streams, isNotEmpty);
+      });
+
+      for (final nextMirrorIsPlayable in [false, true]) {
+        testWidgets('preserves detail across a later rate limit '
+            '(next mirror playable: $nextMirrorIsPlayable)', (tester) async {
+          final selected = missavMirrors.first.baseUrl;
+          await begin(tester, selected: selected);
+          responses[MissavClient.origin] = Completer<ResponseBody>()
+            ..complete(_response('', statusCode: HttpStatus.notFound));
+          pending.ignore();
+          responses[hosts[0]]!.complete(
+            _response('<main><h1>First detail</h1></main>'),
+          );
+          await tester.pump(Duration.zero);
+          responses[hosts[1]]!.complete(
+            _response('', statusCode: HttpStatus.tooManyRequests),
+          );
+          await tester.pump(Duration.zero);
+
+          expect(requested(), hosts.take(3));
+          responses[hosts[2]]!.complete(
+            nextMirrorIsPlayable
+                ? _response(detail)
+                : _response('<main><h1>Later detail</h1></main>'),
+          );
+          await tester.pump(Duration.zero);
+          if (!nextMirrorIsPlayable) {
+            responses[hosts[3]]!.complete(
+              _response('', statusCode: HttpStatus.tooManyRequests),
+            );
+            await tester.pump(Duration.zero);
+          }
+          final details = await pending;
+          expect(
+            Uri.parse(details.video.pageUrl).origin,
+            nextMirrorIsPlayable ? hosts[2] : hosts[0],
+          );
+          expect(details.streams.isNotEmpty, nextMirrorIsPlayable);
+          if (!nextMirrorIsPlayable) {
+            expect(details.video.title, 'First detail');
+          }
+        });
+      }
+
       testWidgets('a fast rate-limited primary starts the backup immediately', (
         tester,
       ) async {
@@ -3067,7 +3129,7 @@ void main() {
         dio: Dio()..httpClientAdapter = native,
         metadataDio: _emptyMetadataDio(),
         secureStorage: storage,
-        restoreSavedSession: (client, expectedGeneration) async {
+        restoreSavedSession: (client, expectedGeneration, _) async {
           restoreCalls++;
           client.useVerifiedBrowserTransport(
             browser,
@@ -3078,8 +3140,7 @@ void main() {
       );
       addTearDown(client.dispose);
 
-      await client.checkBrowserAccess();
-
+      expect(await client.restoreAccount(), isTrue);
       expect(restoreCalls, 0);
       final contentRequests = native.requests
           .where((request) => !_isMirrorProbe(request))
@@ -3089,7 +3150,7 @@ void main() {
       final contentRequest = contentRequests.single;
       expect(_cookieHeader(contentRequest), 'session=saved');
       expect(_headerValue(contentRequest, 'User-Agent'), 'Saved Browser UA');
-      expect(contentRequest.uri.path, '/cn');
+      expect(contentRequest.uri.path, '/en/saved');
       expect(client.accountName, 'Native viewer');
       expect(client.isLoggedIn, isTrue);
     },
@@ -4428,9 +4489,19 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       final finishBrowserRestore = Completer<void>();
       final staleView = Completer<ResponseBody>();
       final initialDetails = Completer<VideoDetails>();
+      var savedRequests = 0;
       final native = _Adapter((request) {
         if (request.uri.path.endsWith('/view')) return staleView.future;
         if (request.uri.path == '/en/saved') {
+          if (++savedRequests == 1) {
+            return _response(
+              'Verification needed',
+              statusCode: HttpStatus.forbidden,
+              headers: {
+                'cf-mitigated': ['challenge'],
+              },
+            );
+          }
           return _response('<body x-data="{user: {name: \'Viewer\'}}"></body>');
         }
         return _response(fixture);
@@ -4443,7 +4514,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
         metadataDio: _emptyMetadataDio(),
         secureStorage: _storedBrowserSession(),
         contentHosts: [mirror],
-        restoreSavedSession: (client, _) async {
+        restoreSavedSession: (client, _, _) async {
           await finishBrowserRestore.future;
           client.useVerifiedBrowserTransport(browser, forAccountRestore: true);
         },
@@ -4463,16 +4534,19 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       final restore = client.restoreAccount();
       final cancelToken = CancelToken();
       var cancelledWhileRestoring = false;
-      final cancellation = expectLater(
-        client.supplementDetails(playable, cancelToken: cancelToken),
-        throwsA(isA<DioException>().having(
-          (error) => error.type,
-          'type',
-          DioExceptionType.cancel,
-        )),
-      ).then((_) {
-        cancelledWhileRestoring = !finishBrowserRestore.isCompleted;
-      });
+      final cancellation =
+          expectLater(
+            client.supplementDetails(playable, cancelToken: cancelToken),
+            throwsA(
+              isA<DioException>().having(
+                (error) => error.type,
+                'type',
+                DioExceptionType.cancel,
+              ),
+            ),
+          ).then((_) {
+            cancelledWhileRestoring = !finishBrowserRestore.isCompleted;
+          });
       await pumpEventQueue();
       cancelToken.cancel();
       await pumpEventQueue();
@@ -4490,7 +4564,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       );
       expect(
         native.requests.where((request) => request.uri.path == '/en/saved'),
-        hasLength(1),
+        hasLength(2),
       );
       expect(browser.requests.single.uri.path, '/api/items/source-123/view');
     },
@@ -4563,7 +4637,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = native,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (client, expectedGeneration) async {
+      restoreSavedSession: (client, expectedGeneration, _) async {
         restorations++;
         expect(client.sessionGeneration, expectedGeneration);
         client.useVerifiedBrowserTransport(
@@ -5103,48 +5177,125 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
   });
 
   for (final nativeNeedsVerification in [false, true]) {
-    test(
-      'checks saved credentials after a browser challenge '
-      '(native challenge: $nativeNeedsVerification)',
-      () async {
-        final storage = _storedBrowserSession();
-        final native = _Adapter(
-          (_) => nativeNeedsVerification
-              ? _response(
-                  'Verification needed',
-                  statusCode: HttpStatus.forbidden,
-                  headers: {'cf-mitigated': ['challenge']},
-                )
-              : _response('<body x-data="{user: {name: \'Viewer\'}}"></body>'),
-        );
-        final client = MissavClient(
-          dio: Dio()..httpClientAdapter = native,
-          secureStorage: storage,
-          restoreSavedSession: (_, _) async {
-            throw const MissavVerificationRequiredException(
-              sourceUrl: '${MissavClient.origin}/en',
-            );
-          },
-        );
-        addTearDown(client.dispose);
-
-        if (nativeNeedsVerification) {
-          await expectLater(
-            client.restoreAccount(),
-            throwsA(isA<MissavVerificationRequiredException>()),
+    test('preserves saved credentials when verification needs user action '
+        '(native challenge: $nativeNeedsVerification)', () async {
+      final storage = _storedBrowserSession();
+      final requestsBeforeRestore = <String>[];
+      final native = _Adapter(
+        (_) => nativeNeedsVerification
+            ? _response(
+                'Verification needed',
+                statusCode: HttpStatus.forbidden,
+                headers: {
+                  'cf-mitigated': ['challenge'],
+                },
+              )
+            : _response('<body x-data="{user: {name: \'Viewer\'}}"></body>'),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = native,
+        secureStorage: storage,
+        restoreSavedSession: (_, _, _) async {
+          requestsBeforeRestore.addAll(
+            native.requests.map((request) => request.uri.path),
           );
-        } else {
-          expect(await client.restoreAccount(), isTrue);
-          expect(client.accountName, 'Viewer');
-        }
-        final request = native.requests.single;
-        expect(request.uri.toString(), '${MissavClient.origin}/en/saved');
-        expect(_cookieHeader(request), 'session=saved');
-        expect(_headerValue(request, 'User-Agent'), 'Saved Browser UA');
-        expect(storage.cookie, 'session=saved');
-      },
-    );
+          throw const MissavVerificationRequiredException(
+            sourceUrl: '${MissavClient.origin}/en',
+          );
+        },
+      );
+      addTearDown(client.dispose);
+
+      if (nativeNeedsVerification) {
+        await expectLater(
+          client.restoreAccount(),
+          throwsA(isA<MissavVerificationRequiredException>()),
+        );
+      } else {
+        expect(await client.restoreAccount(), isTrue);
+        expect(client.accountName, 'Viewer');
+      }
+      expect(
+        requestsBeforeRestore,
+        nativeNeedsVerification ? ['/en/saved'] : [],
+      );
+      final request = native.requests.single;
+      expect(request.uri.toString(), '${MissavClient.origin}/en/saved');
+      expect(_cookieHeader(request), 'session=saved');
+      expect(_headerValue(request, 'User-Agent'), 'Saved Browser UA');
+      expect(storage.cookie, 'session=saved');
+    });
   }
+
+  testWidgets(
+    'account recovery shares one deadline and releases a stuck browser',
+    (tester) async {
+      final storage = _storedBrowserSession();
+      final nativeResponse = Completer<ResponseBody>();
+      final cookieResponse = Completer<String>();
+      var nativeChecks = 0;
+      var browserDisposals = 0;
+      final native = _Adapter(
+        (_) => ++nativeChecks == 1
+            ? nativeResponse.future
+            : _response(
+                '<body x-data="{user: {name: \'Retry viewer\'}}"></body>',
+              ),
+      );
+      final browser = MissavBrowserAdapter(
+        currentUrl: () async => MissavClient.origin,
+        runJavaScript: (_) async {},
+        navigateDocument: (_, _) async =>
+            '<body x-data="{user: {name: \'Late viewer\'}}"></body>',
+        readCookieHeader: () => cookieResponse.future,
+        disposeBrowser: () async => browserDisposals++,
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = native,
+        secureStorage: storage,
+        restoreSavedSession: (client, _, _) async {
+          client.useVerifiedBrowserTransport(browser, forAccountRestore: true);
+        },
+      );
+      addTearDown(client.dispose);
+
+      final first = expectLater(
+        client.restoreAccount(),
+        throwsA(isA<TimeoutException>()),
+      );
+      final second = expectLater(
+        client.restoreAccount(),
+        throwsA(isA<TimeoutException>()),
+      );
+      await tester.pump(Duration.zero);
+      await tester.pump(const Duration(seconds: 20));
+      nativeResponse.complete(
+        _response(
+          'Verification needed',
+          statusCode: HttpStatus.forbidden,
+          headers: {
+            'cf-mitigated': ['challenge'],
+          },
+        ),
+      );
+      await tester.pump(Duration.zero);
+      expect(nativeChecks, 1);
+      expect(browser.isClosed, isFalse);
+      await tester.pump(const Duration(seconds: 10));
+      await Future.wait([first, second]);
+      expect(browserDisposals, 1);
+      expect(client.isLoggedIn, isFalse);
+      expect(storage.cookie, 'session=saved');
+
+      final retry = client.restoreAccount();
+      await tester.pump(Duration.zero);
+      expect(await retry, isTrue);
+      cookieResponse.complete('session=late');
+      await tester.pump(Duration.zero);
+      expect(client.accountName, 'Retry viewer');
+      expect(storage.cookie, 'session=saved');
+    },
+  );
 
   test('rechecking a signed-in account clears a rejected session', () async {
     final storage = _MemorySecureStorage()..cookie = 'session=saved';
@@ -5372,7 +5523,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = nativeAdapter,
       secureStorage: storage,
-      restoreSavedSession: (_, _) async {
+      restoreSavedSession: (_, _, _) async {
         restoreCalls++;
       },
     );
@@ -5392,7 +5543,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     expect(await client.restoreAccount(), isTrue);
     await client.browse('https://missav.ai/cn');
 
-    expect(restoreCalls, 1);
+    expect(restoreCalls, 0);
     final contentRequests = nativeAdapter.requests
         .where((request) => !_isMirrorProbe(request))
         .toList();
@@ -5469,7 +5620,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = adapter,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _) async {},
+      restoreSavedSession: (_, _, _) async {},
     );
     addTearDown(client.dispose);
 
@@ -5507,7 +5658,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = adapter,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _) async {},
+      restoreSavedSession: (_, _, _) async {},
     );
     addTearDown(client.dispose);
 
@@ -5522,6 +5673,31 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     expect(loginHosts, ['missav.ai']);
     expect(client.isLoggedIn, isFalse);
   });
+
+  test(
+    'keeps playback direct until the restored account is confirmed',
+    () async {
+      final client = MissavClient(secureStorage: _MemorySecureStorage());
+      addTearDown(client.dispose);
+      client.useVerifiedBrowserTransport(
+        _Adapter((_) => throw StateError('Unexpected source request.')),
+        forAccountRestore: true,
+        mediaRoute: (_) =>
+            throw StateError('The browser account is unconfirmed.'),
+      );
+      const video = VideoItem(
+        id: 'sample',
+        title: 'Sample',
+        pageUrl: 'https://missav.ai/cn/sample',
+      );
+      const stream = VideoStream(
+        label: 'Original',
+        url: 'https://media.example/hls',
+      );
+
+      expect(await client.prepareMediaStream(video, stream), same(stream));
+    },
+  );
 
   test('a late media route is discarded on account logout', () async {
     final route = Completer<Uri>();
@@ -5657,7 +5833,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = adapter,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _) async {},
+      restoreSavedSession: (_, _, _) async {},
     );
     addTearDown(client.dispose);
 
@@ -5734,7 +5910,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = adapter,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (client, expectedGeneration) async {},
+      restoreSavedSession: (_, _, _) async {},
     );
     addTearDown(client.dispose);
     await client.initialize();
@@ -5764,7 +5940,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = adapter,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (client, expectedGeneration) async {},
+      restoreSavedSession: (_, _, _) async {},
     );
     addTearDown(client.dispose);
     await client.initialize();
@@ -5792,7 +5968,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = adapter,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (client, expectedGeneration) async {},
+      restoreSavedSession: (_, _, _) async {},
     );
     addTearDown(client.dispose);
     await client.initialize();
@@ -5891,7 +6067,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = nativeAdapter,
       secureStorage: _storedBrowserSession(),
       contentHosts: [mirror.baseUrl],
-      restoreSavedSession: (client, expectedGeneration) async {
+      restoreSavedSession: (client, expectedGeneration, _) async {
         restoreCalls++;
       },
     );
@@ -5919,7 +6095,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _) async => restoreCalls++,
+      restoreSavedSession: (_, _, _) async => restoreCalls++,
     );
     addTearDown(client.dispose);
 
@@ -5953,7 +6129,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = nativeAdapter,
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (client, expectedGeneration) async {
+      restoreSavedSession: (client, expectedGeneration, _) async {
         restoreCalls++;
       },
     );
@@ -6034,7 +6210,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _) async {
+      restoreSavedSession: (_, _, _) async {
         restoreCalls++;
       },
     );

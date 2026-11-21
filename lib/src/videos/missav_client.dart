@@ -131,7 +131,11 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   };
 
   final FlutterSecureStorage _secureStorage;
-  final Future<void> Function(MissavClient client, int expectedGeneration)?
+  final Future<void> Function(
+    MissavClient client,
+    int expectedGeneration,
+    CancelToken cancelToken,
+  )?
   restoreSavedSession;
   final Dio _dio;
   final Dio _metadataDio;
@@ -148,6 +152,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   int _sessionGeneration = 0;
   int _contentGeneration = 0;
   CancelToken _sessionCancelToken = CancelToken();
+  CancelToken? _accountRestoreToken;
   final List<CancelToken> _browseCancelTokens = [];
   Future<void> _pendingSessionWrite = Future.value();
   Future<void>? _initializing;
@@ -321,6 +326,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final browser = _browserAdapter;
     final page = Uri.tryParse(video.pageUrl);
     if (route == null ||
+        _browserAccountUnconfirmed ||
         page == null ||
         page.origin != origin ||
         browser is MissavBrowserAdapter &&
@@ -619,7 +625,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
     final sourceUser = _readAccountFromPage(document) ?? browserUser;
     if (sourceUser != null) {
-      await _confirmAccount(sourceUser, uri, generation);
+      await _confirmAccount(sourceUser, uri, generation, cancelToken);
     }
     if (pageUri.origin == _baseUrl) _updateHomeUrl(document, pageUri);
   }
@@ -637,29 +643,66 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       return false;
     }
     final generation = _sessionGeneration;
-    final restorer = restoreSavedSession;
-    if (!_isLoggedIn && _browserAdapter == null && restorer != null) {
+    final cancelToken = _accountRestoreToken = CancelToken();
+    final uri = Uri.parse(origin);
+    var restoringBrowser = _browserAdapter;
+
+    Future<bool> restore() async {
       try {
-        await restorer(this, generation);
-      } catch (_) {
-        _checkGeneration(generation, Uri.parse(origin));
+        return await _restoreAccount(generation, cancelToken);
+      } on MissavVerificationRequiredException {
+        final restorer = restoreSavedSession;
+        if (_isLoggedIn || _browserAdapter != null || restorer == null) rethrow;
+        _checkCancelled(cancelToken, uri);
+        try {
+          await restorer(this, generation, cancelToken);
+        } catch (_) {
+          _checkGeneration(generation, uri);
+        }
+        _checkCancelled(cancelToken, uri);
+        restoringBrowser = _browserAdapter;
+        if (restoringBrowser == null) rethrow;
+        return _restoreAccount(generation, cancelToken);
       }
     }
-    return _restoreAccount(generation);
+
+    const timeout = Duration(seconds: 30);
+    try {
+      return await restore().timeout(
+        timeout,
+        onTimeout: () {
+          cancelToken.cancel('MissAV account restoration timed out.');
+          if (generation == _sessionGeneration &&
+              _browserAccountUnconfirmed &&
+              restoringBrowser != null) {
+            restoreNativeTransport(expectedAdapter: restoringBrowser);
+          }
+          throw TimeoutException(
+            'MissAV account restoration timed out.',
+            timeout,
+          );
+        },
+      );
+    } finally {
+      if (identical(_accountRestoreToken, cancelToken)) {
+        _accountRestoreToken = null;
+      }
+    }
   }
 
-  Future<bool> _restoreAccount(int generation) async {
+  Future<bool> _restoreAccount(int generation, CancelToken cancelToken) async {
     final uri = Uri.parse('$origin/en/saved');
     try {
       final (:document, uri: pageUri) = await _loadDocument(
         uri,
         generation,
+        cancelToken: cancelToken,
         isContentPage: true,
         accountCheck: true,
       );
       final sourceUser = _readAccountFromPage(document);
       if (pageUri.origin == uri.origin && sourceUser != null) {
-        await _confirmAccount(sourceUser, uri, generation);
+        await _confirmAccount(sourceUser, uri, generation, cancelToken);
         return true;
       }
       if (pageUri.origin == uri.origin &&
@@ -677,9 +720,10 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       );
     } on MissavAuthenticationException {
       _checkGeneration(generation, uri);
+      _checkCancelled(cancelToken, uri);
       if (_browserAccountUnconfirmed && _cookies.header != null) {
         restoreNativeTransport();
-        return _restoreAccount(generation);
+        return _restoreAccount(generation, cancelToken);
       }
       if (_browserAdapter != null) {
         restoreNativeTransport();
@@ -692,14 +736,22 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   Future<void> _confirmAccount(
     Map<String, dynamic> user,
     Uri uri,
-    int generation,
-  ) async {
+    int generation, [
+    CancelToken? cancelToken,
+  ]) async {
     final browser = _browserAdapter;
     if (_browserAccountUnconfirmed && browser is MissavBrowserAdapter) {
-      _acceptRestoredBrowser();
-      await _saveBrowserCookies(browser, uri, generation, force: true);
+      await _saveBrowserCookies(
+        browser,
+        uri,
+        generation,
+        force: true,
+        cancelToken: cancelToken,
+        userAgent: _restoredUserAgent,
+      );
       _checkGeneration(generation, uri);
     }
+    _checkCancelled(cancelToken, uri);
     _updateAccountFromSource(user);
   }
 
@@ -2034,7 +2086,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       }
     }
     if (useBrowser && uri.origin == origin && !_browserAccountUnconfirmed) {
-      await _saveBrowserCookies(browser, uri, generation);
+      await _saveBrowserCookies(
+        browser,
+        uri,
+        generation,
+        cancelToken: cancelToken,
+      );
       _checkGeneration(generation, uri);
       if (cancelToken?.cancelError case final error?) throw error;
     }
@@ -2192,6 +2249,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         response,
         requestUri,
         requestGeneration,
+        requestCancelToken,
         login: login,
       );
       final browser = _browserAdapter;
@@ -2298,7 +2356,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   Future<void> _saveResponseCookies(
     Response<dynamic> response,
     Uri uri,
-    int generation, {
+    int generation,
+    CancelToken cancelToken, {
     _MissavLoginCookies? login,
   }) async {
     if (uri.origin != origin ||
@@ -2314,6 +2373,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
 
     await _writeSession(generation, () async {
+      if (cancelToken.isCancelled) return;
       final updated = _cookies.withResponse(values);
       await _persistSession(
         generation,
@@ -2332,19 +2392,27 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     Uri uri,
     int generation, {
     bool force = false,
+    CancelToken? cancelToken,
+    String? userAgent,
   }) async {
     final read = browser.readCookieHeader;
     if (read == null) return;
     await _writeSession(generation, () async {
-      if (uri.origin != origin) return;
+      if (uri.origin != origin || cancelToken?.isCancelled == true) return;
       final String header;
       try {
-        header = await read();
+        header = await Future.any([
+          read(),
+          if (cancelToken != null)
+            cancelToken.whenCancel.then<String>((error) => throw error),
+        ]);
         _validateHeaderValue(header, 'cookieHeader');
       } catch (_) {
         return;
       }
       if (generation != _sessionGeneration ||
+          cancelToken?.isCancelled == true ||
+          !identical(browser, _browserAdapter) ||
           (!force && header == _cookies.header)) {
         return;
       }
@@ -2353,13 +2421,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         await _persistSession(
           generation,
           cookies: updated,
-          userAgent: _userAgent,
+          userAgent: userAgent ?? _userAgent,
         );
       } catch (_) {
         debugPrint('MissAV could not persist browser cookies.');
         return;
       }
-      if (generation == _sessionGeneration) _cookies = updated;
+      if (generation == _sessionGeneration) {
+        _cookies = updated;
+      }
     });
   }
 
@@ -2488,6 +2558,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   int _advanceSessionGeneration() {
     _loading.reset();
+    _accountRestoreToken?.cancel('MissAV account changed.');
     cancelBackgroundMirrorProbe();
     _recommendationUserId = null;
     _recommendationScenario = null;
@@ -3695,6 +3766,7 @@ class _ContentLineLoader {
     final hosts = _candidateHosts().toList();
     var next = 0;
     _AcceptedContentLine? accepted;
+    _AcceptedContentLine? metadataOnly;
     if (details &&
         !accountPage &&
         !_client.isLoggedIn &&
@@ -3709,13 +3781,27 @@ class _ContentLineLoader {
       accepted = await _tryFirstMirrors(hosts[0], hosts[1], tryLine);
       next = 2;
     }
-    while (accepted == null && next < hosts.length && !_attempts.expired) {
-      accepted = await tryLine(hosts[next++]);
+    while (next < hosts.length && !_attempts.expired) {
+      if (accepted != null) {
+        if (!details || accepted.page.streams.isNotEmpty) break;
+        metadataOnly ??= accepted;
+      }
+      try {
+        accepted = await tryLine(hosts[next++]);
+      } on MissavRateLimitException {
+        if (metadataOnly == null) rethrow;
+        accepted = null;
+      }
+    }
+    if (accepted == null || (details && accepted.page.streams.isEmpty)) {
+      accepted = metadataOnly ?? accepted;
     }
     if (accepted != null) {
       final (:baseUrl, :page) = accepted;
       _client._checkContentRequest(page.uri, generation, locale, cancelToken);
-      if (!accountPage && _client.contentGeneration == contentGeneration) {
+      if (!accountPage &&
+          (!details || page.streams.isNotEmpty) &&
+          _client.contentGeneration == contentGeneration) {
         _rememberAcceptedLine(baseUrl, page.document, page.uri);
       }
       return page;
