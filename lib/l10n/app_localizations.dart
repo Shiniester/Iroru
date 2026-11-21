@@ -7924,12 +7924,6 @@ abstract class S {
   /// **'Email'**
   String get videoAccountEmail;
 
-  /// Selector label for the official MissAV host used for account sign-in.
-  ///
-  /// In en, this message translates to:
-  /// **'Login host'**
-  String get videoAccountHost;
-
   /// No description provided for @videoAccountBrowserLogin.
   ///
   /// In en, this message translates to:

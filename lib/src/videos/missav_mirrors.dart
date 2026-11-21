@@ -7,7 +7,6 @@ import 'package:dio/io.dart';
 import '../services/proxy_config.dart';
 
 const missavMirrorBaseUrlKey = 'missav_mirror_base_url';
-const missavAccountBaseUrlKey = 'missav_account_base_url';
 const missavLastGoodHostKey = 'missav_last_good_host';
 
 const missavOfficialHosts = {'missav.ai', 'missav.ws', 'missav.live'};

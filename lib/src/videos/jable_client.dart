@@ -17,6 +17,7 @@ import 'missav_browser_adapter.dart';
 import 'video_mirror_selection.dart';
 import 'video_models.dart';
 import 'video_source_client.dart';
+import 'video_source_loading.dart';
 
 part 'jable_account.dart';
 
@@ -94,7 +95,7 @@ class JableClient implements VideoSourceClient {
   int _generation = 0;
   bool _initialized = false;
   bool _disposed = false;
-  bool _needsSavedLoginCheck = false;
+  final _loading = VideoSourceLoading();
   Future<void>? _initializing;
   Future<void> _sessionWriteTail = Future<void>.value();
   final _mirrorSelection = VideoMirrorSelection(
@@ -139,13 +140,16 @@ class JableClient implements VideoSourceClient {
     _lastSuccessfulContentHost.value = uri.host;
   }
 
-  String get activeMirrorHost =>
-      _mirrorDio == null || (usesAutomaticMirror && account.isLoggedIn)
-      ? _officialHost
-      : Uri.parse(
-          _mirrorSelection.prioritized.firstOrNull ??
+  String get activeMirrorHost => Uri.parse(
+    _mirrorDio == null
+        ? origin
+        : _mirrorSelection.accountContentHost(
+                origin,
+                signedIn: account.isLoggedIn,
+              ) ??
+              _mirrorSelection.prioritized.firstOrNull ??
               jableMirrors.first.baseUrl,
-        ).host;
+  ).host;
 
   Future<void> selectMirror(String? baseUrl) async {
     final preferences = await _mirrorPreferences;
@@ -212,7 +216,9 @@ class JableClient implements VideoSourceClient {
             decoded['userAgent'] is String) {
           _cookie = (decoded['cookie'] as String).trim();
           _userAgent = (decoded['userAgent'] as String).trim();
-          _needsSavedLoginCheck = _mirrorDio != null && _cookie!.isNotEmpty;
+          _loading.reset(
+            restoreOnBrowse: _mirrorDio != null && _cookie!.isNotEmpty,
+          );
         }
       } on FormatException {
         // Ignore a malformed source session and let the user verify again.
@@ -221,24 +227,8 @@ class JableClient implements VideoSourceClient {
     _initialized = true;
   }
 
-  Future<void> _prepareContentAccess() async {
-    await initialize();
-    if (_needsSavedLoginCheck && !account.isLoggedIn) {
-      _needsSavedLoginCheck = false;
-      _checkSavedLogin().ignore();
-    }
-  }
-
-  Future<void> _checkSavedLogin() async {
-    final generation = _generation;
-    try {
-      await account.checkLogin();
-    } catch (_) {
-      if (!_disposed && generation == _generation) {
-        _needsSavedLoginCheck = true;
-      }
-    }
-  }
+  Future<void> _prepareContentAccess() =>
+      _loading.prepareContent(initialize, account._checkLogin);
 
   void _scheduleMirrorProbe() {
     if (_disposed ||
@@ -394,7 +384,6 @@ class JableClient implements VideoSourceClient {
       throw StateError('Jable browser session is unavailable.');
     }
     final generation = _advanceSessionGeneration();
-    _needsSavedLoginCheck = false;
     _cookie = cookie;
     _userAgent = agent;
     await _queueSessionWrite(
@@ -412,7 +401,6 @@ class JableClient implements VideoSourceClient {
     if (expectedGeneration != null && expectedGeneration != _generation) return;
     restoreNativeTransport();
     final generation = _advanceSessionGeneration();
-    _needsSavedLoginCheck = false;
     _cookie = null;
     _userAgent = _defaultUserAgent;
     await _queueSessionWrite(() => _secureStorage.delete(key: _sessionKey));
@@ -429,6 +417,7 @@ class JableClient implements VideoSourceClient {
   }
 
   int _advanceSessionGeneration() {
+    _loading.reset();
     final previous = _sessionCancelToken;
     final generation = ++_generation;
     account._sessionChanged();

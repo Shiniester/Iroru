@@ -50,6 +50,7 @@ final jableVideoClientProvider = Provider<JableClient>((ref) {
 final jableAccessVerifierProvider = Provider((ref) => verifyJableAccess);
 final missavAccessVerifierProvider = Provider((ref) => verifyMissavAccess);
 final missavAccountVerifierProvider = Provider((ref) => verifyMissavAccount);
+final missavAccountLoginProvider = Provider((ref) => verifyMissavLogin);
 
 final videoSourceClientProvider = Provider.family<VideoSourceClient, String>(
   (ref, sourceKey) => switch (sourceKey) {

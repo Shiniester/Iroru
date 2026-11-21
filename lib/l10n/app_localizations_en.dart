@@ -4436,9 +4436,6 @@ class SEn extends S {
   String get videoAccountEmail => 'Email';
 
   @override
-  String get videoAccountHost => 'Login host';
-
-  @override
   String get videoAccountBrowserLogin => 'Sign in on website';
 
   @override

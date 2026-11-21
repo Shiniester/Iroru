@@ -61,6 +61,11 @@ class JableAccount extends ChangeNotifier {
   }
 
   Future<bool> checkLogin() async {
+    await _client.initialize();
+    return _client._loading.checkAccount(_checkLogin);
+  }
+
+  Future<bool> _checkLogin() async {
     await _client._prepareOnlineAccess();
     if (!_hasSession) {
       _setLoggedIn(false);

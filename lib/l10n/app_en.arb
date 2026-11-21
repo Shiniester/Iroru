@@ -1860,10 +1860,6 @@
   },
   "videoSourceAccount": "MissAV account",
   "videoAccountEmail": "Email",
-  "videoAccountHost": "Login host",
-  "@videoAccountHost": {
-    "description": "Selector label for the official MissAV host used for account sign-in."
-  },
   "videoAccountBrowserLogin": "Sign in on website",
   "videoJableAccount": "Jable account",
   "videoJableLoginRequired": "Sign in to Jable to view and manage your video favorites.",

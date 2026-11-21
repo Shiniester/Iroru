@@ -16,6 +16,7 @@ import 'package:iroru/src/videos/missav_browser_adapter.dart';
 import 'package:iroru/src/videos/missav_browser_media.dart';
 import 'package:iroru/src/videos/missav_verification.dart';
 import 'package:iroru/src/videos/video_models.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 // This mock extends the transitive platform API used by webview_flutter.
 // ignore: depend_on_referenced_packages
@@ -180,8 +181,10 @@ void main() {
           expect(storage.writeCalls, writesBeforeLogin);
         }
         expect(adapter.isClosed, isFalse);
-        final history = await client.browse(client.collectionUrl('history'));
-        expect(history.title, 'Catalog');
+        final page = await client.browse(
+          loginStatus == 200 ? client.collectionUrl('history') : client.homeUrl,
+        );
+        expect(page.title, 'Catalog');
         expect(await controller.currentUrl(), 'about:blank');
         expect(client.sessionGeneration, greaterThan(verifiedGeneration));
 
@@ -627,6 +630,8 @@ void main() {
   test('verification stays on the exact HTTPS source origin', () {
     expect(isMissavVerificationUrl('https://missav.ai/dm247/cn'), isTrue);
     expect(isMissavVerificationUrl('https://missav.ai:443/cn'), isTrue);
+    expect(isMissavVerificationUrl('https://missav.ws/cn'), isFalse);
+    expect(isMissavVerificationUrl('https://missav.live/cn'), isFalse);
     for (final url in [
       'http://missav.ai/cn',
       'https://missav.ai:444/cn',
@@ -664,6 +669,24 @@ void main() {
       expect(calls, ['configureProxy', 'configureProxy', 'resetProxy']);
     },
   );
+
+  test('Android cookie reads use the canonical browser session', () async {
+    const channel = MethodChannel('com.meteor.kikoeruflutter/missav_browser');
+    final calls = <MethodCall>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return 'session=value==';
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    expect(await missavMobileCookieHeader(android: true), 'session=value==');
+    expect(await missavMobileCookieHeader(android: true), 'session=value==');
+
+    expect(calls.map((call) => call.method), ['getCookies', 'getCookies']);
+    expect(calls.map((call) => call.arguments), [isNull, isNull]);
+  });
 
   test('mobile document fake honors the requested ready state', () async {
     final browser = _FakeWebViewController(
@@ -978,6 +1001,15 @@ void main() {
     },
   );
 
+  test('cookies from other official hosts stay out of the session', () {
+    final cookies = [
+      _cookie('mirror', domain: '.missav.ws'),
+      _cookie('canonical', domain: 'missav.ai'),
+      _cookie('live', domain: 'missav.live'),
+    ];
+    expect(missavVerificationCookieHeader(cookies), 'canonical=value');
+  });
+
   test(
     'a cancelled cookie read cannot import a late browser session',
     () async {
@@ -1018,6 +1050,240 @@ void main() {
       expect(client.sessionGeneration, initialGeneration);
       expect(storage.writeCalls, 0);
     },
+  );
+
+  test(
+    'stale saved-session recovery is rejected before browser setup',
+    () async {
+      final client = MissavClient(secureStorage: _MemorySecureStorage());
+      addTearDown(client.dispose);
+      await client.initialize();
+      final generation = client.sessionGeneration;
+
+      await expectLater(
+        connectMissavBrowserSession(
+          client,
+          expectedGeneration: generation - 1,
+          checkAccess: false,
+          forAccountRestore: true,
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(client.sessionGeneration, generation);
+    },
+  );
+
+  testWidgets(
+    'saved-session recovery skips import and keeps the stored session',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      var mediaChannelAttempts = 0;
+      WebViewPlatform.instance = _FakeWebViewPlatform(
+        Future.value([
+          const WebViewCookie(
+            name: 'session',
+            value: 'stored',
+            domain: 'missav.ai',
+          ),
+        ]),
+        onMediaChannel: () => mediaChannelAttempts++,
+      );
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+      );
+      final storage = _MemorySecureStorage();
+      final client = MissavClient(secureStorage: storage);
+      addTearDown(client.dispose);
+      await client.importVerifiedSession(
+        cookieHeader: 'session=stored',
+        userAgent: 'stored-agent',
+      );
+      final generation = client.sessionGeneration;
+      final storedValues = Map<String, String>.of(storage.values);
+
+      await tester.runAsync(() async {
+        final connection = await _pumpUntilComplete(
+          tester,
+          connectMissavBrowserSession(
+            client,
+            mobile: WebViewController(),
+            expectedGeneration: generation,
+            checkAccess: false,
+            preserveMobilePageOnFailure: false,
+            forAccountRestore: true,
+          ),
+        );
+        expect(connection.signedIn, isFalse);
+      });
+
+      expect(client.sessionGeneration, generation);
+      expect(storage.values, equals(storedValues));
+      expect(storage.cookie, isNotNull);
+      expect(mediaChannelAttempts, 0);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'failed saved-session recovery keeps the stored cookie',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      WebViewPlatform.instance = _FakeWebViewPlatform(Future.value(const []));
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+      );
+      final storage = _MemorySecureStorage();
+      final client = MissavClient(secureStorage: storage);
+      addTearDown(client.dispose);
+      await client.importVerifiedSession(
+        cookieHeader: 'session=stored',
+        userAgent: 'stored-agent',
+      );
+      final generation = client.sessionGeneration;
+      final storedValues = Map<String, String>.of(storage.values);
+
+      await tester.runAsync(() async {
+        final error = await _pumpUntilComplete(
+          tester,
+          connectMissavBrowserSession(
+            client,
+            mobile: WebViewController(),
+            expectedGeneration: generation,
+            checkAccess: false,
+            preserveMobilePageOnFailure: false,
+            forAccountRestore: true,
+          ),
+        ).then<Object?>((_) => null, onError: (Object error) => error);
+        expect(error, isA<StateError>());
+      });
+
+      expect(client.sessionGeneration, generation);
+      expect(storage.values, equals(storedValues));
+      expect(storage.cookie, isNotNull);
+      expect(client.hasRestorableSession, isTrue);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'failed account verification does not replace the stored session',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      final platform = _FakeWebViewPlatform(
+        Future.value([
+          const WebViewCookie(
+            name: 'session',
+            value: 'browser',
+            domain: 'missav.ai',
+          ),
+        ]),
+      );
+      WebViewPlatform.instance = platform;
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+      );
+      final mobile = WebViewController();
+      final page = mobile.platform as _FakeWebViewController;
+      page.runtimeUser = {'username': 'browser-viewer'};
+      var reads = 0;
+      page.responseStatusFor = (_) => ++reads == 1 ? 200 : 500;
+      final storage = _MemorySecureStorage();
+      final client = MissavClient(secureStorage: storage);
+      addTearDown(client.dispose);
+      await client.importVerifiedSession(
+        cookieHeader: 'session=stored',
+        userAgent: 'stored-agent',
+      );
+      final generation = client.sessionGeneration;
+      final storedValues = Map<String, String>.of(storage.values);
+
+      await tester.runAsync(() async {
+        final error = await _pumpUntilComplete(
+          tester,
+          connectMissavBrowserSession(
+            client,
+            mobile: mobile,
+            checkAccess: true,
+            forAccountRestore: true,
+          ),
+        ).then<Object?>((_) => null, onError: (Object error) => error);
+        expect(error, isA<MissavException>());
+      });
+
+      expect(client.sessionGeneration, generation);
+      expect(storage.values, equals(storedValues));
+      expect(storage.cookie, isNotNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'saved-session confirmation preserves a browser verification challenge',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      final platform = _FakeWebViewPlatform(
+        Future.value([
+          const WebViewCookie(
+            name: 'session',
+            value: 'stored',
+            domain: 'missav.ai',
+          ),
+        ]),
+      );
+      WebViewPlatform.instance = platform;
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+      );
+      final mobile = WebViewController();
+      final page = mobile.platform as _FakeWebViewController;
+      page.htmlDocument =
+          '<html><head><title>Just a moment...</title></head></html>';
+      page.cloudflareChallenge = true;
+      final storage = _MemorySecureStorage();
+      final client = MissavClient(secureStorage: storage);
+      addTearDown(client.dispose);
+      await client.importVerifiedSession(
+        cookieHeader: 'session=stored',
+        userAgent: 'stored-agent',
+      );
+      final generation = client.sessionGeneration;
+      final storedValues = Map<String, String>.of(storage.values);
+
+      await tester.runAsync(() async {
+        final error = await _pumpUntilComplete(
+          tester,
+          connectMissavBrowserSession(
+            client,
+            mobile: mobile,
+            expectedGeneration: generation,
+            checkAccess: true,
+            preserveMobilePageOnFailure: false,
+            forAccountRestore: true,
+          ),
+        ).then<Object?>((_) => null, onError: (Object error) => error);
+        expect(error, isA<MissavVerificationRequiredException>());
+      });
+
+      expect(client.sessionGeneration, generation);
+      expect(storage.values, equals(storedValues));
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
   );
 
   test(
@@ -1226,7 +1492,8 @@ void main() {
       MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
     );
     final mobile = WebViewController();
-    final client = MissavClient(secureStorage: _MemorySecureStorage());
+    final storage = _MemorySecureStorage();
+    final client = MissavClient(secureStorage: storage);
     addTearDown(client.dispose);
 
     await tester.runAsync(() async {
@@ -1235,6 +1502,7 @@ void main() {
         connectMissavBrowserSession(client, mobile: mobile),
       );
       expect(connection.signedIn, isFalse);
+      expect(connection.importedSession, isTrue);
       expect(mediaChannelAttempts, 0);
 
       Future<VideoStream> prepare() =>
@@ -1248,6 +1516,10 @@ void main() {
           userAgent: 'test-browser',
         ),
       );
+      await client.discardVerifiedSession(
+        expectedGeneration: connection.sessionGeneration,
+      );
+      expect(storage.cookie, 'session=replaced');
       await _pumpUntilComplete(tester, cancelled);
       expect(await mobile.currentUrl(), client.originHomeUrl);
 
@@ -1498,6 +1770,247 @@ void main() {
     },
   );
 
+  testWidgets(
+    'login completes on the canonical origin without taking over the mirror',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      late final _FakeWebViewPlatform platform;
+      platform = _FakeWebViewPlatform(
+        Future.value([
+          const WebViewCookie(
+            name: 'session',
+            value: 'canonical',
+            domain: 'missav.ai',
+          ),
+        ]),
+        initialUrl: 'https://missav.ai/cn',
+        onLoadRequest: (_) async {
+          final page = platform.lastController!;
+          page.htmlDocument =
+              '<html><body x-data="{user: null}"></body></html>';
+          page.runtimeUser = {'username': 'canonical-viewer'};
+          page.responseStatus = 200;
+        },
+      );
+      WebViewPlatform.instance = platform;
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: rootNavigatorKey,
+          locale: const Locale('en'),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: const Scaffold(body: SizedBox()),
+        ),
+      );
+      final context = tester.element(find.byType(Scaffold));
+      final storage = _MemorySecureStorage();
+      final client = MissavClient(secureStorage: storage);
+      addTearDown(client.dispose);
+      client.selectMirror('https://www.missav9.net');
+
+      final login = verifyMissavLogin(context, client);
+      await tester.pumpAndSettle();
+      expect(
+        await platform.lastController!.currentUrl(),
+        'https://missav.ai/cn',
+      );
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(await login, isTrue);
+      expect(client.isLoggedIn, isTrue);
+      expect(client.homeUrl, 'https://www.missav9.net/cn');
+      expect(storage.cookie, 'session=canonical');
+      client.restoreNativeTransport();
+      await tester.pumpAndSettle();
+      expect(find.byType(WebViewWidget), findsNothing);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'cross-origin login navigation fails immediately',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      final platform = _FakeWebViewPlatform(
+        Future.value(const []),
+        initialUrl: 'https://missav.ai/cn',
+      );
+      WebViewPlatform.instance = platform;
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: rootNavigatorKey,
+          locale: const Locale('en'),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: const Scaffold(body: SizedBox()),
+        ),
+      );
+      final context = tester.element(find.byType(Scaffold));
+      final client = MissavClient(secureStorage: _MemorySecureStorage());
+      addTearDown(client.dispose);
+
+      final login = verifyMissavLogin(context, client);
+      await tester.pumpAndSettle();
+      final page = platform.lastController!;
+      final decision = page._navigationDelegate!.navigationRequest!(
+        const NavigationRequest(url: 'https://missav.ws/cn', isMainFrame: true),
+      );
+      expect(decision, NavigationDecision.prevent);
+      await tester.pump();
+
+      expect(find.text('Login failed'), findsOneWidget);
+      final done = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Done'),
+      );
+      expect(done.onPressed, isNotNull);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+      expect(await login, isFalse);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'failed account confirmation clears the imported session',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      final platform = _FakeWebViewPlatform(
+        Future.value([
+          const WebViewCookie(
+            name: 'session',
+            value: 'canonical',
+            domain: 'missav.ai',
+          ),
+        ]),
+        initialUrl: 'https://missav.ai/cn',
+      );
+      WebViewPlatform.instance = platform;
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+      );
+      final mobile = WebViewController();
+      final sourcePage = platform.lastController!;
+      sourcePage.htmlDocument =
+          '<html><body x-data="{user: null}"></body></html>';
+      sourcePage.runtimeUser = {'username': 'canonical-viewer'};
+      var documentReads = 0;
+      sourcePage.responseStatusFor = (_) => ++documentReads == 1 ? 200 : 500;
+      final storage = _MemorySecureStorage();
+      final client = MissavClient(secureStorage: storage);
+      addTearDown(client.dispose);
+
+      await tester.runAsync(() async {
+        var finished = false;
+        final result = expectLater(
+          connectMissavBrowserSession(
+            client,
+            mobile: mobile,
+            requireLogin: true,
+          ),
+          throwsA(
+            isA<MissavException>().having(
+              (error) => error.message,
+              'message',
+              contains('HTTP 500'),
+            ),
+          ),
+        ).whenComplete(() => finished = true);
+        await Future.wait([
+          result,
+          () async {
+            while (!finished) {
+              await tester.pump();
+              await Future<void>.delayed(Duration.zero);
+            }
+          }(),
+        ]);
+      });
+      await tester.pumpAndSettle();
+
+      expect(storage.values, isEmpty);
+      expect(client.hasRestorableSession, isFalse);
+      expect(client.isLoggedIn, isFalse);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'account verification and access checks ignore mirror source URLs',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: rootNavigatorKey,
+          locale: const Locale('en'),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: const Scaffold(body: SizedBox()),
+        ),
+      );
+      final context = tester.element(find.byType(Scaffold));
+      final client = MissavClient(secureStorage: _MemorySecureStorage());
+      addTearDown(client.dispose);
+
+      final accountPlatform = _FakeWebViewPlatform(
+        Future.value(const []),
+        initialUrl: 'https://missav.ai/cn',
+      );
+      WebViewPlatform.instance = accountPlatform;
+      final account = verifyMissavAccount(
+        context,
+        client,
+        sourceUrl: 'https://missav.ws/cn',
+      );
+      await tester.pumpAndSettle();
+      expect(
+        await accountPlatform.lastController!.currentUrl(),
+        'https://missav.ai/cn',
+      );
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+      expect(await account, (verified: false, signedIn: false));
+
+      final accessPlatform = _FakeWebViewPlatform(
+        Future.value(const []),
+        initialUrl: 'https://missav.ai/cn',
+      );
+      WebViewPlatform.instance = accessPlatform;
+      final access = verifyMissavAccess(
+        context,
+        client,
+        sourceUrl: 'https://missav.ws/cn',
+      );
+      await tester.pumpAndSettle();
+      expect(
+        await accessPlatform.lastController!.currentUrl(),
+        'https://missav.ai/cn',
+      );
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+      expect(await access, isFalse);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
   testWidgets('a selected mirror does not redirect the sign-in browser', (
     tester,
   ) async {
@@ -1624,20 +2137,25 @@ class _FakeWebViewPlatform extends WebViewPlatform {
   Future<void>? mediaChannelDelay;
   final void Function()? onMediaChannel;
   final cookiesRequested = Completer<void>();
+  _FakeWebViewController? lastController;
 
   @override
   PlatformWebViewController createPlatformWebViewController(
     PlatformWebViewControllerCreationParams params,
-  ) => _FakeWebViewController(
-    params,
-    initialUrl: initialUrl,
-    onLoadRequest: onLoadRequest,
-    onLoadHtml: onLoadHtml,
-    loadRequestCompletion: loadRequestCompletion,
-    failMediaChannel: failMediaChannel,
-    mediaChannelDelay: mediaChannelDelay,
-    onMediaChannel: onMediaChannel,
-  );
+  ) {
+    final controller = _FakeWebViewController(
+      params,
+      initialUrl: initialUrl,
+      onLoadRequest: onLoadRequest,
+      onLoadHtml: onLoadHtml,
+      loadRequestCompletion: loadRequestCompletion,
+      failMediaChannel: failMediaChannel,
+      mediaChannelDelay: mediaChannelDelay,
+      onMediaChannel: onMediaChannel,
+    );
+    lastController = controller;
+    return controller;
+  }
 
   @override
   PlatformNavigationDelegate createPlatformNavigationDelegate(
@@ -1686,6 +2204,8 @@ class _FakeWebViewController extends PlatformWebViewController {
   int loadHtmlStringCalls = 0;
   bool documentNavigationPending = false;
   bool cloudflareChallenge = false;
+  int? responseStatus;
+  int? Function(String url)? responseStatusFor;
   int networkNavigations = 0;
   final htmlLoadStarted = Completer<void>();
   final verificationReadyCheckStarted = Completer<void>();
@@ -1793,11 +2313,15 @@ class _FakeWebViewController extends PlatformWebViewController {
   @override
   Future<Object> runJavaScriptReturningResult(String javaScript) async {
     if (javaScript.contains('const root = document.documentElement;')) {
+      final url = documentUrl ?? _url ?? 'https://missav.ai/cn';
+      final status = responseStatusFor?.call(url) ?? responseStatus;
       final document = <String, Object?>{
-        'url': documentUrl ?? _url ?? 'https://missav.ai/cn',
+        'url': url,
         'html': htmlDocument.isEmpty
             ? '<html><body x-data="{user: null}"></body></html>'
             : htmlDocument,
+        if (status != null) 'responseStatus': status,
+        if (cloudflareChallenge) 'verificationRequired': true,
       };
       if (runtimeUser != null) document['runtimeUser'] = runtimeUser;
       return document;
@@ -1887,15 +2411,32 @@ class _FakeCookieManager extends PlatformWebViewCookieManager {
 
 class _MemorySecureStorage implements FlutterSecureStorage {
   int writeCalls = 0;
+  final values = <String, String>{};
+
+  String? get cookie => values['iroru.missav_session_cookie'];
 
   @override
   dynamic noSuchMethod(Invocation invocation) {
-    if (invocation.memberName == #read) return Future<String?>.value();
+    final key = invocation.namedArguments[#key] as String?;
+    if (invocation.memberName == #read) {
+      return Future<String?>.value(key == null ? null : values[key]);
+    }
     if (invocation.memberName == #write) {
       writeCalls++;
+      final value = invocation.namedArguments[#value] as String?;
+      if (key != null) {
+        if (value == null) {
+          values.remove(key);
+        } else {
+          values[key] = value;
+        }
+      }
       return Future<void>.value();
     }
-    if (invocation.memberName == #delete) return Future<void>.value();
+    if (invocation.memberName == #delete) {
+      if (key != null) values.remove(key);
+      return Future<void>.value();
+    }
     return super.noSuchMethod(invocation);
   }
 }

@@ -51,7 +51,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
   static const _requestTimeout = Duration(seconds: 30);
   static const jableChannelName = 'KikoJableHttp';
 
-  String get _origin => _isJable ? 'https://jable.tv' : 'https://missav.ai';
+  String get origin => _isJable ? 'https://jable.tv' : 'https://missav.ai';
   String get _channelName => _isJable ? jableChannelName : channelName;
   String get _requestMap =>
       _isJable ? '__kikoJableRequests' : '__kikoMissavRequests';
@@ -59,7 +59,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
   bool _isSource(String? value) {
     final uri = Uri.tryParse(value ?? '');
     return uri?.scheme == 'https' &&
-        uri?.host == (_isJable ? 'jable.tv' : 'missav.ai') &&
+        uri?.origin == origin &&
         uri?.port == 443 &&
         uri?.userInfo.isEmpty == true;
   }
@@ -80,12 +80,12 @@ class MissavBrowserAdapter implements HttpClientAdapter {
       : MissavVerificationRequiredException(sourceUrl: url);
 
   void receiveMessage(Object? message, {String? origin}) {
-    if (_closed || (origin != null && origin != _origin)) return;
+    if (_closed || (origin != null && origin != this.origin)) return;
     try {
       final data = message is String ? jsonDecode(message) : message;
       if (data is! Map ||
           data['nonce'] != _nonce ||
-          data['origin'] != _origin ||
+          data['origin'] != this.origin ||
           data['id'] is! int) {
         return;
       }
@@ -325,7 +325,7 @@ const send = data => {
     window.$_channelName.postMessage(JSON.stringify(message));
   }
 };
-if (location.origin !== '$_origin' || new URL(request.url).origin !== '$_origin') return;
+if (location.origin !== '$origin' || new URL(request.url).origin !== '$origin') return;
 const controllers = window.$_requestMap ||= new Map();
 const controller = new AbortController();
 controllers.set(request.id, controller);

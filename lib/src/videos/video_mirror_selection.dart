@@ -22,6 +22,9 @@ class VideoMirrorSelection {
   String? get initial => _preferred ?? _lastGood;
   String? get automaticProbe => _preferred == null ? _measured : null;
 
+  String? accountContentHost(String origin, {required bool signedIn}) =>
+      _preferred == null && signedIn ? origin : null;
+
   Iterable<String> get prioritized => {
     if (_preferred case final preferred?) preferred,
     if (automaticProbe case final measured?) measured,

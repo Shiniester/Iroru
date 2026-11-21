@@ -4311,9 +4311,6 @@ class SJa extends S {
   String get videoAccountEmail => 'メールアドレス';
 
   @override
-  String get videoAccountHost => 'ログイン回線';
-
-  @override
   String get videoAccountBrowserLogin => 'ウェブでログイン';
 
   @override

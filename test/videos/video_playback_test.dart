@@ -7209,6 +7209,7 @@ void main() {
               video: video,
               sessionFactory: () => session,
             ),
+            completeMissavWebLogin: true,
           ),
         );
         await tester.pumpAndSettle();
@@ -7219,9 +7220,8 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text(s.login));
         await tester.pumpAndSettle();
-        final fields = find.byType(TextField);
-        await tester.enterText(fields.first, 'viewer@example.test');
-        await tester.enterText(fields.last, 'password');
+        expect(find.byType(VideoAccountScreen), findsOneWidget);
+        expect(find.byType(TextField), findsNothing);
         await tester.tap(find.text(s.login));
         await tester.pumpAndSettle();
         expect(find.text('Account B'), findsOneWidget);
@@ -7292,14 +7292,20 @@ void main() {
       const challengeUrl = 'https://missav.ai/en/saved';
       final challengeRequests = <String>[];
       var restoreAttempts = 0;
-      final client = _TestMissavClient(_details())
-        ..accountRestore = () async {
-          restoreAttempts++;
-          if (favorite) throw const MissavException('Restore unavailable.');
-          throw const MissavVerificationRequiredException(
-            sourceUrl: challengeUrl,
-          );
-        };
+      final client = _TestMissavClient(_details())..savedSession = true;
+      client.accountRestore = () async {
+        restoreAttempts++;
+        if (favorite) {
+          if (restoreAttempts == 1) {
+            throw const MissavException('Restore unavailable.');
+          }
+          client.switchAccount(isFavorite: false);
+          return true;
+        }
+        throw const MissavVerificationRequiredException(
+          sourceUrl: challengeUrl,
+        );
+      };
       final library = await _testLibrary();
       final downloads = _TestVideoDownloads(client: client, library: library);
       await tester.pumpWidget(
@@ -7327,19 +7333,18 @@ void main() {
       expect(find.byType(VideoAccountScreen), findsOneWidget);
       expect(restoreAttempts, 1);
       expect(find.text(strings.videoSourceUnavailable), findsNothing);
-      expect(find.text(strings.login), findsOneWidget);
-      expect(find.text(strings.videoVerifyAccess), findsOneWidget);
+      expect(find.text(strings.login), findsNothing);
+      expect(find.text(strings.videoLoginRequired), findsNothing);
       expect(client.videoFavoriteChanges, isEmpty);
       expect(client.playlistsCalls, 0);
 
       if (favorite) {
-        final fields = find.byType(TextField);
-        await tester.enterText(fields.first, 'viewer@example.test');
-        await tester.enterText(fields.last, 'password');
-        await tester.ensureVisible(find.text(strings.login));
-        await tester.tap(find.text(strings.login));
+        expect(find.text(strings.videoVerifyAccess), findsNothing);
+        await tester.ensureVisible(find.text(strings.retry));
+        await tester.tap(find.text(strings.retry));
         await tester.pumpAndSettle();
         expect(find.text('Account B'), findsOneWidget);
+        expect(restoreAttempts, 2);
         expect(challengeRequests, isEmpty);
       } else {
         expect(find.text(strings.videoVerificationRequired), findsOneWidget);
@@ -9388,6 +9393,7 @@ Widget _app(
   bool? jableVerificationResult,
   List<String>? jableVerificationUrls,
   List<String>? missavAccountVerificationUrls,
+  bool completeMissavWebLogin = false,
   AppNavigationController? appNavigationController,
 }) => ProviderScope(
   overrides: [
@@ -9408,6 +9414,11 @@ Widget _app(
       }) async {
         missavAccountVerificationUrls.add(sourceUrl);
         return (verified: false, signedIn: false);
+      }),
+    if (completeMissavWebLogin)
+      missavAccountLoginProvider.overrideWithValue((_, _) async {
+        client.completeWebLogin();
+        return true;
       }),
     if (jableVerificationResult != null)
       jableAccessVerifierProvider.overrideWithValue((
@@ -9556,6 +9567,7 @@ class _TestMissavClient extends MissavClient {
   VideoDetails detailsResult;
   VideoDetails? readyDetails;
   bool loggedIn;
+  bool savedSession = false;
   final Object? initializeError;
   CancelToken? lastDetailsToken;
   CancelToken? lastRelatedToken;
@@ -9619,6 +9631,9 @@ class _TestMissavClient extends MissavClient {
   bool get isLoggedIn => loggedIn;
 
   @override
+  bool get hasRestorableSession => savedSession || super.hasRestorableSession;
+
+  @override
   String? get accountName => _accountName;
 
   @override
@@ -9632,8 +9647,7 @@ class _TestMissavClient extends MissavClient {
     notifyListeners();
   }
 
-  @override
-  Future<void> login({required String email, required String password}) async {
+  void completeWebLogin() {
     _generation++;
     final anonymous = detailsResult;
     loggedIn = true;

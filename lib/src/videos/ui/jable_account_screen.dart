@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
-import '../../widgets/global_audio_player_wrapper.dart';
 import '../jable_client.dart';
 import '../jable_verification.dart';
 import '../video_models.dart';
 import '../video_providers.dart';
+import 'video_source_account_page.dart';
 
 class JableAccountScreen extends ConsumerStatefulWidget {
   const JableAccountScreen({super.key});
@@ -62,72 +62,40 @@ class _JableAccountScreenState extends ConsumerState<JableAccountScreen> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     final account = _client.account;
-    return GlobalAudioPlayerWrapper(
-      child: Scaffold(
-        appBar: AppBar(title: Text(s.videoJableAccount)),
-        body: ListenableBuilder(
-          listenable: account,
-          builder: (context, _) => Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
-              child: ListView(
-                padding: const EdgeInsets.all(24),
-                shrinkWrap: true,
-                children: [
-                  Icon(
-                    Icons.account_circle_outlined,
-                    size: 56,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    account.isLoggedIn
-                        ? s.videoJableSignedIn
-                        : s.videoJableLoginRequired,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: _busy
-                        ? null
-                        : () => _run(
-                            account.isLoggedIn
-                                ? account.logout
-                                : () => _openBrowser(login: true),
-                          ),
-                    icon: Icon(account.isLoggedIn ? Icons.logout : Icons.login),
-                    label: Text(account.isLoggedIn ? s.logout : s.login),
-                  ),
-                  if (_busy) ...[
-                    const SizedBox(height: 12),
-                    const LinearProgressIndicator(),
-                  ],
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      _error is VideoVerificationRequired
-                          ? s.videoVerificationRequired
-                          : s.videoSourceUnavailable,
-                      textAlign: TextAlign.center,
-                    ),
-                    TextButton(
-                      onPressed: () => _run(_check),
-                      child: Text(s.retry),
-                    ),
-                    OutlinedButton(
-                      onPressed: () => _run(() => _openBrowser(login: false)),
-                      child: Text(
-                        _error is VideoVerificationRequired
-                            ? s.videoVerifyAccess
-                            : s.videoOpenSource,
-                      ),
-                    ),
-                  ],
-                ],
+    final verificationRequired = _error is VideoVerificationRequired;
+    return ListenableBuilder(
+      listenable: account,
+      builder: (context, _) => VideoSourceAccountPage(
+        title: s.videoJableAccount,
+        status: account.isLoggedIn
+            ? s.videoJableSignedIn
+            : s.videoJableLoginRequired,
+        signedIn: account.isLoggedIn,
+        busy: _busy,
+        onAccountAction: () => _run(
+          account.isLoggedIn ? account.logout : () => _openBrowser(login: true),
+        ),
+        error: _error == null
+            ? null
+            : verificationRequired
+            ? s.videoVerificationRequired
+            : s.videoSourceUnavailable,
+        recoveryActions: [
+          if (_error != null) ...[
+            TextButton(
+              onPressed: _busy ? null : () => _run(_check),
+              child: Text(s.retry),
+            ),
+            OutlinedButton(
+              onPressed: _busy
+                  ? null
+                  : () => _run(() => _openBrowser(login: false)),
+              child: Text(
+                verificationRequired ? s.videoVerifyAccess : s.videoOpenSource,
               ),
             ),
-          ),
-        ),
+          ],
+        ],
       ),
     );
   }

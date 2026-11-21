@@ -4428,6 +4428,85 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'automatic saved account restore publishes the first mirror request without replacement',
+    (tester) async {
+      const mirrorUrl = 'https://www.missav05.com/cn';
+      const nextUrl = 'https://missav.ai/cn?page=2';
+      const mirrorPage = VideoCatalogPage(
+        title: 'Mirror catalog',
+        url: mirrorUrl,
+        nextUrl: nextUrl,
+        videos: [
+          VideoItem(
+            id: 'mirror-video',
+            title: 'Mirror video',
+            pageUrl: 'https://www.missav05.com/cn/mirror-video',
+          ),
+        ],
+      );
+      const nextPage = VideoCatalogPage(
+        title: 'Official catalog',
+        url: nextUrl,
+        videos: [
+          VideoItem(
+            id: 'official-video',
+            title: 'Official video',
+            pageUrl: 'https://missav.ai/cn/official-video',
+          ),
+        ],
+      );
+      final firstResult = Completer<VideoCatalogPage>();
+      final browseStarted = Completer<void>();
+      var requests = 0;
+      final client = _TestMissavClient(
+        sourceHomeUrl: mirrorUrl,
+        catalog: mirrorPage,
+        browseStarted: browseStarted,
+        browseHandler: (_, _) {
+          requests++;
+          return requests == 1 ? firstResult.future : Future.value(nextPage);
+        },
+      );
+      addTearDown(() {
+        if (!firstResult.isCompleted) firstResult.complete(mirrorPage);
+        client.dispose();
+      });
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+
+      await tester.pumpWidget(
+        _app(client, library, downloads, const VideoScreen()),
+      );
+      await tester.runAsync(
+        () => browseStarted.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw StateError('Mirror browse did not start.'),
+        ),
+      );
+
+      client.restoreAutomaticSavedAccount('Saved account');
+      await tester.pump();
+
+      expect(client.browsedRoutes, ['mirror']);
+      expect(requests, 1);
+
+      firstResult.complete(mirrorPage);
+      await tester.pumpAndSettle();
+
+      expect(client.browsedRoutes, ['mirror']);
+      expect(find.text('Mirror video'), findsOneWidget);
+      expect(find.text('Official video'), findsNothing);
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await _tapNextPage(tester, l10n);
+
+      expect(client.browsedRoutes, ['mirror', 'official']);
+      expect(find.text('Official video'), findsOneWidget);
+      expect(find.text('Mirror video'), findsNothing);
+    },
+  );
+
   for (final covered in [false, true]) {
     testWidgets(
       'account confirmation retains public catalog and scroll (covered=$covered)',
@@ -4642,9 +4721,12 @@ void main() {
     browser = MissavBrowserAdapter(
       currentUrl: () async => '${MissavClient.origin}/en',
       navigateDocument: (uri, _) async => switch (uri.path) {
+        '/en' || '/en/release' => '<main></main>',
         '/en/playlists' =>
           '<main><a href="/en/playlists/saved-list">Saved playlist</a></main>',
         '/en/history' => catalog,
+        '/en/signed-in-video' =>
+          '<main><h1>Detail from account host</h1></main>',
         _ => fail('Unexpected account page ${uri.path}'),
       },
       runJavaScript: (script) async {
@@ -4724,7 +4806,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(VideoDetailsScreen), findsOneWidget);
-    expect(find.text('Detail from content host').hitTestable(), findsWidgets);
+    expect(find.text('Detail from account host').hitTestable(), findsWidgets);
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
@@ -5597,6 +5679,8 @@ class _TestMissavClient extends MissavClient {
   final VideoDetails? detailsResult;
   bool loggedIn;
   int _testSessionGeneration = 0;
+  int _testContentGeneration = 0;
+  String _testContentRoute = 'mirror';
   @override
   String? accountName;
   final List<bool> actorFavoriteChanges = [];
@@ -5604,6 +5688,7 @@ class _TestMissavClient extends MissavClient {
   int clearHistoryCalls = 0;
   int collectionSearchCalls = 0;
   final List<String> browsedUrls = [];
+  final List<String> browsedRoutes = [];
   final recommendationRequests = <({String? cursor, int count})>[];
   bool browseFinished = false;
   bool mirrorProbeScheduled = false;
@@ -5633,6 +5718,9 @@ class _TestMissavClient extends MissavClient {
   @override
   int get sessionGeneration => _testSessionGeneration;
 
+  @override
+  int get contentGeneration => _testContentGeneration;
+
   void advanceSessionGeneration() {
     _testSessionGeneration++;
     notifyListeners();
@@ -5641,6 +5729,14 @@ class _TestMissavClient extends MissavClient {
   void confirmAccount(String name) {
     loggedIn = true;
     accountName = name;
+    notifyListeners();
+  }
+
+  void restoreAutomaticSavedAccount(String name) {
+    loggedIn = true;
+    accountName = name;
+    _testContentGeneration++;
+    _testContentRoute = 'official';
     notifyListeners();
   }
 
@@ -5669,6 +5765,7 @@ class _TestMissavClient extends MissavClient {
     void Function(VideoCatalogPage page)? onParsed,
   }) async {
     browsedUrls.add(url);
+    browsedRoutes.add(_testContentRoute);
     onBrowse?.call(url);
     if (browseError != null) throw browseError!;
     final parsedPage =

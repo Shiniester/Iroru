@@ -78,8 +78,11 @@ _Avoid_: Audio account, comic account
 
 **Video Source Account Session (视频源账号会话)**:
 The period during which a Video Source accepts a sign-in to a Video Source
-Account. A valid session can continue after the app closes and reopens. Jable
-confirms a session by granting access to the account's Favorites.
+Account. A valid session can continue after the app closes and reopens. A
+session is bound to the Account Host that confirmed it, and its cookies are not
+reused on another Account Host. Jable confirms a session by granting access to
+the account's Favorites. Account features for the same Video Source share the
+result of an in-progress session check.
 
 **Video Source Verification (视频源验证)**:
 The website check required before a Video Source permits access from the current
@@ -88,15 +91,18 @@ _Avoid_: Video account login
 
 **Content Host (内容线路)**:
 A host that serves a Video Source's catalog and video details. For MissAV,
-Content Hosts are the measured mirrors. Jable uses the manually selected
-Video Source Mirror when one is set. In automatic mode, it uses a mirror for
-anonymous access and its Official Host after account confirmation.
+Content Hosts are the measured mirrors and its Official Hosts. Jable uses the
+manually selected Video Source Mirror when one is set. For both sources,
+automatic mode uses a mirror for anonymous access, during session recovery, and
+after session invalidation. It prefers an Official Host after account
+confirmation. A manual mirror selection remains in effect.
 _Avoid_: Source mirror, browsing mirror
 
 **Account Host (账号线路)**:
-A Video Source host used for account login and account APIs. For MissAV, Account
-Hosts are `missav.live`, `missav.ws`, and `missav.ai`. The Jable Account Host is
-`jable.tv`.
+A Video Source host used for account login and account APIs. The MissAV
+Account Host is `missav.ai`; its sign-in page has no Account Host selection.
+`missav.live` and `missav.ws` remain public content fallbacks and do not
+receive MissAV account cookies. The Jable Account Host is `jable.tv`.
 _Avoid_: Login mirror
 
 **Official Host (官方线路)**:
@@ -107,7 +113,9 @@ _Avoid_: Primary mirror, canonical host
 
 **Last Good Content Host (上次可用内容线路)**:
 The Video Source Mirror that most recently returned a valid content page.
-It is the first automatic candidate until new measurements select a mirror.
+It is the first automatic mirror candidate for anonymous access or while the
+session is unconfirmed. A confirmed automatic account session prefers the
+Official Host; a manual mirror selection overrides both.
 _Avoid_: Preferred mirror, saved mirror
 
 **Video Source Mirror (视频源镜像)**:

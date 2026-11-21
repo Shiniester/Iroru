@@ -4291,9 +4291,6 @@ class SZh extends S {
   String get videoAccountEmail => '邮箱';
 
   @override
-  String get videoAccountHost => '登录线路';
-
-  @override
   String get videoAccountBrowserLogin => '网页登录';
 
   @override
@@ -9301,9 +9298,6 @@ class SZhHant extends SZh {
 
   @override
   String get videoAccountEmail => '電子郵件';
-
-  @override
-  String get videoAccountHost => '登入線路';
 
   @override
   String get videoAccountBrowserLogin => '網頁登入';
