@@ -630,6 +630,9 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     if (pageUri.origin == _baseUrl) _updateHomeUrl(document, pageUri);
   }
 
+  Future<void> confirmBrowserAccount(Map<String, dynamic> user) =>
+      _confirmAccount(user, Uri.parse(origin), _sessionGeneration);
+
   Future<bool> restoreAccount({bool recheck = false}) async {
     if (!recheck && isLoggedIn) return true;
     await _prepareOnlineAccess();
@@ -2802,8 +2805,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
-  static Map<String, dynamic>? readAccountFromMarkup(String source, Uri uri) =>
-      _readAccountFromPage(_parsePage(source, uri));
+  static Map<String, dynamic>? readAccountFromMarkup(String source, Uri uri) {
+    final document = _parsePage(source, uri);
+    if (document.querySelector('#kiko-missav-response-status') != null) {
+      return null;
+    }
+    return _readAccountFromPage(document);
+  }
 
   static Map<String, dynamic>? _readAccountFromPage(Document document) {
     final runtimeUser = document.querySelector('#kiko-missav-runtime-user');

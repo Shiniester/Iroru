@@ -531,9 +531,20 @@ Future<String> navigateMissavDocument(
       );
     }
     final finalUri = Uri.parse(document['url'] as String);
-    if (uri.pathSegments.lastOrNull == 'saved' &&
-        finalUri.pathSegments.lastOrNull == 'login') {
-      throw MissavAuthenticationException(sourceUrl: uri.toString());
+    if (uri.pathSegments.lastOrNull == 'saved') {
+      final route = finalUri.pathSegments
+          .where((segment) => segment.isNotEmpty)
+          .skipWhile((segment) => RegExp(r'^dm\d+$').hasMatch(segment))
+          .toList();
+      if (route.lastOrNull == 'login') {
+        throw MissavAuthenticationException(sourceUrl: uri.toString());
+      }
+      if (route.lastOrNull != 'saved' || route.length > 2) {
+        throw MissavException(
+          'MissAV did not return the favorites page.',
+          sourceUrl: uri.toString(),
+        );
+      }
     }
     if (_isMissavHomePath(finalUri) && !_isMissavHomePath(uri)) {
       throw MissavException(
@@ -1017,9 +1028,6 @@ connectMissavBrowserSession(
         clientGeneration: clientGeneration,
       );
     }
-    if (requireLogin && browserUser == null) {
-      throw StateError('MissAV sign-in could not be confirmed.');
-    }
     if (Platform.isAndroid) {
       proxyGeneration ??= await configureMissavAndroidProxy();
       if (proxyGeneration != _androidProxyConfigurationGeneration) {
@@ -1262,6 +1270,22 @@ connectMissavBrowserSession(
     if (cookieHeader.isEmpty || userAgent == null || userAgent.isEmpty) {
       throw StateError('Source browser session unavailable');
     }
+    final connectedAdapter = adapter;
+    Map<String, dynamic>? favoritesUser;
+    if (requireLogin && browserUser == null) {
+      final favorites = Uri.parse(client.collectionUrl('favorites'));
+      final markup = await _awaitConnectionPhase(
+        () => connectedAdapter.loadDocument(favorites),
+        connectionGeneration,
+        cancelSignal,
+        client: client,
+        clientGeneration: clientGeneration,
+      );
+      favoritesUser = MissavClient.readAccountFromMarkup(markup, favorites);
+      if (favoritesUser == null) {
+        throw StateError('MissAV sign-in could not be confirmed.');
+      }
+    }
     ensureMissavBrowserConnectionCurrent(
       connectionGeneration,
       cancelSignal,
@@ -1288,7 +1312,6 @@ connectMissavBrowserSession(
       clientGeneration = importedGeneration;
     }
 
-    final connectedAdapter = adapter;
     _activeBrowser = connectedAdapter;
     _activeBrowserClient = client;
     _activeBrowserConnectionGeneration = connectionGeneration;
@@ -1368,7 +1391,15 @@ connectMissavBrowserSession(
     }
     cancelSignal?.future.then((_) => resetMedia()).ignore();
 
-    if (checkAccess) {
+    if (favoritesUser case final user?) {
+      await _awaitConnectionPhase(
+        () => client.confirmBrowserAccount(user),
+        connectionGeneration,
+        cancelSignal,
+        client: client,
+        clientGeneration: clientGeneration,
+      );
+    } else if (checkAccess) {
       await _awaitConnectionPhase(
         () => client.checkBrowserAccess(browserUser: browserUser),
         connectionGeneration,

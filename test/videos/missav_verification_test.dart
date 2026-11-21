@@ -1703,6 +1703,26 @@ void main() {
     );
   });
 
+  test(
+    'saved page navigation rejects another same-origin page with a user',
+    () async {
+      await expectLater(
+        navigateMissavDocument(
+          Uri.parse('https://missav.ai/cn/saved'),
+          Completer<void>().future,
+          navigate: (_) async {},
+          read: (_) async => {
+            'url': 'https://missav.ai/cn/release',
+            'html': '<main><h1>Catalog</h1></main>',
+            'runtimeUser': {'username': 'redirected-viewer'},
+          },
+          stop: () async {},
+        ),
+        throwsA(isA<MissavException>()),
+      );
+    },
+  );
+
   testWidgets(
     'a rejected login snapshot releases the browser retained across a session change',
     (tester) async {
@@ -1766,9 +1786,9 @@ void main() {
     },
   );
 
-  testWidgets(
-    'a failed required login check keeps the mobile source page available',
-    (tester) async {
+  for (final protectedPageStatus in [200, 401]) {
+    testWidgets('a rejected favorites check preserves the saved session '
+        '(status: $protectedPageStatus)', (tester) async {
       final oldPlatform = WebViewPlatform.instance;
       WebViewPlatform.instance = _FakeWebViewPlatform(
         Future.value([
@@ -1790,8 +1810,22 @@ void main() {
       final sourcePage = mobile.platform as _FakeWebViewController;
       sourcePage.htmlDocument =
           '<html><body x-data="{user: null}"></body></html>';
-      final client = MissavClient(secureStorage: _MemorySecureStorage());
+      sourcePage.responseStatusFor = (url) {
+        if (Uri.parse(url).pathSegments.lastOrNull != 'saved') return 200;
+        if (protectedPageStatus == 401) {
+          sourcePage.htmlDocument =
+              '<html><body x-data="{user: {name: \'Stale viewer\'}}"></body></html>';
+        }
+        return protectedPageStatus;
+      };
+      final storage = _MemorySecureStorage();
+      final client = MissavClient(secureStorage: storage);
       addTearDown(client.dispose);
+      await client.importVerifiedSession(
+        cookieHeader: 'session=previous',
+        userAgent: 'Test browser',
+      );
+      final writesBefore = storage.writeCalls;
 
       await tester.runAsync(() async {
         final connection = connectMissavBrowserSession(
@@ -1816,74 +1850,82 @@ void main() {
       });
       await tester.pumpAndSettle();
       expect(client.isLoggedIn, isFalse);
-      expect(await mobile.currentUrl(), 'https://missav.ai/cn');
-      expect(sourcePage.htmlDocument, contains('user: null'));
-    },
-  );
+      expect(await mobile.currentUrl(), client.collectionUrl('favorites'));
+      expect(storage.cookie, 'session=previous');
+      expect(storage.writeCalls, writesBefore);
+    });
+  }
 
-  testWidgets(
-    'login completes on the canonical origin without taking over the mirror',
-    (tester) async {
-      final oldPlatform = WebViewPlatform.instance;
-      late final _FakeWebViewPlatform platform;
-      platform = _FakeWebViewPlatform(
-        Future.value([
-          const WebViewCookie(
-            name: 'session',
-            value: 'canonical',
-            domain: 'missav.ai',
+  for (final userOnlyOnSavedPage in [false, true]) {
+    testWidgets(
+      'login completes on the canonical origin without taking over the mirror '
+      '(user only on saved page: $userOnlyOnSavedPage)',
+      (tester) async {
+        final oldPlatform = WebViewPlatform.instance;
+        late final _FakeWebViewPlatform platform;
+        platform = _FakeWebViewPlatform(
+          Future.value([
+            const WebViewCookie(
+              name: 'session',
+              value: 'canonical',
+              domain: 'missav.ai',
+            ),
+          ]),
+          initialUrl: 'https://missav.ai/cn',
+          onLoadRequest: (params) async {
+            final page = platform.lastController!;
+            page.htmlDocument =
+                '<html><body x-data="{user: null}"></body></html>';
+            page.runtimeUser =
+                !userOnlyOnSavedPage || params.uri.pathSegments.last == 'saved'
+                ? {'username': 'canonical-viewer'}
+                : null;
+            page.responseStatus = 200;
+          },
+        );
+        WebViewPlatform.instance = platform;
+        addTearDown(() {
+          if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+        });
+        SharedPreferences.setMockInitialValues({});
+        await tester.pumpWidget(
+          MaterialApp(
+            navigatorKey: rootNavigatorKey,
+            locale: const Locale('en'),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: const Scaffold(body: SizedBox()),
           ),
-        ]),
-        initialUrl: 'https://missav.ai/cn',
-        onLoadRequest: (_) async {
-          final page = platform.lastController!;
-          page.htmlDocument =
-              '<html><body x-data="{user: null}"></body></html>';
-          page.runtimeUser = {'username': 'canonical-viewer'};
-          page.responseStatus = 200;
-        },
-      );
-      WebViewPlatform.instance = platform;
-      addTearDown(() {
-        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
-      });
-      SharedPreferences.setMockInitialValues({});
-      await tester.pumpWidget(
-        MaterialApp(
-          navigatorKey: rootNavigatorKey,
-          locale: const Locale('en'),
-          localizationsDelegates: S.localizationsDelegates,
-          supportedLocales: S.supportedLocales,
-          home: const Scaffold(body: SizedBox()),
-        ),
-      );
-      final context = tester.element(find.byType(Scaffold));
-      final storage = _MemorySecureStorage();
-      final client = MissavClient(secureStorage: storage);
-      addTearDown(client.dispose);
-      client.selectMirror('https://www.missav9.net');
+        );
+        final context = tester.element(find.byType(Scaffold));
+        final storage = _MemorySecureStorage();
+        final client = MissavClient(secureStorage: storage);
+        addTearDown(client.dispose);
+        client.selectMirror('https://www.missav9.net');
 
-      final login = verifyMissavLogin(context, client);
-      await tester.pumpAndSettle();
-      expect(
-        await platform.lastController!.currentUrl(),
-        'https://missav.ai/cn',
-      );
+        final login = verifyMissavLogin(context, client);
+        await tester.pumpAndSettle();
+        expect(
+          await platform.lastController!.currentUrl(),
+          'https://missav.ai/cn',
+        );
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
-      await tester.pump();
-      await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+        await tester.pump();
+        await tester.pumpAndSettle();
 
-      expect(await login, isTrue);
-      expect(client.isLoggedIn, isTrue);
-      expect(client.homeUrl, 'https://www.missav9.net/cn');
-      expect(storage.cookie, 'session=canonical');
-      client.restoreNativeTransport();
-      await tester.pumpAndSettle();
-      expect(find.byType(WebViewWidget), findsNothing);
-    },
-    variant: TargetPlatformVariant.only(TargetPlatform.android),
-  );
+        expect(find.text('Login failed'), findsNothing);
+        expect(await login, isTrue);
+        expect(client.isLoggedIn, isTrue);
+        expect(client.homeUrl, 'https://www.missav9.net/cn');
+        expect(storage.cookie, 'session=canonical');
+        client.restoreNativeTransport();
+        await tester.pumpAndSettle();
+        expect(find.byType(WebViewWidget), findsNothing);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+  }
 
   testWidgets(
     'cross-origin login navigation fails immediately',
@@ -2113,7 +2155,8 @@ void main() {
       ]);
     });
     await tester.pumpAndSettle();
-    expect(await mobile.currentUrl(), 'https://missav.ai/cn');
+    expect(await mobile.currentUrl(), client.collectionUrl('favorites'));
+    expect(client.homeUrl, 'https://www.missav9.net/cn');
   });
 }
 
