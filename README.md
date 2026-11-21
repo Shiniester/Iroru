@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/icons/app_icon_opaque.png" alt="Iroru" width="120" height="120">
+  <img src="assets/icons/app_icon_login.png" alt="Iroru" width="120" height="120">
 
   # Iroru
 
