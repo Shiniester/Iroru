@@ -223,6 +223,8 @@ class UpdateService {
     }
 
     var page = 1;
+    Map<String, dynamic>? newestRelease;
+    String newestTag = '';
     while (true) {
       final response = await _dio.get(
         _releasesGithubApiUrl,
@@ -236,14 +238,19 @@ class UpdateService {
       for (final release in releases.whereType<Map<String, dynamic>>()) {
         if (release['draft'] == true || release['prerelease'] != true) continue;
         final tag = _normalizeVersion(release['tag_name'] as String? ?? '');
-        if (_betaVersion.hasMatch(tag) &&
-            (_androidAbi == null || _findReleaseAsset(release) != null)) {
-          return release;
+        if (!_betaVersion.hasMatch(tag) ||
+            (_androidAbi != null && _findReleaseAsset(release) == null)) {
+          continue;
+        }
+        if (newestRelease == null || _compareVersions(newestTag, tag) < 0) {
+          newestRelease = release;
+          newestTag = tag;
         }
       }
-      if (releases.length < 100) return null;
+      if (releases.length < 100) break;
       page++;
     }
+    return newestRelease;
   }
 
   Map<String, dynamic>? _findReleaseAsset(Map<String, dynamic> release) {

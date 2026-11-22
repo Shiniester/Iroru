@@ -523,6 +523,64 @@ void main() {
     );
 
     test(
+      'Android Beta selects the highest version regardless of API order',
+      () async {
+        PackageInfo.setMockInitialValues(
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
+          version: '6.2.1-beta.9',
+          buildNumber: '1',
+          buildSignature: '',
+        );
+        final adapter = _MockHttpClientAdapter((_) => _jsonResponse([
+          {
+            'tag_name': 'v6.2.1-beta.9',
+            'draft': false,
+            'prerelease': true,
+            'body': 'Older beta',
+            'html_url':
+                'https://github.com/Shiniester/Iroru/releases/tag/v6.2.1-beta.9',
+            'assets': [
+              {
+                'name':
+                    'Iroru-android-arm64-v8a_6.2.1-beta.9_com.meteor.iroru.apk',
+                'browser_download_url':
+                    'https://example.com/Iroru-android-arm64-v8a_6.2.1-beta.9_com.meteor.iroru.apk',
+              },
+            ],
+          },
+          {
+            'tag_name': 'v6.2.1-beta.10',
+            'draft': false,
+            'prerelease': true,
+            'body': 'Newer beta',
+            'html_url':
+                'https://github.com/Shiniester/Iroru/releases/tag/v6.2.1-beta.10',
+            'assets': [
+              {
+                'name':
+                    'Iroru-android-arm64-v8a_6.2.1-beta.10_com.meteor.iroru.apk',
+                'browser_download_url':
+                    'https://example.com/Iroru-android-arm64-v8a_6.2.1-beta.10_com.meteor.iroru.apk',
+              },
+            ],
+          },
+        ]));
+        final service = UpdateService(
+          dio: Dio()..httpClientAdapter = adapter,
+          androidAbi: Abi.androidArm64,
+        );
+
+        final updateInfo = await service.checkForUpdates(force: true);
+
+        expect(updateInfo?.latestVersion, '6.2.1-beta.10');
+        expect(updateInfo?.downloadUrl,
+            'https://example.com/Iroru-android-arm64-v8a_6.2.1-beta.10_com.meteor.iroru.apk');
+        expect(updateInfo?.hasNewVersion, isTrue);
+      },
+    );
+
+    test(
       'beta channel reports no published beta and never falls back to stable',
       () async {
         PackageInfo.setMockInitialValues(
