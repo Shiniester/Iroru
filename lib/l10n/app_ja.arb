@@ -1466,6 +1466,8 @@
   "videoMirrorCurrent": "現在：{host}",
   "videoLoginHelp": "配信元サイトでログインしてから「完了」を選択してログイン状態を確認してください。",
   "videoLoginComplete": "完了",
+  "videoLoginConfirmationFailed": "お気に入りページでログインを確認できませんでした。ウェブサイトでログインしていることを確認し、もう一度「完了」を選択してください。",
+  "videoLoginHandoffFailed": "ウェブサイトでのログインは確認できました。アプリにセッションを引き継げませんでした。「完了」を選択して再試行してください。",
   "videoJableSignedIn": "Jable にログインしています",
   "videoCatalog": "動画一覧",
   "videoContent": "コンテンツ",

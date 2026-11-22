@@ -1466,6 +1466,8 @@
   "videoMirrorCurrent": "目前：{host}",
   "videoLoginHelp": "在來源網站登入後，按一下「完成」檢查登入狀態。",
   "videoLoginComplete": "完成",
+  "videoLoginConfirmationFailed": "無法透過收藏頁確認登入。請在網頁上確認已登入，再按一下“完成”。",
+  "videoLoginHandoffFailed": "網頁已確認登入。應用程式未能接管工作階段，請再次按一下“完成”。",
   "videoJableSignedIn": "已登入 Jable",
   "videoCatalog": "影片目錄",
   "videoContent": "內容",

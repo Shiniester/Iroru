@@ -4350,6 +4350,12 @@ class SZh extends S {
   String get videoLoginComplete => '完成';
 
   @override
+  String get videoLoginConfirmationFailed => '未能通过收藏页确认登录。请在网页中确认已登录，再点击“完成”。';
+
+  @override
+  String get videoLoginHandoffFailed => '网页已确认登录。应用未能接管会话，请再次点击“完成”重试。';
+
+  @override
   String get videoJableSignedIn => '已登录 Jable';
 
   @override
@@ -9357,6 +9363,12 @@ class SZhHant extends SZh {
 
   @override
   String get videoLoginComplete => '完成';
+
+  @override
+  String get videoLoginConfirmationFailed => '無法透過收藏頁確認登入。請在網頁上確認已登入，再按一下“完成”。';
+
+  @override
+  String get videoLoginHandoffFailed => '網頁已確認登入。應用程式未能接管工作階段，請再次按一下“完成”。';
 
   @override
   String get videoJableSignedIn => '已登入 Jable';

@@ -29,9 +29,9 @@ class JableAccount extends ChangeNotifier {
   static bool hasFavoritesList(Document document) =>
       document.querySelector('#$_favoritesBlockId') != null;
 
-  void _sessionChanged() {
-    if (_isLoggedIn) {
-      _setLoggedIn(false);
+  void _sessionChanged({bool signedIn = false}) {
+    if (_isLoggedIn != signedIn) {
+      _setLoggedIn(signedIn);
     } else {
       _changed();
     }
@@ -76,18 +76,18 @@ class JableAccount extends ChangeNotifier {
     final generation = _client._generation;
     final (document, page) = await _client._loadDocumentPage(uri);
     _client._ensureGeneration(generation, uri);
-    if (hasFavoritesList(document)) {
-      _setLoggedIn(true);
-      return true;
-    }
-    if (_isLoginUrl(page) || _isLoginPage(document, page)) {
-      _setLoggedIn(false);
-      return false;
-    }
+    final signedIn = _loginStatus(document, page);
+    _setLoggedIn(signedIn);
+    return signedIn;
+  }
+
+  bool _loginStatus(Document document, Uri page) {
+    if (hasFavoritesList(document)) return true;
+    if (_isLoginUrl(page) || _isLoginPage(document, page)) return false;
     throw VideoSourceException(
       'Jable returned an invalid favorites page.',
       sourceKey: _client.sourceKey,
-      sourceUrl: uri.toString(),
+      sourceUrl: favoritesUrl,
     );
   }
 

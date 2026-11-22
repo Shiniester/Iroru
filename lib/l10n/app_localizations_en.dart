@@ -4499,6 +4499,14 @@ class SEn extends S {
   String get videoLoginComplete => 'Done';
 
   @override
+  String get videoLoginConfirmationFailed =>
+      'Could not confirm sign-in from Favorites. Check that you are signed in on the website, then select Done again.';
+
+  @override
+  String get videoLoginHandoffFailed =>
+      'Website sign-in was confirmed. The app could not take over the session. Select Done to try again.';
+
+  @override
   String get videoJableSignedIn => 'Signed in to Jable';
 
   @override

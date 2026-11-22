@@ -8038,6 +8038,18 @@ abstract class S {
   /// **'Done'**
   String get videoLoginComplete;
 
+  /// The login dialog could not confirm the account from the protected Favorites page.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not confirm sign-in from Favorites. Check that you are signed in on the website, then select Done again.'**
+  String get videoLoginConfirmationFailed;
+
+  /// The website accepted the sign-in, but the app could not adopt or save the browser session.
+  ///
+  /// In en, this message translates to:
+  /// **'Website sign-in was confirmed. The app could not take over the session. Select Done to try again.'**
+  String get videoLoginHandoffFailed;
+
   /// No description provided for @videoJableSignedIn.
   ///
   /// In en, this message translates to:

@@ -20,6 +20,7 @@ import 'missav_client.dart';
 import 'missav_browser_adapter.dart';
 import 'missav_browser_media.dart';
 import 'missav_media_server.dart';
+import 'video_login_phase.dart';
 import 'video_models.dart';
 
 const _androidBrowser = MethodChannel(
@@ -531,6 +532,9 @@ Future<String> navigateMissavDocument(
       );
     }
     final finalUri = Uri.parse(document['url'] as String);
+    if (document['verificationRequired'] == true) {
+      throw MissavVerificationRequiredException(sourceUrl: finalUri.toString());
+    }
     if (uri.pathSegments.lastOrNull == 'saved') {
       final route = finalUri.pathSegments
           .where((segment) => segment.isNotEmpty)
@@ -886,7 +890,10 @@ connectMissavBrowserSession(
   bool preserveMobilePageOnFailure = true,
   bool checkAccess = true,
   bool requireLogin = false,
+  Webview? loginDesktop,
+  FutureOr<void> Function()? retainMobileBrowser,
   Future<Object?> Function(String script)? readLoginPage,
+  void Function(VideoLoginPhase phase)? onLoginPhase,
   bool forAccountRestore = false,
 }) async {
   if (expectedGeneration != null &&
@@ -981,12 +988,27 @@ connectMissavBrowserSession(
       client: client,
       clientGeneration: clientGeneration,
     );
-    final read = readLoginPage ?? mobile?.runJavaScriptReturningResult;
-    if (requireLogin && read == null) {
-      throw StateError('MissAV login page unavailable.');
+    final favorites = Uri.parse(client.collectionUrl('favorites'));
+    Future<Map<String, dynamic>> confirmFavorites(
+      Future<String> Function() load,
+    ) async {
+      final markup = await _awaitConnectionPhase(
+        load,
+        connectionGeneration,
+        cancelSignal,
+        client: client,
+        clientGeneration: clientGeneration,
+      );
+      final user = MissavClient.readAccountFromMarkup(markup, favorites);
+      if (user == null) {
+        throw MissavAuthenticationException(sourceUrl: favorites.toString());
+      }
+      return user;
     }
+
+    final read = readLoginPage ?? mobile?.runJavaScriptReturningResult;
     Map<String, dynamic>? browserUser;
-    if (read != null && (checkAccess || requireLogin)) {
+    if (!requireLogin && read != null && checkAccess) {
       browserUser = await _awaitConnectionPhase(
         () async {
           try {
@@ -1018,7 +1040,6 @@ connectMissavBrowserSession(
                   )
                 : null;
           } catch (_) {
-            if (requireLogin) rethrow;
             return null;
           }
         },
@@ -1041,9 +1062,34 @@ connectMissavBrowserSession(
       );
     }
 
+    Map<String, dynamic>? favoritesUser;
     String cookieHeader;
     String? userAgent;
     if (mobile == null) {
+      Map<String, dynamic>? loginUser;
+      if (requireLogin) {
+        if (loginDesktop == null ||
+            !isMissavVerificationUrl(
+              loginDesktop.navigationState.value.url ?? '',
+            )) {
+          throw StateError('MissAV login page unavailable.');
+        }
+        final cancelled = cancelSignal?.future ?? Completer<void>().future;
+        loginUser = await confirmFavorites(
+          () => navigateMissavDocument(
+            favorites,
+            cancelled,
+            navigate: (signal) => _waitForDesktopPage(
+              loginDesktop,
+              favorites.toString(),
+              cancelSignal: signal,
+            ),
+            read: loginDesktop.evaluateJavaScript,
+            stop: () => stopMissavDesktopNavigation(loginDesktop),
+          ),
+        );
+        onLoginPhase?.call(VideoLoginPhase.browserHandoff);
+      }
       final available = await _awaitConnectionPhase(
         WebviewWindow.isWebviewAvailable,
         connectionGeneration,
@@ -1122,17 +1168,30 @@ connectMissavBrowserSession(
         client: client,
         clientGeneration: clientGeneration,
       );
-      await _awaitConnectionPhase(
-        () => _waitForDesktopPage(
-          browser,
-          client.originHomeUrl,
-          cancelSignal: cancelSignal,
-        ),
-        connectionGeneration,
-        cancelSignal,
-        client: client,
-        clientGeneration: clientGeneration,
-      );
+      if (requireLogin) {
+        favoritesUser = await confirmFavorites(
+          () => browserAdapter.loadDocument(favorites),
+        );
+        for (final key in const ['id', 'email', 'username']) {
+          final expected = loginUser?[key];
+          final actual = favoritesUser[key];
+          if (expected != null && actual != null && expected != actual) {
+            throw StateError('MissAV browser handoff changed the account.');
+          }
+        }
+      } else {
+        await _awaitConnectionPhase(
+          () => _waitForDesktopPage(
+            browser,
+            client.originHomeUrl,
+            cancelSignal: cancelSignal,
+          ),
+          connectionGeneration,
+          cancelSignal,
+          client: client,
+          clientGeneration: clientGeneration,
+        );
+      }
       cookieHeader = missavVerificationCookieHeader(
         await _awaitConnectionPhase(
           browser.getAllCookies,
@@ -1224,23 +1283,30 @@ connectMissavBrowserSession(
         client: client,
         clientGeneration: clientGeneration,
       );
-      await _awaitConnectionPhase(
-        () => waitForMissavMobilePage(
-          mobile,
-          client.originHomeUrl,
-          cancelSignal: cancelSignal,
-          ensureActive: () => ensureMissavBrowserConnectionCurrent(
-            connectionGeneration,
-            cancelSignal,
-            client: client,
-            clientGeneration: clientGeneration,
+      if (requireLogin) {
+        favoritesUser = await confirmFavorites(
+          () => browserAdapter.loadDocument(favorites),
+        );
+        onLoginPhase?.call(VideoLoginPhase.browserHandoff);
+      } else {
+        await _awaitConnectionPhase(
+          () => waitForMissavMobilePage(
+            mobile,
+            client.originHomeUrl,
+            cancelSignal: cancelSignal,
+            ensureActive: () => ensureMissavBrowserConnectionCurrent(
+              connectionGeneration,
+              cancelSignal,
+              client: client,
+              clientGeneration: clientGeneration,
+            ),
           ),
-        ),
-        connectionGeneration,
-        cancelSignal,
-        client: client,
-        clientGeneration: clientGeneration,
-      );
+          connectionGeneration,
+          cancelSignal,
+          client: client,
+          clientGeneration: clientGeneration,
+        );
+      }
       final currentUrl = await _awaitConnectionPhase(
         mobile.currentUrl,
         connectionGeneration,
@@ -1271,21 +1337,6 @@ connectMissavBrowserSession(
       throw StateError('Source browser session unavailable');
     }
     final connectedAdapter = adapter;
-    Map<String, dynamic>? favoritesUser;
-    if (requireLogin && browserUser == null) {
-      final favorites = Uri.parse(client.collectionUrl('favorites'));
-      final markup = await _awaitConnectionPhase(
-        () => connectedAdapter.loadDocument(favorites),
-        connectionGeneration,
-        cancelSignal,
-        client: client,
-        clientGeneration: clientGeneration,
-      );
-      favoritesUser = MissavClient.readAccountFromMarkup(markup, favorites);
-      if (favoritesUser == null) {
-        throw StateError('MissAV sign-in could not be confirmed.');
-      }
-    }
     ensureMissavBrowserConnectionCurrent(
       connectionGeneration,
       cancelSignal,
@@ -1293,7 +1344,7 @@ connectMissavBrowserSession(
       clientGeneration: clientGeneration,
     );
     final generationBeforeImport = clientGeneration;
-    if (!skipImport) {
+    if (!requireLogin && !skipImport) {
       await client.importVerifiedSession(
         cookieHeader: cookieHeader,
         userAgent: userAgent,
@@ -1310,6 +1361,18 @@ connectMissavBrowserSession(
         clientGeneration: generationBeforeImport + 1,
       );
       clientGeneration = importedGeneration;
+    }
+
+    void ensureCurrent() {
+      ensureMissavBrowserConnectionCurrent(
+        connectionGeneration,
+        cancelSignal,
+        client: client,
+        clientGeneration: clientGeneration,
+      );
+      if (connectedAdapter.isClosed) {
+        throw StateError('MissAV browser connection was closed.');
+      }
     }
 
     _activeBrowser = connectedAdapter;
@@ -1377,6 +1440,36 @@ connectMissavBrowserSession(
       return relay.server.register(uri);
     }
 
+    if (favoritesUser case final user?) {
+      if (mobile != null && Platform.isAndroid) {
+        await _cancelable(
+          parkMissavMobileBrowser(mobile, ensureActive: ensureCurrent),
+          cancelSignal,
+        );
+      }
+      if (mobile != null && retainMobileBrowser != null) {
+        ensureCurrent();
+        await _cancelable(Future<void>.sync(retainMobileBrowser), cancelSignal);
+      }
+      onLoginPhase?.call(VideoLoginPhase.sessionSave);
+      await client.commitBrowserLogin(
+        connectedAdapter,
+        cookieHeader: cookieHeader,
+        userAgent: userAgent,
+        user: user,
+        expectedGeneration: clientGeneration,
+        ensureCurrent: ensureCurrent,
+        mediaRoute: routeMedia,
+        resetMedia: resetMedia,
+      );
+      connected = true;
+      return (
+        signedIn: true,
+        sessionGeneration: client.sessionGeneration,
+        importedSession: false,
+      );
+    }
+
     ensureMediaCurrent();
     client.useVerifiedBrowserTransport(
       connectedAdapter,
@@ -1391,15 +1484,7 @@ connectMissavBrowserSession(
     }
     cancelSignal?.future.then((_) => resetMedia()).ignore();
 
-    if (favoritesUser case final user?) {
-      await _awaitConnectionPhase(
-        () => client.confirmBrowserAccount(user),
-        connectionGeneration,
-        cancelSignal,
-        client: client,
-        clientGeneration: clientGeneration,
-      );
-    } else if (checkAccess) {
+    if (checkAccess) {
       await _awaitConnectionPhase(
         () => client.checkBrowserAccess(browserUser: browserUser),
         connectionGeneration,
@@ -1413,22 +1498,6 @@ connectMissavBrowserSession(
         cancelSignal,
         client: client,
         clientGeneration: clientGeneration,
-      );
-    }
-    if (requireLogin && !client.isLoggedIn) {
-      throw StateError('MissAV sign-in could not be confirmed.');
-    }
-
-    if (requireLogin && mobile != null && Platform.isAndroid) {
-      await parkMissavMobileBrowser(
-        mobile,
-        ensureActive: () => ensureMissavBrowserConnectionCurrent(
-          connectionGeneration,
-          cancelSignal,
-          client: client,
-          clientGeneration: clientGeneration,
-          browserAdapter: adapter,
-        ),
       );
     }
     ensureMissavBrowserConnectionCurrent(
@@ -1712,6 +1781,7 @@ class _MissavVerificationState extends State<_MissavVerification> {
   bool _starting = true;
   bool _checking = false;
   bool _failed = false;
+  VideoLoginPhase? _loginFailurePhase;
   bool _closed = false;
   bool _finished = false;
   bool _proxyUnsupported = false;
@@ -1839,14 +1909,18 @@ class _MissavVerificationState extends State<_MissavVerification> {
   }
 
   Future<void> _check() async {
+    if (_checking || _closed) return;
     setState(() {
       _checking = true;
       _failed = false;
+      _loginFailurePhase = null;
     });
+    final cancellation = Completer<void>();
+    final elapsed = widget.requireLogin ? (Stopwatch()..start()) : null;
+    var loginPhase = VideoLoginPhase.favoritesConfirmation;
     try {
       await widget.client.initialize();
       if (!mounted || _closed) throw StateError('Verification window closed.');
-      final cancellation = Completer<void>();
       _connectCancellation = cancellation;
       if (mounted) setState(() => _connectingBrowser = true);
       var signedIn = false;
@@ -1854,41 +1928,40 @@ class _MissavVerificationState extends State<_MissavVerification> {
         final connection = connectMissavBrowserSession(
           widget.client,
           mobile: _isDesktop ? null : _mobile,
+          loginDesktop: widget.requireLogin ? _desktop : null,
+          retainMobileBrowser: widget.requireLogin && !_isDesktop
+              ? () async {
+                  _retainMobileBrowser();
+                  await WidgetsBinding.instance.endOfFrame;
+                  if (_activeMobileBrowserEntry?.mounted != true ||
+                      !identical(_activeMobileBrowserController, _mobile)) {
+                    throw StateError('MissAV browser handoff failed.');
+                  }
+                }
+              : null,
           cancelSignal: cancellation,
           androidProxyGeneration: widget.androidProxyGeneration,
           requireLogin: widget.requireLogin,
           readLoginPage: _isDesktop ? _desktop?.evaluateJavaScript : null,
+          onLoginPhase: (phase) => loginPhase = phase,
           forAccountRestore: widget.forAccountRestore,
         );
         final connectionGeneration = _browserConnectionGeneration;
         final result = await connection;
         signedIn = result.signedIn;
-        final browserAdapter = _activeBrowser;
-        if (browserAdapter == null ||
-            !identical(_activeBrowserClient, widget.client) ||
-            _activeBrowserConnectionGeneration != connectionGeneration ||
-            widget.client.sessionGeneration != result.sessionGeneration) {
-          throw StateError('Verification connection was replaced.');
-        }
-        if (!mounted || _closed || cancellation.isCompleted) {
-          if (result.importedSession) {
-            await widget.client.discardVerifiedSession(
-              expectedGeneration: result.sessionGeneration,
-            );
+        if (!widget.requireLogin) {
+          final browserAdapter = _activeBrowser;
+          if (browserAdapter == null ||
+              !identical(_activeBrowserClient, widget.client) ||
+              _activeBrowserConnectionGeneration != connectionGeneration ||
+              widget.client.sessionGeneration != result.sessionGeneration) {
+            throw StateError('Verification connection was replaced.');
           }
-          _restoreOwnedBrowserTransport(
-            widget.client,
-            browserAdapter,
-            connectionGeneration,
-          );
           try {
-            await browserAdapter.whenClosed;
-          } catch (_) {}
-          throw StateError('Verification was cancelled.');
-        }
-        if (!_isDesktop) {
-          try {
-            _retainMobileBrowser();
+            if (!mounted || _closed || cancellation.isCompleted) {
+              throw StateError('Verification was cancelled.');
+            }
+            if (!_isDesktop) _retainMobileBrowser();
           } catch (_) {
             if (result.importedSession) {
               await widget.client.discardVerifiedSession(
@@ -1913,8 +1986,25 @@ class _MissavVerificationState extends State<_MissavVerification> {
         if (mounted) setState(() => _connectingBrowser = false);
       }
       _finish((verified: true, signedIn: signedIn));
-    } catch (_) {
-      if (mounted) setState(() => _failed = true);
+    } catch (error) {
+      if (widget.requireLogin &&
+          _mobileRetained &&
+          identical(_activeMobileBrowserController, _mobile)) {
+        _activeMobileBrowserEntry?.remove();
+        _activeMobileBrowserEntry = null;
+        _activeMobileBrowserController = null;
+        _mobileRetained = false;
+        if (!mounted) unawaited(_closeUnretainedMobileController());
+      }
+      if (mounted && !_closed && !_finished && !cancellation.isCompleted) {
+        if (elapsed != null) {
+          loginPhase.logFailure('MissAV', error, elapsed.elapsedMilliseconds);
+        }
+        setState(() {
+          _failed = true;
+          _loginFailurePhase = elapsed != null ? loginPhase : null;
+        });
+      }
     } finally {
       if (mounted) {
         setState(() => _checking = false);
@@ -1936,9 +2026,9 @@ class _MissavVerificationState extends State<_MissavVerification> {
         ),
       ),
     );
+    overlay.insert(entry);
     _activeMobileBrowserController = controller;
     _activeMobileBrowserEntry = entry;
-    overlay.insert(entry);
     setState(() => _mobileRetained = true);
   }
 
@@ -2019,9 +2109,10 @@ class _MissavVerificationState extends State<_MissavVerification> {
               if (_failed) ...[
                 const SizedBox(height: 12),
                 Text(
-                  widget.requireLogin
-                      ? s.loginFailed
-                      : s.videoVerificationFailed,
+                  _loginFailurePhase?.failureMessage(s) ??
+                      (widget.requireLogin
+                          ? s.loginFailed
+                          : s.videoVerificationFailed),
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ],

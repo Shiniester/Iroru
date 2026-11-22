@@ -397,6 +397,51 @@ class JableClient implements VideoSourceClient {
     }
   }
 
+  Future<void> commitBrowserSession(
+    MissavBrowserAdapter browser, {
+    required String cookieHeader,
+    required String userAgent,
+    required bool signedIn,
+    required int expectedGeneration,
+    required int connectionGeneration,
+    required void Function() ensureCurrent,
+    required void Function(int generation) onCommitted,
+  }) async {
+    final cookie = cookieHeader.trim();
+    final agent = userAgent.trim();
+    if (cookie.isEmpty || agent.isEmpty) {
+      throw StateError('Jable browser session is unavailable.');
+    }
+    await _queueSessionWrite(() async {
+      ensureCurrent();
+      final previous = await _secureStorage.read(key: _sessionKey);
+      ensureCurrent();
+      await _secureStorage.write(
+        key: _sessionKey,
+        value: jsonEncode({'cookie': cookie, 'userAgent': agent}),
+      );
+      try {
+        ensureCurrent();
+      } catch (_) {
+        if (previous == null) {
+          await _secureStorage.delete(key: _sessionKey);
+        } else {
+          await _secureStorage.write(key: _sessionKey, value: previous);
+        }
+        rethrow;
+      }
+      _cookie = cookie;
+      _userAgent = agent;
+      useVerifiedBrowserTransport(
+        browser,
+        expectedGeneration: expectedGeneration,
+        connectionGeneration: connectionGeneration,
+      );
+      onCommitted(expectedGeneration + 1);
+      _advanceSessionGeneration(signedIn: signedIn);
+    });
+  }
+
   Future<void> clearSession({int? expectedGeneration}) async {
     if (expectedGeneration != null && expectedGeneration != _generation) return;
     restoreNativeTransport();
@@ -407,22 +452,38 @@ class JableClient implements VideoSourceClient {
     if (!_disposed && generation != _generation) return;
   }
 
-  Future<void> checkBrowserAccess() async {
-    await _prepareOnlineAccess();
+  Future<void> checkBrowserAccess({MissavBrowserAdapter? candidate}) async {
+    if (candidate == null) await _prepareOnlineAccess();
     final uri = _sourceUri(Uri.parse(homeUrl));
     final generation = _generation;
     final locale = _locale;
-    await _loadDocument(uri);
+    if (candidate == null) {
+      await _loadDocument(uri);
+    } else {
+      await _loadBrowserDocumentPage(candidate, uri);
+    }
     _ensureRequestCurrent(generation, locale, uri, null);
   }
 
-  int _advanceSessionGeneration() {
+  Future<void> confirmBrowserLogin(MissavBrowserAdapter candidate) async {
+    final (document, page) = await _loadBrowserDocumentPage(
+      candidate,
+      Uri.parse(JableAccount.favoritesUrl),
+    );
+    if (!account._loginStatus(document, page)) {
+      throw const JableLoginRequiredException(
+        sourceUrl: JableAccount.favoritesUrl,
+      );
+    }
+  }
+
+  int _advanceSessionGeneration({bool signedIn = false}) {
     _loading.reset();
     final previous = _sessionCancelToken;
     final generation = ++_generation;
-    account._sessionChanged();
     _sessionCancelToken = CancelToken();
     if (!previous.isCancelled) previous.cancel('Jable session changed');
+    account._sessionChanged(signedIn: signedIn);
     return generation;
   }
 
@@ -846,41 +907,48 @@ class JableClient implements VideoSourceClient {
     return document;
   }
 
-  Future<(Document, Uri)> _loadDocumentPage(
+  Future<(Document, Uri)> _loadBrowserDocumentPage(
+    MissavBrowserAdapter browser,
     Uri uri, {
     CancelToken? cancelToken,
   }) async {
     final generation = _generation;
+    final documentUri = _documentUri(uri);
+    final (String, Uri) page;
+    try {
+      page = await browser.loadDocumentPage(
+        documentUri,
+        cancelToken: cancelToken ?? _sessionCancelToken,
+      );
+    } on DioException catch (error) {
+      _ensureGeneration(generation, documentUri);
+      if (error.error is VideoSourceException) throw error.error!;
+      if (error.type == DioExceptionType.cancel) rethrow;
+      throw VideoSourceException(
+        'Jable browser navigation failed (${error.type.name}).',
+        sourceKey: sourceKey,
+        sourceUrl: documentUri.toString(),
+        cause: error,
+      );
+    }
+    _ensureGeneration(generation, documentUri);
+    final (body, finalUri) = page;
+    if (_looksLikeChallenge(body)) {
+      throw JableVerificationRequiredException(
+        sourceUrl: documentUri.toString(),
+      );
+    }
+    return (html_parser.parse(body), finalUri == documentUri ? uri : finalUri);
+  }
+
+  Future<(Document, Uri)> _loadDocumentPage(
+    Uri uri, {
+    CancelToken? cancelToken,
+  }) async {
     final isMirror = uri.host != _officialHost;
     final browser = isMirror ? null : _browserAdapter;
     if (browser is MissavBrowserAdapter) {
-      final documentUri = _documentUri(uri);
-      final (String, Uri) page;
-      try {
-        page = await browser.loadDocumentPage(
-          documentUri,
-          cancelToken: cancelToken ?? _sessionCancelToken,
-        );
-      } on DioException catch (error) {
-        _ensureGeneration(generation, documentUri);
-        if (error.error is VideoSourceException) throw error.error!;
-        if (error.type == DioExceptionType.cancel) rethrow;
-        throw VideoSourceException(
-          'Jable browser navigation failed (${error.type.name}).',
-          sourceKey: sourceKey,
-          sourceUrl: documentUri.toString(),
-          cause: error,
-        );
-      }
-      _ensureGeneration(generation, documentUri);
-      final (body, finalUri) = page;
-      final document = html_parser.parse(body);
-      if (_looksLikeChallenge(body)) {
-        throw JableVerificationRequiredException(
-          sourceUrl: documentUri.toString(),
-        );
-      }
-      return (document, finalUri == documentUri ? uri : finalUri);
+      return _loadBrowserDocumentPage(browser, uri, cancelToken: cancelToken);
     }
 
     final dio = isMirror ? _mirrorDio! : _dio;

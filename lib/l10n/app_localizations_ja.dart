@@ -4372,6 +4372,14 @@ class SJa extends S {
   String get videoLoginComplete => '完了';
 
   @override
+  String get videoLoginConfirmationFailed =>
+      'お気に入りページでログインを確認できませんでした。ウェブサイトでログインしていることを確認し、もう一度「完了」を選択してください。';
+
+  @override
+  String get videoLoginHandoffFailed =>
+      'ウェブサイトでのログインは確認できました。アプリにセッションを引き継げませんでした。「完了」を選択して再試行してください。';
+
+  @override
   String get videoJableSignedIn => 'Jable にログインしています';
 
   @override

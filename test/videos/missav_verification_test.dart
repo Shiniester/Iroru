@@ -15,6 +15,7 @@ import 'package:iroru/src/videos/missav_client.dart';
 import 'package:iroru/src/videos/missav_browser_adapter.dart';
 import 'package:iroru/src/videos/missav_browser_media.dart';
 import 'package:iroru/src/videos/missav_verification.dart';
+import 'package:iroru/src/videos/video_login_phase.dart';
 import 'package:iroru/src/videos/video_models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -1380,10 +1381,11 @@ void main() {
   );
 
   testWidgets(
-    'required login accepts a confirmed account when markup still says user null',
+    'required login navigates directly to favorites and accepts only its account',
     (tester) async {
       final oldPlatform = WebViewPlatform.instance;
-      WebViewPlatform.instance = _FakeWebViewPlatform(
+      late final _FakeWebViewPlatform platform;
+      platform = _FakeWebViewPlatform(
         Future.value([
           const WebViewCookie(
             name: 'session',
@@ -1391,7 +1393,19 @@ void main() {
             domain: 'missav.ai',
           ),
         ]),
+        initialUrl: 'https://missav.ai/cn',
+        onLoadRequest: (params) async {
+          final page = platform.lastController!;
+          if (params.uri.pathSegments.lastOrNull == 'saved') {
+            page.favoritesHtmlDocument = _favoritesUserMarkup(
+              'favorites-viewer',
+            );
+          } else {
+            page.runtimeUser = {'username': 'stale-home-viewer'};
+          }
+        },
       );
+      WebViewPlatform.instance = platform;
       addTearDown(() {
         if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
       });
@@ -1401,35 +1415,35 @@ void main() {
       );
       final mobile = WebViewController();
       final sourcePage = mobile.platform as _FakeWebViewController;
-      sourcePage.htmlDocument =
-          '<html><body x-data="{user: null}"></body></html>';
-      sourcePage.runtimeUser = {'username': 'browser-viewer'};
+      sourcePage.runtimeUser = {'username': 'stale-home-viewer'};
       final client = MissavClient(secureStorage: _MemorySecureStorage());
       addTearDown(client.dispose);
+      var loginPageReads = 0;
 
       await tester.runAsync(() async {
-        final connection = connectMissavBrowserSession(
-          client,
-          mobile: mobile,
-          requireLogin: true,
+        final connection = await _pumpUntilComplete(
+          tester,
+          connectMissavBrowserSession(
+            client,
+            mobile: mobile,
+            requireLogin: true,
+            readLoginPage: (_) async {
+              loginPageReads++;
+              return {
+                'url': 'https://example.invalid/',
+                'runtimeUser': {'username': 'untrusted-home-viewer'},
+              };
+            },
+          ),
         );
-        var finished = false;
-        final result = connection
-            .timeout(const Duration(seconds: 5))
-            .whenComplete(() => finished = true);
-        await Future.wait([
-          result,
-          () async {
-            while (!finished) {
-              await tester.pump();
-              await Future<void>.delayed(Duration.zero);
-            }
-          }(),
-        ]);
+        expect(connection.signedIn, isTrue);
+        expect(connection.importedSession, isFalse);
       });
       await tester.pumpAndSettle();
+      expect(sourcePage.requestedUrls, [client.collectionUrl('favorites')]);
+      expect(loginPageReads, 0);
       expect(client.isLoggedIn, isTrue);
-      expect(client.accountName, 'browser-viewer');
+      expect(client.accountName, 'favorites-viewer');
     },
   );
 
@@ -1465,7 +1479,7 @@ void main() {
     );
     final mobile = WebViewController();
     final sourcePage = mobile.platform as _FakeWebViewController;
-    sourcePage.runtimeUser = {'username': 'browser-viewer'};
+    sourcePage.favoritesHtmlDocument = _favoritesUserMarkup('browser-viewer');
     final client = MissavClient(secureStorage: _MemorySecureStorage());
     addTearDown(client.dispose);
 
@@ -1497,7 +1511,7 @@ void main() {
       expect(mediaChannelAttempts, 1);
       expect(client.isLoggedIn, isTrue);
       expect(client.accountName, 'browser-viewer');
-      expect(await mobile.currentUrl(), client.originHomeUrl);
+      expect(await mobile.currentUrl(), client.collectionUrl('favorites'));
 
       platform.failMediaChannel = false;
       final routed = await _pumpUntilComplete(tester, prepare());
@@ -1724,7 +1738,7 @@ void main() {
   );
 
   testWidgets(
-    'a rejected login snapshot releases the browser retained across a session change',
+    'a foreign favorites redirect releases the browser retained across a session change',
     (tester) async {
       final oldPlatform = WebViewPlatform.instance;
       WebViewPlatform.instance = _FakeWebViewPlatform(
@@ -1765,19 +1779,25 @@ void main() {
         expect(await mobile.currentUrl(), 'https://missav.ai/cn');
         client.selectMirror('https://www.missav9.net');
         final generation = client.sessionGeneration;
+        final redirected = WebViewController();
+        final redirectedPage = redirected.platform as _FakeWebViewController;
+        redirectedPage.favoritesHtmlDocument = _favoritesUserMarkup(
+          'redirected-viewer',
+        );
+        redirectedPage.redirectOnReadUrl = 'https://example.invalid/';
 
-        await expectLater(
+        final rejected = expectLater(
           connectMissavBrowserSession(
             client,
-            mobile: WebViewController(),
+            mobile: redirected,
             requireLogin: true,
-            readLoginPage: (_) async => {
-              'url': 'https://example.invalid/',
-              'runtimeUser': {'username': 'untrusted-viewer'},
-            },
           ),
-          throwsA(isA<StateError>()),
+          throwsA(isA<MissavException>()),
         );
+        await _pumpUntilComplete(tester, rejected);
+        expect(redirectedPage.requestedUrls, [
+          client.collectionUrl('favorites'),
+        ]);
         expect(await mobile.currentUrl(), 'about:blank');
         expect(client.sessionGeneration, greaterThan(generation));
         expect(client.isLoggedIn, isFalse);
@@ -1787,7 +1807,7 @@ void main() {
   );
 
   for (final protectedPageStatus in [200, 401]) {
-    testWidgets('a rejected favorites check preserves the saved session '
+    testWidgets('guest or rejected favorites preserves the saved session '
         '(status: $protectedPageStatus)', (tester) async {
       final oldPlatform = WebViewPlatform.instance;
       WebViewPlatform.instance = _FakeWebViewPlatform(
@@ -1803,6 +1823,7 @@ void main() {
         if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
       });
 
+      SharedPreferences.setMockInitialValues({});
       await tester.pumpWidget(
         MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
       );
@@ -1825,6 +1846,7 @@ void main() {
         cookieHeader: 'session=previous',
         userAgent: 'Test browser',
       );
+      final generation = client.sessionGeneration;
       final writesBefore = storage.writeCalls;
 
       await tester.runAsync(() async {
@@ -1836,7 +1858,7 @@ void main() {
         var finished = false;
         final result = expectLater(
           connection.timeout(const Duration(seconds: 5)),
-          throwsA(isA<StateError>()),
+          throwsA(isA<MissavAuthenticationException>()),
         ).whenComplete(() => finished = true);
         await Future.wait([
           result,
@@ -1849,7 +1871,10 @@ void main() {
         ]);
       });
       await tester.pumpAndSettle();
+      expect(sourcePage.requestedUrls, [client.collectionUrl('favorites')]);
+      expect(client.sessionGeneration, generation);
       expect(client.isLoggedIn, isFalse);
+      expect(client.hasRestorableSession, isTrue);
       expect(await mobile.currentUrl(), client.collectionUrl('favorites'));
       expect(storage.cookie, 'session=previous');
       expect(storage.writeCalls, writesBefore);
@@ -1905,10 +1930,8 @@ void main() {
 
         final login = verifyMissavLogin(context, client);
         await tester.pumpAndSettle();
-        expect(
-          await platform.lastController!.currentUrl(),
-          'https://missav.ai/cn',
-        );
+        final sourcePage = platform.lastController!;
+        expect(await sourcePage.currentUrl(), 'https://missav.ai/cn');
 
         await tester.tap(find.widgetWithText(FilledButton, 'Done'));
         await tester.pump();
@@ -1916,6 +1939,10 @@ void main() {
 
         expect(find.text('Login failed'), findsNothing);
         expect(await login, isTrue);
+        expect(sourcePage.requestedUrls, [
+          'https://missav.ai/cn',
+          client.collectionUrl('favorites'),
+        ]);
         expect(client.isLoggedIn, isTrue);
         expect(client.homeUrl, 'https://www.missav9.net/cn');
         expect(storage.cookie, 'session=canonical');
@@ -1975,72 +2002,279 @@ void main() {
     variant: TargetPlatformVariant.only(TargetPlatform.android),
   );
 
-  testWidgets(
-    'failed account confirmation clears the imported session',
-    (tester) async {
-      final oldPlatform = WebViewPlatform.instance;
-      final platform = _FakeWebViewPlatform(
-        Future.value([
-          const WebViewCookie(
-            name: 'session',
-            value: 'canonical',
-            domain: 'missav.ai',
+  final loginFailures = [
+    (
+      name: 'missing Favorites proof',
+      cookie: 'guest-secret',
+      favoritesHtml: '<html><body x-data="{user: null}"></body></html>',
+      expectedMessage:
+          'Could not confirm sign-in from Favorites. Check that you are '
+          'signed in on the website, then select Done again.',
+      expectedStage: VideoLoginPhase.favoritesConfirmation,
+      expectedCategory: 'accountNotConfirmed',
+      rawValue: 'guest-secret',
+    ),
+    (
+      name: 'confirmed sign-in without a cookie handoff',
+      cookie: null,
+      favoritesHtml: _favoritesUserMarkup('handoff-viewer'),
+      expectedMessage:
+          'Website sign-in was confirmed. The app could not take over the '
+          'session. Select Done to try again.',
+      expectedStage: VideoLoginPhase.browserHandoff,
+      expectedCategory: 'state',
+      rawValue: 'handoff-viewer',
+    ),
+    (
+      name: 'confirmed sign-in with a session save error',
+      cookie: 'candidate-secret',
+      favoritesHtml: _favoritesUserMarkup('candidate-viewer'),
+      expectedMessage:
+          'Website sign-in was confirmed. The app could not take over the '
+          'session. Select Done to try again.',
+      expectedStage: VideoLoginPhase.sessionSave,
+      expectedCategory: 'platform',
+      rawValue: 'storage-error-detail',
+    ),
+  ];
+  for (final (source, failure) in [
+    for (final source in ['MissAV', 'Jable'])
+      for (final failure in loginFailures)
+        if (source != 'Jable' ||
+            failure.expectedStage != VideoLoginPhase.sessionSave)
+          (source, failure),
+  ]) {
+    testWidgets(
+      '$source Done distinguishes ${failure.name} with a safe stage log',
+      (tester) async {
+        final oldPlatform = WebViewPlatform.instance;
+        final isJable = source == 'Jable';
+        final origin = isJable ? JableClient.origin : MissavClient.origin;
+        final startUrl = isJable ? '$origin/login/' : '$origin/cn';
+        final favoritesUrl = isJable
+            ? JableAccount.favoritesUrl
+            : '$origin/cn/saved';
+        final confirmationFailed =
+            failure.expectedStage == VideoLoginPhase.favoritesConfirmation;
+        final savingFailed =
+            failure.expectedStage == VideoLoginPhase.sessionSave;
+        late final _FakeWebViewPlatform platform;
+        platform = _FakeWebViewPlatform(
+          Future.value([
+            if (failure.cookie case final cookie?)
+              WebViewCookie(
+                name: 'session',
+                value: cookie,
+                domain: Uri.parse(origin).host,
+              ),
+          ]),
+          initialUrl: startUrl,
+          onLoadRequest: (params) async {
+            if (params.uri.toString() != favoritesUrl) return;
+            if (isJable) {
+              platform.lastController!.htmlDocument = confirmationFailed
+                  ? '<html><body>Sign in</body></html>'
+                  : '<html><body id="list_videos_my_favourite_videos"></body></html>';
+            } else {
+              platform.lastController!.favoritesHtmlDocument =
+                  failure.favoritesHtml;
+            }
+          },
+        );
+        WebViewPlatform.instance = platform;
+        addTearDown(() {
+          if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+        });
+        SharedPreferences.setMockInitialValues({});
+        await tester.pumpWidget(
+          MaterialApp(
+            navigatorKey: rootNavigatorKey,
+            locale: const Locale('en'),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: const Scaffold(body: SizedBox()),
           ),
-        ]),
-        initialUrl: 'https://missav.ai/cn',
-      );
-      WebViewPlatform.instance = platform;
-      addTearDown(() {
-        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
-      });
-      await tester.pumpWidget(
-        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
-      );
-      final mobile = WebViewController();
-      final sourcePage = platform.lastController!;
-      sourcePage.htmlDocument =
-          '<html><body x-data="{user: null}"></body></html>';
-      sourcePage.runtimeUser = {'username': 'canonical-viewer'};
-      var documentReads = 0;
-      sourcePage.responseStatusFor = (_) => ++documentReads == 1 ? 200 : 500;
-      final storage = _MemorySecureStorage();
-      final client = MissavClient(secureStorage: storage);
-      addTearDown(client.dispose);
+        );
+        final context = tester.element(find.byType(Scaffold));
+        final storage = _MemorySecureStorage();
+        if (savingFailed) {
+          storage.writeError = PlatformException(
+            code: 'write-failed',
+            message: failure.rawValue,
+          );
+        }
+        final Future<bool> login;
+        final bool Function() isLoggedIn;
+        if (isJable) {
+          final client = JableClient(secureStorage: storage);
+          addTearDown(client.dispose);
+          isLoggedIn = () => client.account.isLoggedIn;
+          login = verifyJableAccess(
+            context,
+            client,
+            sourceUrl: startUrl,
+            requireLogin: true,
+          );
+        } else {
+          final client = MissavClient(secureStorage: storage);
+          addTearDown(client.dispose);
+          isLoggedIn = () => client.isLoggedIn;
+          login = verifyMissavLogin(context, client);
+        }
+        await tester.pumpAndSettle();
+        final page = platform.lastController!;
+        expect(await page.currentUrl(), startUrl);
 
-      await tester.runAsync(() async {
-        var finished = false;
-        final result = expectLater(
+        final logs = <String>[];
+        final previousDebugPrint = debugPrint;
+        debugPrint = (String? message, {int? wrapWidth}) {
+          if (message != null) logs.add(message);
+        };
+        try {
+          await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+          await tester.pump();
+          await tester.pumpAndSettle();
+        } finally {
+          debugPrint = previousDebugPrint;
+        }
+
+        final s = S.of(context);
+        final expectedMessage = confirmationFailed
+            ? s.videoLoginConfirmationFailed
+            : s.videoLoginHandoffFailed;
+        expect(expectedMessage, failure.expectedMessage);
+        expect(find.text(expectedMessage), findsOneWidget);
+        expect(find.text('Login failed'), findsNothing);
+        expect(
+          tester
+              .widget<FilledButton>(find.widgetWithText(FilledButton, 'Done'))
+              .onPressed,
+          isNotNull,
+        );
+        if (!savingFailed) {
+          expect(
+            await page.currentUrl(),
+            isJable && confirmationFailed ? startUrl : favoritesUrl,
+          );
+        }
+        expect(isLoggedIn(), isFalse);
+        expect(storage.writeCalls, savingFailed ? 1 : 0);
+        expect(storage.values, isEmpty);
+
+        final failureLogs = logs
+            .where((line) => line.startsWith('$source login failed:'))
+            .toList();
+        expect(failureLogs, hasLength(1));
+        expect(
+          failureLogs.single,
+          matches(
+            RegExp(
+              '^$source login failed: '
+              'stage=${failure.expectedStage.name} '
+              'category=${failure.expectedCategory} '
+              r'elapsedMs=\d+$',
+            ),
+          ),
+        );
+        expect(failureLogs.single, isNot(contains(failure.rawValue)));
+        expect(failureLogs.single, isNot(contains('session=')));
+
+        await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+        await tester.pumpAndSettle();
+        expect(await login, isFalse);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+  }
+
+  for (final cancel in [false, true]) {
+    testWidgets(
+      cancel
+          ? 'cancelling during browser handoff preserves the stored session'
+          : 'failed browser handoff preserves the stored session',
+      (tester) async {
+        final oldPlatform = WebViewPlatform.instance;
+        late final _FakeWebViewPlatform platform;
+        platform = _FakeWebViewPlatform(
+          Future.value([
+            const WebViewCookie(
+              name: 'session',
+              value: 'browser',
+              domain: 'missav.ai',
+            ),
+          ]),
+          initialUrl: 'https://missav.ai/cn',
+          onLoadRequest: (params) async {
+            if (params.uri.pathSegments.lastOrNull == 'saved') {
+              platform.lastController!.favoritesHtmlDocument =
+                  _favoritesUserMarkup('browser-viewer');
+            }
+          },
+        );
+        WebViewPlatform.instance = platform;
+        addTearDown(() {
+          if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+        });
+        SharedPreferences.setMockInitialValues({});
+        await tester.pumpWidget(
+          MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+        );
+        final mobile = WebViewController();
+        final storage = _MemorySecureStorage();
+        final client = MissavClient(secureStorage: storage);
+        addTearDown(client.dispose);
+        await client.importVerifiedSession(
+          cookieHeader: 'session=stored',
+          userAgent: 'stored-agent',
+        );
+        final generation = client.sessionGeneration;
+        final storedValues = Map<String, String>.of(storage.values);
+        final writesBefore = storage.writeCalls;
+        final retainRelease = Completer<void>();
+        final cancelSignal = Completer<void>();
+        (int, String?)? sessionAtHandoff;
+
+        Future<void> retain() async {
+          sessionAtHandoff = (storage.writeCalls, storage.cookie);
+          if (!cancel) throw StateError('handoff failed');
+          await retainRelease.future;
+        }
+
+        final outcome = expectLater(
           connectMissavBrowserSession(
             client,
             mobile: mobile,
+            cancelSignal: cancel ? cancelSignal : null,
             requireLogin: true,
+            retainMobileBrowser: retain,
           ),
           throwsA(
-            isA<MissavException>().having(
+            isA<StateError>().having(
               (error) => error.message,
               'message',
-              contains('HTTP 500'),
+              contains(cancel ? 'cancelled' : 'handoff failed'),
             ),
           ),
-        ).whenComplete(() => finished = true);
-        await Future.wait([
-          result,
-          () async {
-            while (!finished) {
-              await tester.pump();
-              await Future<void>.delayed(Duration.zero);
-            }
-          }(),
-        ]);
-      });
-      await tester.pumpAndSettle();
-
-      expect(storage.values, isEmpty);
-      expect(client.hasRestorableSession, isFalse);
-      expect(client.isLoggedIn, isFalse);
-    },
-    variant: TargetPlatformVariant.only(TargetPlatform.android),
-  );
+        );
+        await tester.pump(Duration.zero);
+        expect(sessionAtHandoff, (writesBefore, 'session=stored'));
+        if (cancel) {
+          expect(storage.writeCalls, writesBefore);
+          cancelSignal.complete();
+          retainRelease.complete();
+        }
+        await tester.pump(Duration.zero);
+        await outcome;
+        expect(client.sessionGeneration, generation);
+        expect(client.hasRestorableSession, isTrue);
+        expect(client.isLoggedIn, isFalse);
+        expect(storage.values, equals(storedValues));
+        expect(storage.writeCalls, writesBefore);
+        expect(storage.cookie, 'session=stored');
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+  }
 
   testWidgets(
     'account verification and access checks ignore mirror source URLs',
@@ -2142,7 +2376,7 @@ void main() {
       var finished = false;
       final result = expectLater(
         connection.timeout(const Duration(seconds: 5)),
-        throwsA(isA<StateError>()),
+        throwsA(isA<MissavAuthenticationException>()),
       ).whenComplete(() => finished = true);
       await Future.wait([
         result,
@@ -2172,6 +2406,16 @@ const _relayStream = VideoStream(
   headers: {'Referer': 'https://missav.ai/'},
   isHls: true,
 );
+
+String _favoritesUserMarkup(String username) =>
+    '''<html><body x-data='{"user":{"username":"$username"}}'></body></html>''';
+
+bool _isFavoritesDocumentUrl(String url) {
+  final uri = Uri.tryParse(url);
+  return uri != null &&
+      uri.origin == MissavClient.origin &&
+      uri.pathSegments.lastOrNull == 'saved';
+}
 
 Future<T> _pumpUntilComplete<T>(
   WidgetTester tester,
@@ -2291,6 +2535,8 @@ class _FakeWebViewController extends PlatformWebViewController {
   String? _url;
   String? documentUrl;
   String htmlDocument = '';
+  String? favoritesHtmlDocument;
+  String? redirectOnReadUrl;
   Map<String, Object?>? runtimeUser;
   bool hasDocumentElement = true;
   String? documentElementId;
@@ -2301,6 +2547,7 @@ class _FakeWebViewController extends PlatformWebViewController {
   int? responseStatus;
   int? Function(String url)? responseStatusFor;
   int networkNavigations = 0;
+  final requestedUrls = <String>[];
   final htmlLoadStarted = Completer<void>();
   final verificationReadyCheckStarted = Completer<void>();
   Completer<void>? _nextDocumentReadinessCheck;
@@ -2335,6 +2582,7 @@ class _FakeWebViewController extends PlatformWebViewController {
   Future<void> loadRequest(LoadRequestParams params) async {
     networkNavigations++;
     final url = params.uri.toString();
+    requestedUrls.add(url);
     final decision = await _navigationDelegate?.navigationRequest?.call(
       NavigationRequest(url: url, isMainFrame: true),
     );
@@ -2406,18 +2654,33 @@ class _FakeWebViewController extends PlatformWebViewController {
 
   @override
   Future<Object> runJavaScriptReturningResult(String javaScript) async {
+    if (javaScript == 'document.documentElement?.outerHTML ?? ""') {
+      return htmlDocument;
+    }
     if (javaScript.contains('const root = document.documentElement;')) {
-      final url = documentUrl ?? _url ?? 'https://missav.ai/cn';
+      var url = documentUrl ?? _url ?? 'https://missav.ai/cn';
+      final favorites = _isFavoritesDocumentUrl(url);
+      if (redirectOnReadUrl case final redirect? when favorites) {
+        redirectOnReadUrl = null;
+        _url = redirect;
+        documentUrl = redirect;
+        url = redirect;
+      }
       final status = responseStatusFor?.call(url) ?? responseStatus;
+      final favoritesHtml = favorites ? favoritesHtmlDocument : null;
       final document = <String, Object?>{
         'url': url,
-        'html': htmlDocument.isEmpty
-            ? '<html><body x-data="{user: null}"></body></html>'
-            : htmlDocument,
+        'html':
+            favoritesHtml ??
+            (htmlDocument.isEmpty
+                ? '<html><body x-data="{user: null}"></body></html>'
+                : htmlDocument),
         if (status != null) 'responseStatus': status,
         if (cloudflareChallenge) 'verificationRequired': true,
       };
-      if (runtimeUser != null) document['runtimeUser'] = runtimeUser;
+      if (runtimeUser != null && favoritesHtml == null) {
+        document['runtimeUser'] = runtimeUser;
+      }
       return document;
     }
     if (javaScript.contains('__kikofluMissavNavigationPending')) {
@@ -2505,6 +2768,7 @@ class _FakeCookieManager extends PlatformWebViewCookieManager {
 
 class _MemorySecureStorage implements FlutterSecureStorage {
   int writeCalls = 0;
+  PlatformException? writeError;
   final values = <String, String>{};
 
   String? get cookie => values['iroru.missav_session_cookie'];
@@ -2517,6 +2781,7 @@ class _MemorySecureStorage implements FlutterSecureStorage {
     }
     if (invocation.memberName == #write) {
       writeCalls++;
+      if (writeError case final error?) return Future<void>.error(error);
       final value = invocation.namedArguments[#value] as String?;
       if (key != null) {
         if (value == null) {

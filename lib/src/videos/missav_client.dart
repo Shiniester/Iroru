@@ -264,12 +264,30 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       return;
     }
 
+    if (!forAccountRestore) _advanceSessionGeneration();
+    _attachBrowserTransport(
+      _dio.clone(httpClientAdapter: adapter),
+      mediaRoute: mediaRoute,
+      resetMedia: resetMedia,
+      forAccountRestore: forAccountRestore,
+      restoredUserAgent: restoredUserAgent,
+    );
+    notifyListeners();
+  }
+
+  void _attachBrowserTransport(
+    Dio browserDio, {
+    required FutureOr<Uri> Function(Uri)? mediaRoute,
+    required Future<void> Function()? resetMedia,
+    required bool forAccountRestore,
+    String? restoredUserAgent,
+  }) {
     final previousBrowserDio = _browserDio;
+    final adapter = browserDio.httpClientAdapter;
     final sourceOrigin = adapter is MissavBrowserAdapter
         ? adapter.origin
         : origin;
-    if (!forAccountRestore) _advanceSessionGeneration();
-    _browserDio = _dio.clone(httpClientAdapter: adapter);
+    _browserDio = browserDio;
     _mediaRoute = mediaRoute;
     _resetMedia = resetMedia;
     _mediaVerification = null;
@@ -286,7 +304,6 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       _homeUrl = '$sourceOrigin$_localePrefix';
     }
     previousBrowserDio?.close(force: true);
-    notifyListeners();
   }
 
   void restoreNativeTransport({HttpClientAdapter? expectedAdapter}) {
@@ -629,9 +646,6 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
     if (pageUri.origin == _baseUrl) _updateHomeUrl(document, pageUri);
   }
-
-  Future<void> confirmBrowserAccount(Map<String, dynamic> user) =>
-      _confirmAccount(user, Uri.parse(origin), _sessionGeneration);
 
   Future<bool> restoreAccount({bool recheck = false}) async {
     if (!recheck && isLoggedIn) return true;
@@ -1887,6 +1901,75 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
+  Future<void> commitBrowserLogin(
+    MissavBrowserAdapter adapter, {
+    required String cookieHeader,
+    required String userAgent,
+    required Map<String, dynamic> user,
+    required int expectedGeneration,
+    required void Function() ensureCurrent,
+    required FutureOr<Uri> Function(Uri) mediaRoute,
+    required Future<void> Function() resetMedia,
+  }) async {
+    _validateHeaderValue(cookieHeader, 'cookieHeader');
+    _validateHeaderValue(userAgent, 'userAgent');
+    final uri = Uri.parse(origin);
+    final cookies = _MissavCookies.fromHeader(cookieHeader);
+    final cookie = cookies.header;
+    if (cookie == null) {
+      throw StateError('MissAV browser session has no cookies.');
+    }
+    final accountName = _accountNameFrom(user);
+    var committed = false;
+    await _writeSession(expectedGeneration, () async {
+      ensureCurrent();
+      final browserDio = _dio.clone(httpClientAdapter: adapter);
+      final previousCookies = _cookies;
+      final previousUserAgent = _userAgent;
+      var savedRecord = false;
+      try {
+        await _secureStorage.write(key: _cookieKey, value: cookie);
+        ensureCurrent();
+        await _writeSessionRecord(cookies, cookie, userAgent);
+        savedRecord = true;
+        ensureCurrent();
+      } catch (_) {
+        final previousCookie = previousCookies.header;
+        if (savedRecord) {
+          if (previousCookie == null) {
+            await _secureStorage.delete(key: _sessionRecordKey);
+          } else {
+            await _writeSessionRecord(
+              previousCookies,
+              previousCookie,
+              previousUserAgent,
+            );
+          }
+        }
+        if (previousCookie == null) {
+          await _secureStorage.delete(key: _cookieKey);
+        } else {
+          await _secureStorage.write(key: _cookieKey, value: previousCookie);
+        }
+        rethrow;
+      }
+      _advanceSessionGeneration();
+      _attachBrowserTransport(
+        browserDio,
+        mediaRoute: mediaRoute,
+        resetMedia: resetMedia,
+        forAccountRestore: true,
+      );
+      _cookies = cookies;
+      _userAgent = userAgent;
+      _accountName = accountName;
+      _setAccountState(loggedIn: true, notify: false);
+      committed = true;
+      notifyListeners();
+    });
+    if (!committed) _checkGeneration(expectedGeneration, uri);
+  }
+
   Future<void> discardVerifiedSession({required int expectedGeneration}) async {
     if (_disposed || expectedGeneration != _sessionGeneration) return;
     final generation = _advanceSessionGeneration();
@@ -2450,18 +2533,24 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       return;
     }
 
-    await _secureStorage.write(
-      key: _sessionRecordKey,
-      value: jsonEncode({
-        'cookie': cookie,
-        'userAgent': userAgent,
-        'host': origin,
-        if (cookies.expirations.isNotEmpty) 'expires': cookies.expirations,
-      }),
-    );
+    await _writeSessionRecord(cookies, cookie, userAgent);
     if (generation != _sessionGeneration) return;
     await _secureStorage.write(key: _cookieKey, value: cookie);
   }
+
+  Future<void> _writeSessionRecord(
+    _MissavCookies cookies,
+    String cookie,
+    String userAgent,
+  ) => _secureStorage.write(
+    key: _sessionRecordKey,
+    value: jsonEncode({
+      'cookie': cookie,
+      'userAgent': userAgent,
+      'host': origin,
+      if (cookies.expirations.isNotEmpty) 'expires': cookies.expirations,
+    }),
+  );
 
   Future<void> _writeSession(
     int generation,

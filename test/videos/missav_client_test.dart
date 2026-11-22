@@ -5297,6 +5297,85 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     },
   );
 
+  for (final (storageFails, persistent) in [
+    (false, false),
+    (true, false),
+    (true, true),
+  ]) {
+    test('keeps the previous account if login persistence is interrupted '
+        '(storage failure: $storageFails, persistent: $persistent)', () async {
+      final storage = _storedBrowserSession();
+      final native = _Adapter(
+        (_) => _response('<body x-data="{user: {name: \'Previous\'}}"></body>'),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = native,
+        secureStorage: storage,
+      );
+      final browser = MissavBrowserAdapter(
+        currentUrl: () async => MissavClient.origin,
+        runJavaScript: (_) async {},
+        navigateDocument: (_, _) async => '',
+        disposeBrowser: () async {},
+      );
+      addTearDown(client.dispose);
+      addTearDown(() => browser.close(force: true));
+      expect(await client.restoreAccount(), isTrue);
+      final previousValues = Map<String, String>.of(storage.values);
+      final saving = Completer<void>();
+      final finishSaving = Completer<void>();
+      var cancelled = false;
+      var writes = 0;
+      storage.beforeWrite = () async {
+        if (++writes == 2) {
+          saving.complete();
+          await finishSaving.future;
+        }
+        if (storageFails && (writes == 2 || persistent && writes > 2)) {
+          throw StateError('Storage write failed.');
+        }
+      };
+
+      final login = expectLater(
+        client.commitBrowserLogin(
+          browser,
+          cookieHeader: 'session=candidate',
+          userAgent: 'Candidate UA',
+          user: {'name': 'Candidate'},
+          expectedGeneration: client.sessionGeneration,
+          ensureCurrent: () {
+            if (cancelled) throw StateError('Login cancelled.');
+          },
+          mediaRoute: (uri) => uri,
+          resetMedia: () async {},
+        ),
+        throwsA(isA<StateError>()),
+      );
+      await saving.future;
+      expect(client.accountName, 'Previous');
+      cancelled = !storageFails;
+      finishSaving.complete();
+      await login;
+
+      expect(client.isLoggedIn, isTrue);
+      expect(client.accountName, 'Previous');
+      if (!persistent) expect(storage.values, previousValues);
+      final afterRestart = MissavClient(
+        dio: Dio()
+          ..httpClientAdapter = _Adapter((request) {
+            expect(_cookieHeader(request), 'session=saved');
+            return _response(
+              '<body x-data="{user: {name: \'Previous\'}}"></body>',
+            );
+          }),
+        secureStorage: storage,
+      );
+      addTearDown(afterRestart.dispose);
+      expect(await afterRestart.restoreAccount(), isTrue);
+      expect(afterRestart.accountName, 'Previous');
+    });
+  }
+
   test('rechecking a signed-in account clears a rejected session', () async {
     final storage = _MemorySecureStorage()..cookie = 'session=saved';
     var expired = false;

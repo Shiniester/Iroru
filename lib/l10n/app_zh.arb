@@ -1509,6 +1509,8 @@
   "videoMirrorCurrent": "当前：{host}",
   "videoLoginHelp": "在源站登录后，点击“完成”检查登录状态。",
   "videoLoginComplete": "完成",
+  "videoLoginConfirmationFailed": "未能通过收藏页确认登录。请在网页中确认已登录，再点击“完成”。",
+  "videoLoginHandoffFailed": "网页已确认登录。应用未能接管会话，请再次点击“完成”重试。",
   "videoJableSignedIn": "已登录 Jable",
   "videoCatalog": "视频目录",
   "videoContent": "内容",
