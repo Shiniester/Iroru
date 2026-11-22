@@ -960,7 +960,7 @@ void main() {
     );
 
     test(
-      'downloadUpdate downloads file with progress and cleans temporary .part',
+      'downloadUpdate downloads file with progress and leaves no temporary file',
       () async {
         final adapter = _MockHttpClientAdapter((options) {
           return ResponseBody.fromString(
@@ -984,9 +984,195 @@ void main() {
 
         expect(downloadedFile.existsSync(), isTrue);
         expect(downloadedFile.readAsStringSync(), 'installer binary data');
-        expect(File('${downloadedFile.path}.part').existsSync(), isFalse);
+        expect(
+          temporaryDirectory
+              .listSync()
+              .whereType<File>()
+              .where((file) => file.path.endsWith('.part'))
+              .isEmpty,
+          isTrue,
+        );
       },
     );
+
+    group('UpdateService Download Fallback', () {
+      test(
+        'downloads from the official URL when it succeeds',
+        () async {
+          final requestedUrls = <String>[];
+          final adapter = _MockHttpClientAdapter((options) {
+            requestedUrls.add(options.path);
+            return ResponseBody.fromString('official data', HttpStatus.ok);
+          });
+          final service = UpdateService(
+            dio: Dio()..httpClientAdapter = adapter,
+          );
+
+          final file = await service.downloadUpdate(
+            downloadUrl: 'https://example.com/app.exe',
+            fileName: 'app.exe',
+            targetDirectory: temporaryDirectory,
+          );
+
+          expect(file.readAsStringSync(), 'official data');
+          expect(requestedUrls, ['https://example.com/app.exe']);
+        },
+      );
+
+      test(
+        'falls back to the first mirror when the official URL fails',
+        () async {
+          final requestedUrls = <String>[];
+          final adapter = _MockHttpClientAdapter((options) {
+            requestedUrls.add(options.path);
+            if (options.path == 'https://example.com/app.exe') {
+              return ResponseBody.fromString('', HttpStatus.notFound);
+            }
+            return ResponseBody.fromString('mirror data', HttpStatus.ok);
+          });
+          final service = UpdateService(
+            dio: Dio()..httpClientAdapter = adapter,
+          );
+
+          final file = await service.downloadUpdate(
+            downloadUrl: 'https://example.com/app.exe',
+            fileName: 'app.exe',
+            targetDirectory: temporaryDirectory,
+          );
+
+          expect(file.readAsStringSync(), 'mirror data');
+          expect(
+            requestedUrls,
+            [
+              'https://example.com/app.exe',
+              'https://ghfast.top/https://example.com/app.exe',
+            ],
+          );
+        },
+      );
+
+      test(
+        'falls back through mirrors in order until one succeeds',
+        () async {
+          final requestedUrls = <String>[];
+          final adapter = _MockHttpClientAdapter((options) {
+            requestedUrls.add(options.path);
+            final path = options.path;
+            if (path == 'https://example.com/app.exe' ||
+                path == 'https://ghfast.top/https://example.com/app.exe') {
+              return ResponseBody.fromString('', HttpStatus.notFound);
+            }
+            return ResponseBody.fromString('third data', HttpStatus.ok);
+          });
+          final service = UpdateService(
+            dio: Dio()..httpClientAdapter = adapter,
+          );
+
+          final file = await service.downloadUpdate(
+            downloadUrl: 'https://example.com/app.exe',
+            fileName: 'app.exe',
+            targetDirectory: temporaryDirectory,
+          );
+
+          expect(file.readAsStringSync(), 'third data');
+          expect(
+            requestedUrls,
+            [
+              'https://example.com/app.exe',
+              'https://ghfast.top/https://example.com/app.exe',
+              'https://gh-proxy.com/https://example.com/app.exe',
+            ],
+          );
+        },
+      );
+
+      test(
+        'throws when the official URL and every mirror fail',
+        () async {
+          final adapter = _MockHttpClientAdapter((_) {
+            return ResponseBody.fromString('', HttpStatus.notFound);
+          });
+          final service = UpdateService(
+            dio: Dio()..httpClientAdapter = adapter,
+          );
+
+          await expectLater(
+            service.downloadUpdate(
+              downloadUrl: 'https://example.com/app.exe',
+              fileName: 'app.exe',
+              targetDirectory: temporaryDirectory,
+            ),
+            throwsA(isA<DioException>()),
+          );
+        },
+      );
+
+      test(
+        'does not fall back when the download is cancelled',
+        () async {
+          final requestStarted = Completer<void>();
+          final adapter = _StallingMockAdapter((_) {
+            requestStarted.complete();
+            return true;
+          });
+          final service = UpdateService(
+            dio: Dio()..httpClientAdapter = adapter,
+          );
+          final cancelToken = CancelToken();
+
+          final download = service.downloadUpdate(
+            downloadUrl: 'https://example.com/app.exe',
+            fileName: 'app.exe',
+            cancelToken: cancelToken,
+            targetDirectory: temporaryDirectory,
+          );
+
+          await requestStarted.future;
+          cancelToken.cancel();
+
+          await expectLater(
+            download,
+            throwsA(
+              isA<DioException>().having(
+                (e) => e.type,
+                'type',
+                DioExceptionType.cancel,
+              ),
+            ),
+          );
+        },
+      );
+
+      test(
+        'falls back to the next mirror when the body stalls',
+        () async {
+          final requestedUrls = <String>[];
+          final adapter = _StallingMockAdapter((options) {
+            requestedUrls.add(options.path);
+            return options.path == 'https://example.com/app.exe';
+          });
+          final service = UpdateService(
+            dio: Dio()..httpClientAdapter = adapter,
+            downloadTimeout: const Duration(milliseconds: 50),
+          );
+
+          final file = await service.downloadUpdate(
+            downloadUrl: 'https://example.com/app.exe',
+            fileName: 'app.exe',
+            targetDirectory: temporaryDirectory,
+          );
+
+          expect(file.readAsStringSync(), 'mirror data');
+          expect(
+            requestedUrls,
+            [
+              'https://example.com/app.exe',
+              'https://ghfast.top/https://example.com/app.exe',
+            ],
+          );
+        },
+      );
+    });
 
     test(
       'installUpdate calls openFile with application/vnd.android.package-archive on Android',
@@ -1235,6 +1421,42 @@ class _DeferredDownloadService extends UpdateService {
     installCalls++;
     return true;
   }
+}
+
+class _StallingMockAdapter implements HttpClientAdapter {
+  final bool Function(RequestOptions options) shouldStall;
+
+  _StallingMockAdapter(this.shouldStall);
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) {
+    if (!shouldStall(options)) {
+      return Future.value(
+        ResponseBody.fromString('mirror data', HttpStatus.ok),
+      );
+    }
+
+    final controller = StreamController<Uint8List>();
+    cancelFuture?.whenComplete(() {
+      if (!controller.isClosed) controller.close();
+    });
+    return Future.value(
+      ResponseBody(
+        controller.stream,
+        HttpStatus.ok,
+        headers: {
+          Headers.contentLengthHeader: ['11'],
+        },
+      ),
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 class _MockHttpClientAdapter implements HttpClientAdapter {

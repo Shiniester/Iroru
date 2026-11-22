@@ -32,6 +32,12 @@ class UpdateService {
   static const String _releasePageUrl =
       'https://github.com/$_releaseRepository/releases/latest';
   static const String _androidPackageName = 'com.meteor.iroru';
+  static const List<String> _downloadMirrors = [
+    'https://ghfast.top/',
+    'https://gh-proxy.com/',
+    'https://ghproxy.net/',
+  ];
+  static const Duration _defaultDownloadTimeout = Duration(seconds: 30);
   static final RegExp _betaVersion = RegExp(r'^\d+\.\d+\.\d+-beta\.\d+$');
 
   static const String _keyUpdateChannel = 'update_channel';
@@ -56,6 +62,7 @@ class UpdateService {
   final ProcessStarter _processStarter;
   final Future<Directory> Function() _getTempDirectory;
   final Abi? _androidAbi;
+  final Duration _downloadTimeout;
 
   UpdateService({
     Dio? dio,
@@ -63,12 +70,14 @@ class UpdateService {
     ProcessStarter? processStarter,
     Future<Directory> Function()? getTempDirectory,
     Abi? androidAbi,
+    Duration? downloadTimeout,
   }) : _dio = dio ?? Dio(),
        _openFile = openFile ?? OpenFilex.open,
        _processStarter = processStarter ?? Process.start,
        _getTempDirectory = getTempDirectory ?? getTemporaryDirectory,
        _androidAbi =
-           androidAbi ?? (!kIsWeb && Platform.isAndroid ? Abi.current() : null);
+           androidAbi ?? (!kIsWeb && Platform.isAndroid ? Abi.current() : null),
+       _downloadTimeout = downloadTimeout ?? _defaultDownloadTimeout;
 
   Future<UpdateChannel> getUpdateChannel({String? currentVersion}) async {
     final prefs = await SharedPreferences.getInstance();
@@ -454,6 +463,10 @@ class UpdateService {
   }
 
   /// Download the update package to the local updates directory.
+  ///
+  /// Tries the official download URL first, then each built-in mirror in
+  /// order, attempting every address once. A cancelled download stops the
+  /// chain without falling back.
   Future<File> downloadUpdate({
     required String downloadUrl,
     required String fileName,
@@ -469,33 +482,121 @@ class UpdateService {
     }
 
     final savePath = p.join(saveDir.path, fileName);
-    final tempPath = '$savePath.part';
-    final tempFile = File(tempPath);
-    if (await tempFile.exists()) {
-      await tempFile.delete();
-    }
 
-    await _dio.download(
+    final candidates = <String>[
       downloadUrl,
-      tempPath,
-      cancelToken: cancelToken,
-      onReceiveProgress: onProgress,
-    );
+      for (final mirror in _downloadMirrors) _mirrorUrl(downloadUrl, mirror),
+    ];
 
-    final downloadedPart = File(tempPath);
-    if (!await downloadedPart.exists() || await downloadedPart.length() == 0) {
-      throw FileSystemException(
-        'Downloaded file is empty or missing',
-        tempPath,
-      );
+    Exception? lastError;
+    for (var i = 0; i < candidates.length; i++) {
+      final tempPath = '$savePath.$i.part';
+      final tempFile = File(tempPath);
+      if (await tempFile.exists()) {
+        await tempFile.delete();
+      }
+
+      try {
+        await _downloadAttempt(
+          candidates[i],
+          tempPath,
+          cancelToken: cancelToken,
+          onProgress: onProgress,
+        );
+      } on DioException catch (e) {
+        if (e.type == DioExceptionType.cancel &&
+            cancelToken?.isCancelled == true) {
+          rethrow;
+        }
+        lastError = e;
+        continue;
+      } on Exception catch (e) {
+        lastError = e;
+        continue;
+      }
+
+      if (!await tempFile.exists() || await tempFile.length() == 0) {
+        if (await tempFile.exists()) {
+          await tempFile.delete();
+        }
+        lastError = FileSystemException(
+          'Downloaded file is empty or missing',
+          tempPath,
+        );
+        continue;
+      }
+
+      final targetFile = File(savePath);
+      if (await targetFile.exists()) {
+        await targetFile.delete();
+      }
+      return tempFile.rename(savePath);
     }
 
-    final targetFile = File(savePath);
-    if (await targetFile.exists()) {
-      await targetFile.delete();
-    }
-    return downloadedPart.rename(savePath);
+    throw lastError ?? Exception('Update download failed');
   }
+
+  /// Runs one download attempt and aborts it when no bytes arrive for
+  /// [_downloadTimeout]. Dio's receive timeout only covers the response
+  /// headers, so the body needs this stall guard. A stall cancels the
+  /// underlying connection so the next attempt starts from a clean file.
+  Future<void> _downloadAttempt(
+    String url,
+    String tempPath, {
+    required CancelToken? cancelToken,
+    required void Function(int received, int total)? onProgress,
+  }) async {
+    final attemptToken = CancelToken();
+    if (cancelToken != null) {
+      if (cancelToken.isCancelled) throw cancelToken.cancelError!;
+      cancelToken.whenCancel.then((error) {
+        if (!attemptToken.isCancelled) attemptToken.cancel(error.error);
+      });
+    }
+
+    Timer? stallTimer;
+    var stalled = false;
+    void resetStallTimer() {
+      stallTimer?.cancel();
+      stallTimer = Timer(_downloadTimeout, () {
+        stalled = true;
+        if (!attemptToken.isCancelled) {
+          attemptToken.cancel('Update download stalled');
+        }
+      });
+    }
+
+    resetStallTimer();
+    try {
+      await _dio.download(
+        url,
+        tempPath,
+        cancelToken: attemptToken,
+        options: Options(
+          receiveTimeout: _downloadTimeout,
+          sendTimeout: _downloadTimeout,
+        ),
+        onReceiveProgress: (received, total) {
+          resetStallTimer();
+          onProgress?.call(received, total);
+        },
+      );
+    } on DioException catch (e) {
+      if (cancelToken?.isCancelled == true) rethrow;
+      if (stalled && e.type == DioExceptionType.cancel) {
+        throw TimeoutException(
+          'Update download stalled',
+          _downloadTimeout,
+        );
+      }
+      rethrow;
+    } finally {
+      stallTimer?.cancel();
+    }
+  }
+
+  String _mirrorUrl(String downloadUrl, String mirror) =>
+      '$mirror$downloadUrl';
 
   /// Launch or install the downloaded update package.
   Future<bool> installUpdate(String filePath, {String? targetPlatform}) async {
