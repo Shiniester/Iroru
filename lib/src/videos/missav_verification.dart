@@ -584,8 +584,7 @@ Future<String> navigateMissavDocument(
             sourceUrl: uri.toString(),
           );
         }
-      }
-      if (_isMissavHomePath(finalUri) && !_isMissavHomePath(uri)) {
+      } else if (_isMissavHomePath(finalUri) && !_isMissavHomePath(uri)) {
         throw MissavException(
           'MissAV redirected the page to its home page.',
           sourceUrl: uri.toString(),

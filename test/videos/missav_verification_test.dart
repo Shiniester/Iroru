@@ -1882,7 +1882,12 @@ void main() {
     });
   }
 
-  for (final evidence in ['runtime user', 'delayed sign-out', 'fresh page']) {
+  for (final evidence in [
+    'runtime user',
+    'delayed sign-out',
+    'fresh page',
+    'unprefixed Favorites redirect',
+  ]) {
     testWidgets(
       'login completes on the canonical origin without taking over the mirror '
       '($evidence)',
@@ -1942,6 +1947,9 @@ void main() {
           sourcePage.showSignOutOnSnapshot = 2;
         } else if (!needsFreshPage) {
           sourcePage.runtimeUser = {'username': 'canonical-viewer'};
+        }
+        if (evidence == 'unprefixed Favorites redirect') {
+          sourcePage.redirectOnReadUrl = '${MissavClient.origin}/saved';
         }
 
         await tester.tap(find.widgetWithText(FilledButton, 'Done'));
