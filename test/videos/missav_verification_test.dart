@@ -1882,11 +1882,12 @@ void main() {
     });
   }
 
-  for (final signOutOnly in [false, true]) {
+  for (final evidence in ['runtime user', 'delayed sign-out', 'fresh page']) {
     testWidgets(
       'login completes on the canonical origin without taking over the mirror '
-      '(delayed sign-out control only: $signOutOnly)',
+      '($evidence)',
       (tester) async {
+        final needsFreshPage = evidence == 'fresh page';
         final oldPlatform = WebViewPlatform.instance;
         late final _FakeWebViewPlatform platform;
         platform = _FakeWebViewPlatform(
@@ -1902,6 +1903,11 @@ void main() {
             final page = platform.lastController!;
             page.htmlDocument =
                 '<html><body x-data="{user: null}"></body></html>';
+            if (needsFreshPage && page.requestedUrls.length == 2) {
+              page.favoritesHtmlDocument = _favoritesUserMarkup(
+                'canonical-viewer',
+              );
+            }
             page.runtimeUser = null;
             page.visibleSignOut = false;
             page.responseStatus = 200;
@@ -1932,9 +1938,9 @@ void main() {
         final sourcePage = platform.lastController!;
         final favorites = client.collectionUrl('favorites');
         expect(await sourcePage.currentUrl(), favorites);
-        if (signOutOnly) {
+        if (evidence == 'delayed sign-out') {
           sourcePage.showSignOutOnSnapshot = 2;
-        } else {
+        } else if (!needsFreshPage) {
           sourcePage.runtimeUser = {'username': 'canonical-viewer'};
         }
 
@@ -1942,10 +1948,16 @@ void main() {
         await tester.pump();
         await tester.pumpAndSettle();
 
-        expect(find.text('Login failed'), findsNothing);
+        expect(
+          find.text(S.of(context).videoLoginConfirmationFailed),
+          findsNothing,
+        );
         expect(find.widgetWithText(FilledButton, 'Done'), findsNothing);
         expect(await login, isTrue);
-        expect(sourcePage.requestedUrls, [favorites]);
+        expect(sourcePage.requestedUrls, [
+          favorites,
+          if (needsFreshPage) favorites,
+        ]);
         expect(client.isLoggedIn, isTrue);
         expect(client.homeUrl, 'https://www.missav9.net/cn');
         expect(storage.cookie, 'session=canonical');

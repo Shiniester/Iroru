@@ -530,6 +530,7 @@ Future<String> navigateMissavDocument(
   required Future<Object?> Function(String script) read,
   required Future<void> Function() stop,
   Future<void> Function(bool documentRead)? releaseDocument,
+  Future<bool> Function(Completer<void> signal)? reuseFavorites,
   bool waitForFavoritesAccount = false,
 }) async {
   final cancellation = Completer<void>();
@@ -545,9 +546,14 @@ Future<String> navigateMissavDocument(
     }),
   );
   try {
-    await navigate(cancellation);
     final favorites = uri.pathSegments.lastOrNull == 'saved';
-    var checksRemaining = favorites && waitForFavoritesAccount ? 8 : 0;
+    var canRefresh =
+        favorites &&
+        reuseFavorites != null &&
+        await reuseFavorites(cancellation);
+    if (!canRefresh) await navigate(cancellation);
+    final retryCount = favorites && waitForFavoritesAccount ? 8 : 0;
+    var checksRemaining = retryCount;
     while (true) {
       final raw = await _cancelable(read(_documentMarkupScript), cancellation);
       var document = raw is String ? jsonDecode(raw) : raw;
@@ -614,9 +620,17 @@ Future<String> navigateMissavDocument(
             '<script id="kiko-missav-recommendation-context" '
             'type="application/json">$contextJson</script>';
       }
-      if (checksRemaining == 0 ||
+      if ((canRefresh || checksRemaining > 0) &&
           MissavClient.readFavoritesAccountFromMarkup(html, finalUri) != null) {
         return html;
+      }
+      if (checksRemaining == 0) {
+        if (!canRefresh) return html;
+        canRefresh = false;
+        documentRead = false;
+        await navigate(cancellation);
+        checksRemaining = retryCount;
+        continue;
       }
       checksRemaining--;
       await _cancelable(
@@ -1146,22 +1160,18 @@ connectMissavBrowserSession(
           () => navigateMissavDocument(
             favorites,
             cancelled,
-            navigate: (signal) async {
-              if (await _canReuseMissavFavorites(
-                () async => loginDesktop.navigationState.value.url,
-                loginDesktop.evaluateJavaScript,
-                signal,
-              )) {
-                return;
-              }
-              await _waitForDesktopPage(
-                loginDesktop,
-                favorites.toString(),
-                cancelSignal: signal,
-              );
-            },
+            navigate: (signal) => _waitForDesktopPage(
+              loginDesktop,
+              favorites.toString(),
+              cancelSignal: signal,
+            ),
             read: loginDesktop.evaluateJavaScript,
             stop: () => stopMissavDesktopNavigation(loginDesktop),
+            reuseFavorites: (signal) => _canReuseMissavFavorites(
+              () async => loginDesktop.navigationState.value.url,
+              loginDesktop.evaluateJavaScript,
+              signal,
+            ),
             waitForFavoritesAccount: true,
           ),
         );
@@ -1297,31 +1307,26 @@ connectMissavBrowserSession(
         navigateDocument: (uri, cancelled) => navigateMissavDocument(
           uri,
           cancelled,
-          navigate: (signal) async {
-            if (requireLogin &&
-                !connected &&
-                uri == favorites &&
-                await _canReuseMissavFavorites(
+          navigate: (signal) => waitForMissavMobilePage(
+            mobile,
+            uri.toString(),
+            cancelSignal: signal,
+            documentOnly: Platform.isAndroid,
+            ensureActive: () {
+              if (signal.isCompleted) {
+                throw StateError('MissAV navigation was cancelled.');
+              }
+            },
+          ),
+          read: mobile.runJavaScriptReturningResult,
+          stop: () => mobile.runJavaScript('window.stop();'),
+          reuseFavorites: requireLogin && !connected && uri == favorites
+              ? (signal) => _canReuseMissavFavorites(
                   mobile.currentUrl,
                   mobile.runJavaScriptReturningResult,
                   signal,
-                )) {
-              return;
-            }
-            await waitForMissavMobilePage(
-              mobile,
-              uri.toString(),
-              cancelSignal: signal,
-              documentOnly: Platform.isAndroid,
-              ensureActive: () {
-                if (signal.isCompleted) {
-                  throw StateError('MissAV navigation was cancelled.');
-                }
-              },
-            );
-          },
-          read: mobile.runJavaScriptReturningResult,
-          stop: () => mobile.runJavaScript('window.stop();'),
+                )
+              : null,
           waitForFavoritesAccount: requireLogin && !connected,
           releaseDocument: Platform.isAndroid
               ? (documentRead) async {
