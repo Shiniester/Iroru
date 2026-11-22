@@ -432,33 +432,59 @@ Future<void> _waitForBrowserVerification(
   throw TimeoutException('MissAV browser page was not ready.');
 }
 
-const _documentMarkupScript = '''
+const _documentMarkupScript = r'''
 (() => {
   const root = document.documentElement;
   if (!root) return null;
   const pause = media => { media.muted = true; media.pause(); };
   document.querySelectorAll('video, audio').forEach(pause);
-  document.addEventListener('play', event => {
-    if (event.target instanceof HTMLMediaElement) pause(event.target);
-  }, true);
+  if (!window.__kikofluMissavPauseMedia) {
+    window.__kikofluMissavPauseMedia = true;
+    document.addEventListener('play', event => {
+      if (event.target instanceof HTMLMediaElement) pause(event.target);
+    }, true);
+  }
   const visitorCookie = document.cookie.split(';').map(value => value.trim())
     .find(value => value.startsWith('user_uuid='));
   const navigation = performance.getEntriesByType('navigation')[0];
   let runtimeUser = null;
-  if (window.Alpine?.\$data) {
-    for (const accountRoot of document.querySelectorAll('[x-data*="user"]')) {
-      const user = window.Alpine.\$data(accountRoot)?.user;
+  if (window.Alpine?.$data) {
+    for (const accountRoot of document.querySelectorAll('[x-data]')) {
+      const user = window.Alpine.$data(accountRoot)?.user;
       if (user && typeof user === 'object' &&
           (user.id || user.email || user.username || user.name)) {
-        runtimeUser = user;
+        runtimeUser = {
+          id: user.id, email: user.email, username: user.username, name: user.name
+        };
         break;
       }
     }
   }
+  const visibleSignOut = location.pathname.split('/').filter(Boolean).pop() === 'saved' &&
+    Array.from(document.querySelectorAll('a, button, form'))
+    .some(control => {
+      if (control.getClientRects().length === 0 ||
+          getComputedStyle(control).visibility !== 'visible') return false;
+      const target = control.getAttribute('href') ||
+        control.getAttribute('formaction') || control.getAttribute('action');
+      if (target) {
+        try {
+          const url = new URL(target, location.href);
+          if (url.origin === location.origin &&
+              url.pathname.split('/').filter(Boolean).pop() === 'logout') {
+            return true;
+          }
+        } catch (_) {}
+      }
+      return control.getAttributeNames().some(name =>
+        /^(?:@click|x-on:click)(?:\.|$)/.test(name) &&
+        /^(?:logout|signOut)(?:\(\s*\))?;?$/.test(control.getAttribute(name).trim()));
+    });
   return JSON.stringify({
     url:location.href,
     html:root.outerHTML,
     runtimeUser,
+    visibleSignOut,
     responseStatus: navigation && navigation.responseStatus,
     verificationRequired: typeof window._cf_chl_opt !== 'undefined' ||
       /^Just a moment|Attention Required.*Cloudflare/i.test(document.title),
@@ -504,6 +530,7 @@ Future<String> navigateMissavDocument(
   required Future<Object?> Function(String script) read,
   required Future<void> Function() stop,
   Future<void> Function(bool documentRead)? releaseDocument,
+  bool waitForFavoritesAccount = false,
 }) async {
   final cancellation = Completer<void>();
   var finished = false;
@@ -519,68 +546,84 @@ Future<String> navigateMissavDocument(
   );
   try {
     await navigate(cancellation);
-    final raw = await _cancelable(read(_documentMarkupScript), cancellation);
-    var document = raw is String ? jsonDecode(raw) : raw;
-    // Android WebView JSON-encodes JavaScript string results once more.
-    if (document is String) document = jsonDecode(document);
-    if (document is! Map ||
-        document['html'] is! String ||
-        !isMissavVerificationUrl('${document['url'] ?? ''}')) {
-      throw MissavException(
-        'MissAV browser did not return a source document.',
-        sourceUrl: uri.toString(),
-      );
-    }
-    final finalUri = Uri.parse(document['url'] as String);
-    if (document['verificationRequired'] == true) {
-      throw MissavVerificationRequiredException(sourceUrl: finalUri.toString());
-    }
-    if (uri.pathSegments.lastOrNull == 'saved') {
-      final route = finalUri.pathSegments
-          .where((segment) => segment.isNotEmpty)
-          .skipWhile((segment) => RegExp(r'^dm\d+$').hasMatch(segment))
-          .toList();
-      if (route.lastOrNull == 'login') {
-        throw MissavAuthenticationException(sourceUrl: uri.toString());
-      }
-      if (route.lastOrNull != 'saved' || route.length > 2) {
+    final favorites = uri.pathSegments.lastOrNull == 'saved';
+    var checksRemaining = favorites && waitForFavoritesAccount ? 8 : 0;
+    while (true) {
+      final raw = await _cancelable(read(_documentMarkupScript), cancellation);
+      var document = raw is String ? jsonDecode(raw) : raw;
+      // Android WebView JSON-encodes JavaScript string results once more.
+      if (document is String) document = jsonDecode(document);
+      if (document is! Map ||
+          document['html'] is! String ||
+          !isMissavVerificationUrl('${document['url'] ?? ''}')) {
         throw MissavException(
-          'MissAV did not return the favorites page.',
+          'MissAV browser did not return a source document.',
           sourceUrl: uri.toString(),
         );
       }
-    }
-    if (_isMissavHomePath(finalUri) && !_isMissavHomePath(uri)) {
-      throw MissavException(
-        'MissAV redirected the page to its home page.',
-        sourceUrl: uri.toString(),
+      final finalUri = Uri.parse(document['url'] as String);
+      if (document['verificationRequired'] == true) {
+        throw MissavVerificationRequiredException(
+          sourceUrl: finalUri.toString(),
+        );
+      }
+      if (favorites) {
+        if (finalUri.pathSegments.where((part) => part.isNotEmpty).lastOrNull ==
+            'login') {
+          throw MissavAuthenticationException(sourceUrl: uri.toString());
+        }
+        if (!_isMissavFavoritesPage(finalUri.toString())) {
+          throw MissavException(
+            'MissAV did not return the favorites page.',
+            sourceUrl: uri.toString(),
+          );
+        }
+      }
+      if (_isMissavHomePath(finalUri) && !_isMissavHomePath(uri)) {
+        throw MissavException(
+          'MissAV redirected the page to its home page.',
+          sourceUrl: uri.toString(),
+        );
+      }
+      documentRead = true;
+      var html = document['html'] as String;
+      final status = document['responseStatus'];
+      if (status is int && status >= 400) {
+        return '$html<script id="kiko-missav-response-status" '
+            'type="application/json">$status</script>';
+      }
+      final runtimeUser = document['runtimeUser'];
+      if (runtimeUser is Map) {
+        final userJson = jsonEncode(runtimeUser).replaceAll('<', r'\u003c');
+        html +=
+            '<script id="kiko-missav-runtime-user" '
+            'type="application/json">$userJson</script>';
+      }
+      if (favorites && document['visibleSignOut'] == true) {
+        html +=
+            '<script id="kiko-missav-signed-in" type="application/json">true</script>';
+      }
+      final recommendationContext = document['recommendationContext'];
+      if (recommendationContext is Map &&
+          recommendationContext['userId'] is String) {
+        // Carry source-generated recommendation identity across browser parking.
+        final contextJson = jsonEncode(
+          recommendationContext,
+        ).replaceAll('<', r'\u003c');
+        html +=
+            '<script id="kiko-missav-recommendation-context" '
+            'type="application/json">$contextJson</script>';
+      }
+      if (checksRemaining == 0 ||
+          MissavClient.readFavoritesAccountFromMarkup(html, finalUri) != null) {
+        return html;
+      }
+      checksRemaining--;
+      await _cancelable(
+        Future<void>.delayed(const Duration(milliseconds: 150)),
+        cancellation,
       );
     }
-    documentRead = true;
-    var html = document['html'] as String;
-    final status = document['responseStatus'];
-    if (status is int && status >= 400) {
-      return '$html<script id="kiko-missav-response-status" '
-          'type="application/json">$status</script>';
-    }
-    final runtimeUser = document['runtimeUser'];
-    if (runtimeUser is Map) {
-      final userJson = jsonEncode(runtimeUser).replaceAll('<', r'\u003c');
-      html +=
-          '<script id="kiko-missav-runtime-user" '
-          'type="application/json">$userJson</script>';
-    }
-    final recommendationContext = document['recommendationContext'];
-    if (recommendationContext is! Map ||
-        recommendationContext['userId'] is! String) {
-      return html;
-    }
-    // Carry source-generated recommendation identity across browser parking.
-    final contextJson = jsonEncode(
-      recommendationContext,
-    ).replaceAll('<', r'\u003c');
-    return '$html<script id="kiko-missav-recommendation-context" '
-        'type="application/json">$contextJson</script>';
   } catch (_) {
     if (!cancellation.isCompleted) {
       stopping = Future<void>.sync(stop);
@@ -593,6 +636,27 @@ Future<String> navigateMissavDocument(
     // Stop failed navigation before parking, keeping both in the adapter queue.
     await releaseDocument?.call(documentRead);
   }
+}
+
+bool _isMissavFavoritesPage(String? url) {
+  if (url == null || !isMissavVerificationUrl(url)) return false;
+  final route = Uri.parse(url).pathSegments
+      .where((segment) => segment.isNotEmpty)
+      .skipWhile((segment) => RegExp(r'^dm\d+$').hasMatch(segment))
+      .toList();
+  return route.length <= 2 && route.lastOrNull == 'saved';
+}
+
+Future<bool> _canReuseMissavFavorites(
+  Future<String?> Function() currentUrl,
+  Future<Object?> Function(String script) read,
+  Completer<void> cancellation,
+) async {
+  if (!_isMissavFavoritesPage(await _cancelable(currentUrl(), cancellation))) {
+    return false;
+  }
+  final ready = await _cancelable(read(_verificationReadyScript), cancellation);
+  return ready == true || ready == 'true';
 }
 
 bool _isMissavHomePath(Uri uri) {
@@ -999,7 +1063,10 @@ connectMissavBrowserSession(
         client: client,
         clientGeneration: clientGeneration,
       );
-      final user = MissavClient.readAccountFromMarkup(markup, favorites);
+      final user = MissavClient.readFavoritesAccountFromMarkup(
+        markup,
+        favorites,
+      );
       if (user == null) {
         throw MissavAuthenticationException(sourceUrl: favorites.toString());
       }
@@ -1079,13 +1146,23 @@ connectMissavBrowserSession(
           () => navigateMissavDocument(
             favorites,
             cancelled,
-            navigate: (signal) => _waitForDesktopPage(
-              loginDesktop,
-              favorites.toString(),
-              cancelSignal: signal,
-            ),
+            navigate: (signal) async {
+              if (await _canReuseMissavFavorites(
+                () async => loginDesktop.navigationState.value.url,
+                loginDesktop.evaluateJavaScript,
+                signal,
+              )) {
+                return;
+              }
+              await _waitForDesktopPage(
+                loginDesktop,
+                favorites.toString(),
+                cancelSignal: signal,
+              );
+            },
             read: loginDesktop.evaluateJavaScript,
             stop: () => stopMissavDesktopNavigation(loginDesktop),
+            waitForFavoritesAccount: true,
           ),
         );
         onLoginPhase?.call(VideoLoginPhase.browserHandoff);
@@ -1134,6 +1211,7 @@ connectMissavBrowserSession(
           ),
           read: browser.evaluateJavaScript,
           stop: () => stopMissavDesktopNavigation(browser),
+          waitForFavoritesAccount: requireLogin && !connected,
         ),
         disposeBrowser: () async {
           disposing = true;
@@ -1219,19 +1297,32 @@ connectMissavBrowserSession(
         navigateDocument: (uri, cancelled) => navigateMissavDocument(
           uri,
           cancelled,
-          navigate: (signal) => waitForMissavMobilePage(
-            mobile,
-            uri.toString(),
-            cancelSignal: signal,
-            documentOnly: Platform.isAndroid,
-            ensureActive: () {
-              if (signal.isCompleted) {
-                throw StateError('MissAV navigation was cancelled.');
-              }
-            },
-          ),
+          navigate: (signal) async {
+            if (requireLogin &&
+                !connected &&
+                uri == favorites &&
+                await _canReuseMissavFavorites(
+                  mobile.currentUrl,
+                  mobile.runJavaScriptReturningResult,
+                  signal,
+                )) {
+              return;
+            }
+            await waitForMissavMobilePage(
+              mobile,
+              uri.toString(),
+              cancelSignal: signal,
+              documentOnly: Platform.isAndroid,
+              ensureActive: () {
+                if (signal.isCompleted) {
+                  throw StateError('MissAV navigation was cancelled.');
+                }
+              },
+            );
+          },
           read: mobile.runJavaScriptReturningResult,
           stop: () => mobile.runJavaScript('window.stop();'),
+          waitForFavoritesAccount: requireLogin && !connected,
           releaseDocument: Platform.isAndroid
               ? (documentRead) async {
                   final preserveLoginPage =
@@ -1635,7 +1726,9 @@ Future<MissavVerificationResult> verifyMissavAccount(
 }) => _verifyMissavSession(
   context,
   client,
-  sourceUrl: sourceUrl,
+  sourceUrl: _isMissavFavoritesPage(sourceUrl)
+      ? sourceUrl
+      : client.collectionUrl('favorites'),
   forAccountRestore: true,
 );
 
@@ -1647,7 +1740,7 @@ Future<bool> verifyMissavLogin(
   final result = await _verifyMissavSession(
     context,
     client,
-    sourceUrl: client.originHomeUrl,
+    sourceUrl: client.collectionUrl('favorites'),
     requireLogin: true,
     forAccountRestore: true,
   );

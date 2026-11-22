@@ -1836,6 +1836,7 @@ void main() {
         if (protectedPageStatus == 401) {
           sourcePage.htmlDocument =
               '<html><body x-data="{user: {name: \'Stale viewer\'}}"></body></html>';
+          sourcePage.visibleSignOut = true;
         }
         return protectedPageStatus;
       };
@@ -1881,10 +1882,10 @@ void main() {
     });
   }
 
-  for (final userOnlyOnSavedPage in [false, true]) {
+  for (final signOutOnly in [false, true]) {
     testWidgets(
       'login completes on the canonical origin without taking over the mirror '
-      '(user only on saved page: $userOnlyOnSavedPage)',
+      '(delayed sign-out control only: $signOutOnly)',
       (tester) async {
         final oldPlatform = WebViewPlatform.instance;
         late final _FakeWebViewPlatform platform;
@@ -1901,10 +1902,8 @@ void main() {
             final page = platform.lastController!;
             page.htmlDocument =
                 '<html><body x-data="{user: null}"></body></html>';
-            page.runtimeUser =
-                !userOnlyOnSavedPage || params.uri.pathSegments.last == 'saved'
-                ? {'username': 'canonical-viewer'}
-                : null;
+            page.runtimeUser = null;
+            page.visibleSignOut = false;
             page.responseStatus = 200;
           },
         );
@@ -1931,18 +1930,22 @@ void main() {
         final login = verifyMissavLogin(context, client);
         await tester.pumpAndSettle();
         final sourcePage = platform.lastController!;
-        expect(await sourcePage.currentUrl(), 'https://missav.ai/cn');
+        final favorites = client.collectionUrl('favorites');
+        expect(await sourcePage.currentUrl(), favorites);
+        if (signOutOnly) {
+          sourcePage.showSignOutOnSnapshot = 2;
+        } else {
+          sourcePage.runtimeUser = {'username': 'canonical-viewer'};
+        }
 
         await tester.tap(find.widgetWithText(FilledButton, 'Done'));
         await tester.pump();
         await tester.pumpAndSettle();
 
         expect(find.text('Login failed'), findsNothing);
+        expect(find.widgetWithText(FilledButton, 'Done'), findsNothing);
         expect(await login, isTrue);
-        expect(sourcePage.requestedUrls, [
-          'https://missav.ai/cn',
-          client.collectionUrl('favorites'),
-        ]);
+        expect(sourcePage.requestedUrls, [favorites]);
         expect(client.isLoggedIn, isTrue);
         expect(client.homeUrl, 'https://www.missav9.net/cn');
         expect(storage.cookie, 'session=canonical');
@@ -2050,7 +2053,7 @@ void main() {
         final oldPlatform = WebViewPlatform.instance;
         final isJable = source == 'Jable';
         final origin = isJable ? JableClient.origin : MissavClient.origin;
-        final startUrl = isJable ? '$origin/login/' : '$origin/cn';
+        final startUrl = isJable ? '$origin/login/' : '$origin/cn/saved';
         final favoritesUrl = isJable
             ? JableAccount.favoritesUrl
             : '$origin/cn/saved';
@@ -2310,7 +2313,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         await accountPlatform.lastController!.currentUrl(),
-        'https://missav.ai/cn',
+        client.collectionUrl('favorites'),
       );
       await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
       await tester.pumpAndSettle();
@@ -2538,6 +2541,9 @@ class _FakeWebViewController extends PlatformWebViewController {
   String? favoritesHtmlDocument;
   String? redirectOnReadUrl;
   Map<String, Object?>? runtimeUser;
+  bool visibleSignOut = false;
+  int? showSignOutOnSnapshot;
+  int _snapshotCount = 0;
   bool hasDocumentElement = true;
   String? documentElementId;
   String documentReadyState = 'complete';
@@ -2658,6 +2664,7 @@ class _FakeWebViewController extends PlatformWebViewController {
       return htmlDocument;
     }
     if (javaScript.contains('const root = document.documentElement;')) {
+      _snapshotCount++;
       var url = documentUrl ?? _url ?? 'https://missav.ai/cn';
       final favorites = _isFavoritesDocumentUrl(url);
       if (redirectOnReadUrl case final redirect? when favorites) {
@@ -2676,6 +2683,10 @@ class _FakeWebViewController extends PlatformWebViewController {
                 ? '<html><body x-data="{user: null}"></body></html>'
                 : htmlDocument),
         if (status != null) 'responseStatus': status,
+        'visibleSignOut':
+            visibleSignOut ||
+            (showSignOutOnSnapshot != null &&
+                _snapshotCount >= showSignOutOnSnapshot!),
         if (cloudflareChallenge) 'verificationRequired': true,
       };
       if (runtimeUser != null && favoritesHtml == null) {

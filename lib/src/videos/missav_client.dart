@@ -717,7 +717,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         isContentPage: true,
         accountCheck: true,
       );
-      final sourceUser = _readAccountFromPage(document);
+      final sourceUser = _readFavoritesAccount(document);
       if (pageUri.origin == uri.origin && sourceUser != null) {
         await _confirmAccount(sourceUser, uri, generation, cancelToken);
         return true;
@@ -2900,6 +2900,21 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       return null;
     }
     return _readAccountFromPage(document);
+  }
+
+  static Map<String, dynamic>? readFavoritesAccountFromMarkup(
+    String source,
+    Uri uri,
+  ) => _readFavoritesAccount(_parsePage(source, uri));
+
+  static Map<String, dynamic>? _readFavoritesAccount(Document document) {
+    if (document.querySelector('#kiko-missav-response-status') != null) {
+      return null;
+    }
+    return _readAccountFromPage(document) ??
+        (document.querySelector('#kiko-missav-signed-in')?.text == 'true'
+            ? <String, dynamic>{}
+            : null);
   }
 
   static Map<String, dynamic>? _readAccountFromPage(Document document) {
