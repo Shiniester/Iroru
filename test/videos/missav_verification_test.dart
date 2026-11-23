@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/services/log_service.dart';
 import 'package:iroru/src/utils/global_keys.dart';
 import 'package:iroru/src/videos/jable_client.dart';
 import 'package:iroru/src/videos/jable_verification.dart';
@@ -753,6 +754,7 @@ void main() {
               cancelSignal: signal,
               ensureActive: () {},
               documentOnly: true,
+              restoringAccount: true,
             ),
             read: (_) async {
               expect(finishLoad.isCompleted, isFalse);
@@ -794,6 +796,33 @@ void main() {
       finishLoad.complete();
     },
   );
+
+  test('background restore reports a persistent verification page', () async {
+    final oldPlatform = WebViewPlatform.instance;
+    final finishLoad = Completer<void>();
+    WebViewPlatform.instance = _FakeWebViewPlatform(
+      Future.value(const []),
+      initialUrl: MissavClient.accountCheckUrl,
+      onLoadRequest: (_) => finishLoad.future,
+    );
+    addTearDown(() {
+      finishLoad.complete();
+      if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+    });
+    final controller = WebViewController();
+    final browser = controller.platform as _FakeWebViewController;
+    browser.cloudflareChallenge = true;
+    await expectLater(
+      waitForMissavMobilePage(
+        controller,
+        MissavClient.accountCheckUrl,
+        ensureActive: () {},
+        documentOnly: true,
+        restoringAccount: true,
+      ).timeout(const Duration(seconds: 10)),
+      throwsA(isA<MissavVerificationRequiredException>()),
+    );
+  });
 
   test(
     'Android document navigation preserves cancellation and main-frame errors',
@@ -839,6 +868,7 @@ void main() {
             cancelSignal: signal,
             ensureActive: () {},
             documentOnly: true,
+            restoringAccount: true,
           ),
           read: (_) async {
             reads++;
@@ -870,7 +900,15 @@ void main() {
 
         await expectLater(
           navigation.timeout(const Duration(seconds: 1)),
-          throwsA(isA<StateError>()),
+          throwsA(
+            failWithMainFrameError
+                ? isA<PlatformException>().having(
+                    (e) => e.code,
+                    'code',
+                    'webview/load/-2',
+                  )
+                : isA<StateError>(),
+          ),
         );
         expect(reads, 0);
         expect(stopped, isTrue);
@@ -1176,6 +1214,19 @@ void main() {
       expect(storage.values, equals(storedValues));
       expect(storage.cookie, isNotNull);
       expect(mediaChannelAttempts, 0);
+      final page =
+          (WebViewPlatform.instance as _FakeWebViewPlatform).lastController!;
+      const favorites = '${MissavClient.origin}/en/saved';
+      expect(page.requestedUrls, [favorites]);
+      page.showSignOutOnSnapshot = 2;
+      await tester.runAsync(() async {
+        expect(
+          await _pumpUntilComplete(tester, client.restoreAccount()),
+          isTrue,
+        );
+      });
+      expect(page.requestedUrls, [favorites]);
+      expect(client.isLoggedIn, isTrue);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.android),
   );
@@ -2148,18 +2199,10 @@ void main() {
         final page = platform.lastController!;
         expect(await page.currentUrl(), startUrl);
 
-        final logs = <String>[];
-        final previousDebugPrint = debugPrint;
-        debugPrint = (String? message, {int? wrapWidth}) {
-          if (message != null) logs.add(message);
-        };
-        try {
-          await tester.tap(find.widgetWithText(FilledButton, 'Done'));
-          await tester.pump();
-          await tester.pumpAndSettle();
-        } finally {
-          debugPrint = previousDebugPrint;
-        }
+        LogService.instance.clear();
+        await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+        await tester.pump();
+        await tester.pumpAndSettle();
 
         final s = S.of(context);
         final expectedMessage = confirmationFailed
@@ -2184,7 +2227,8 @@ void main() {
         expect(storage.writeCalls, savingFailed ? 1 : 0);
         expect(storage.values, isEmpty);
 
-        final failureLogs = logs
+        final failureLogs = LogService.instance.logs
+            .map((entry) => entry.message)
             .where((line) => line.startsWith('$source login failed:'))
             .toList();
         expect(failureLogs, hasLength(1));
@@ -2703,7 +2747,7 @@ class _FakeWebViewController extends PlatformWebViewController {
                 ? '<html><body x-data="{user: null}"></body></html>'
                 : htmlDocument),
         if (status != null) 'responseStatus': status,
-        'visibleSignOut':
+        'menuSignOut':
             visibleSignOut ||
             (showSignOutOnSnapshot != null &&
                 _snapshotCount >= showSignOutOnSnapshot!),
@@ -2720,6 +2764,9 @@ class _FakeWebViewController extends PlatformWebViewController {
       }
       final check = _nextDocumentReadinessCheck;
       if (check != null && !check.isCompleted) check.complete();
+      if (cloudflareChallenge && javaScript.contains("'challenge'")) {
+        return 'challenge';
+      }
       return isMissavVerificationUrl(documentUrl ?? '') &&
           (javaScript.contains("document.readyState === 'complete'")
               ? documentReadyState == 'complete'

@@ -8,6 +8,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:iroru/l10n/app_localizations.dart';
+import 'package:iroru/src/services/log_service.dart';
 import 'package:iroru/src/videos/jable_client.dart';
 import 'package:iroru/src/videos/jable_verification.dart';
 import 'package:iroru/src/videos/missav_browser_adapter.dart';
@@ -38,39 +39,32 @@ void main() {
             message: 'storage-error-detail',
           );
         }
-        final logs = <String>[];
-        final previousDebugPrint = debugPrint;
-        debugPrint = (message, {wrapWidth}) {
-          if (message != null) logs.add(message);
-        };
-        try {
-          final (strings, _) = await _openLogin(tester, browser, storage);
-          final failure = find.text(phase.failureMessage(strings));
-          await tester.tap(find.text(strings.videoLoginComplete));
-          await _pumpBrowserUntil(tester, () => failure.evaluate().isNotEmpty);
+        LogService.instance.clear();
+        final (strings, _) = await _openLogin(tester, browser, storage);
+        final failure = find.text(phase.failureMessage(strings));
+        await tester.tap(find.text(strings.videoLoginComplete));
+        await _pumpBrowserUntil(tester, () => failure.evaluate().isNotEmpty);
 
-          expect(storage.session, _savedSession);
-          if (phase == VideoLoginPhase.sessionSave) {
-            expect(browser.hiddenAccountChecked, isTrue);
-            expect(storage.writes.single, contains('session=new'));
-          } else {
-            expect(storage.writes, isEmpty);
-          }
-          expect(failure, findsOneWidget);
-          expect(
-            logs,
-            contains(
-              startsWith(
-                'Jable login failed: stage=${phase.name} category=$category',
-              ),
-            ),
-          );
-          expect(logs.join('\n'), isNot(contains('storage-error-detail')));
-          await tester.tap(find.text(strings.cancel));
-          await tester.pumpAndSettle();
-        } finally {
-          debugPrint = previousDebugPrint;
+        expect(storage.session, _savedSession);
+        if (phase == VideoLoginPhase.sessionSave) {
+          expect(browser.hiddenAccountChecked, isTrue);
+          expect(storage.writes.single, contains('session=new'));
+        } else {
+          expect(storage.writes, isEmpty);
         }
+        expect(failure, findsOneWidget);
+        final logs = LogService.instance.logs.map((entry) => entry.message);
+        expect(
+          logs,
+          contains(
+            startsWith(
+              'Jable login failed: stage=${phase.name} category=$category',
+            ),
+          ),
+        );
+        expect(logs.join('\n'), isNot(contains('storage-error-detail')));
+        await tester.tap(find.text(strings.cancel));
+        await tester.pumpAndSettle();
       },
       variant: _desktop,
     );

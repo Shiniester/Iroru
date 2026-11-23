@@ -6,11 +6,56 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import 'package:iroru/src/videos/missav_client.dart';
 import 'package:iroru/src/videos/missav_verification.dart';
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
+
+  for (final guest in [false, true]) {
+    testWidgets(
+      'Android confirms a collapsed favorites menu only for its account (guest: $guest)',
+      (tester) async {
+        final browser = WebViewController();
+        await browser.setJavaScriptMode(JavaScriptMode.unrestricted);
+        final loaded = Completer<void>();
+        await browser.setNavigationDelegate(
+          NavigationDelegate(
+            onPageFinished: (_) {
+              if (!loaded.isCompleted) loaded.complete();
+            },
+          ),
+        );
+        await tester.pumpWidget(
+          MaterialApp(home: WebViewWidget(controller: browser)),
+        );
+        final uri = Uri.parse('https://missav.ai/cn/saved');
+        final markup = await navigateMissavDocument(
+          uri,
+          Completer<void>().future,
+          navigate: (_) async {
+            await browser.loadHtmlString('''<nav x-data="{open:false}">
+                <button @click="open = !open">Menu</button>
+                <div x-show="open" style="display:none">
+                  <div ${guest ? 'x-show="user" style="display:none"' : ''}>
+                    <a href="/logout">Sign out</a>
+                  </div>
+                </div>
+              </nav>''', baseUrl: uri.toString());
+            await loaded.future.timeout(const Duration(seconds: 15));
+          },
+          read: browser.runJavaScriptReturningResult,
+          stop: () => browser.runJavaScript('window.stop();'),
+        );
+        expect(
+          MissavClient.readFavoritesAccountFromMarkup(markup, uri) != null,
+          !guest,
+        );
+      },
+      skip: !Platform.isAndroid,
+    );
+  }
 
   testWidgets(
     'Android reads a verified document through the real WebView bridge',

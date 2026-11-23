@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart' show DioException;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../services/log_service.dart';
 import 'video_models.dart';
 
 enum VideoLoginPhase {
@@ -31,7 +31,7 @@ enum VideoLoginPhase {
       StateError() => 'state',
       _ => 'unexpected',
     };
-    debugPrint(
+    LogService.instance.error(
       '$source login failed: stage=$name '
       'category=$category elapsedMs=$elapsedMilliseconds',
     );

@@ -204,6 +204,7 @@ Future<void> _waitForDesktopPage(
   Webview browser,
   String url, {
   Completer<void>? cancelSignal,
+  bool restoringAccount = false,
 }) async {
   final completed = Completer<void>();
   void observeNavigation() {
@@ -240,6 +241,7 @@ Future<void> _waitForDesktopPage(
       () => browser.evaluateJavaScript(_verificationReadyScript),
       url,
       cancelSignal,
+      restoringAccount: restoringAccount,
     );
   } finally {
     browser.navigationState.removeListener(observeNavigation);
@@ -254,6 +256,7 @@ Future<void> waitForMissavMobilePage(
   Completer<void>? cancelSignal,
   required void Function() ensureActive,
   bool documentOnly = false,
+  bool restoringAccount = false,
 }) async {
   final completed = Completer<void>();
   completed.future.ignore();
@@ -280,7 +283,12 @@ Future<void> waitForMissavMobilePage(
       onWebResourceError: (error) {
         if (error.isForMainFrame != false &&
             isMissavVerificationUrl(error.url ?? '')) {
-          final failure = StateError('MissAV could not be loaded.');
+          final failure = restoringAccount
+              ? PlatformException(
+                  code:
+                      'webview/${error.errorType?.name ?? 'load'}/${error.errorCode}',
+                )
+              : StateError('MissAV could not be loaded.');
           if (documentOnly) {
             mainFrameError ??= failure;
           }
@@ -326,6 +334,7 @@ window.__kikofluMissavNavigationPending !== true)
       },
       url,
       cancelSignal,
+      restoringAccount: restoringAccount,
     );
     ensureActive();
     return;
@@ -343,6 +352,7 @@ window.__kikofluMissavNavigationPending !== true)
     () => controller.runJavaScriptReturningResult(_verificationReadyScript),
     url,
     cancelSignal,
+    restoringAccount: restoringAccount,
   );
 }
 
@@ -415,14 +425,20 @@ document.documentElement.id !== 'kikoflu-browser-bridge')
 Future<void> _waitForBrowserVerification(
   Future<Object?> Function() ready,
   String url,
-  Completer<void>? cancelSignal,
-) async {
+  Completer<void>? cancelSignal, {
+  bool restoringAccount = false,
+}) async {
   final deadline = DateTime.now().add(const Duration(seconds: 30));
   var challenged = false;
+  var challengeChecks = 0;
   while (DateTime.now().isBefore(deadline)) {
     final result = await _cancelable(ready(), cancelSignal);
     if (result == true || result == 'true') return;
     challenged = result == 'challenge' || result == '"challenge"';
+    challengeChecks = challenged ? challengeChecks + 1 : 0;
+    if (restoringAccount && challengeChecks >= 20) {
+      throw MissavVerificationRequiredException(sourceUrl: url);
+    }
     await _cancelable(
       Future<void>.delayed(const Duration(milliseconds: 250)),
       cancelSignal,
@@ -460,11 +476,37 @@ const _documentMarkupScript = r'''
       }
     }
   }
-  const visibleSignOut = location.pathname.split('/').filter(Boolean).pop() === 'saved' &&
+  const visible = element => element.getClientRects().length > 0 &&
+    getComputedStyle(element).visibility === 'visible';
+  const collapsedMenu = panel => {
+    if (panel.id && Array.from(document.querySelectorAll('[aria-controls][aria-expanded="false"]'))
+      .some(toggle => visible(toggle) &&
+        toggle.getAttribute('aria-controls').split(/\s+/).includes(panel.id))) return true;
+    const state = panel.getAttribute('x-show')?.trim();
+    if (!state || !/^[\w$]+$/.test(state)) return false;
+    const scope = panel.closest('[x-data]');
+    if (!scope) return false;
+    return Array.from(scope.querySelectorAll('[\\@click], [x-on\\:click]')).some(toggle => {
+      if (toggle.closest('[x-data]') !== scope || !visible(toggle)) return false;
+      const action = (toggle.getAttribute('@click') || toggle.getAttribute('x-on:click'))
+        ?.replace(/\s+/g, '').replace(/;$/, '');
+      return action === state + '=!' + state || action === state + '=true';
+    });
+  };
+  const availableSignOut = control => {
+    if (visible(control)) return true;
+    if (getComputedStyle(control).visibility !== 'visible') return false;
+    let inCollapsedMenu = false;
+    for (let node = control; node; node = node.parentElement) {
+      if (getComputedStyle(node).display !== 'none') continue;
+      if (node === control || !collapsedMenu(node)) return false;
+      inCollapsedMenu = true;
+    }
+    return inCollapsedMenu;
+  };
+  const menuSignOut = location.pathname.split('/').filter(Boolean).pop() === 'saved' &&
     Array.from(document.querySelectorAll('a, button, form'))
     .some(control => {
-      if (control.getClientRects().length === 0 ||
-          getComputedStyle(control).visibility !== 'visible') return false;
       const target = control.getAttribute('href') ||
         control.getAttribute('formaction') || control.getAttribute('action');
       if (target) {
@@ -472,19 +514,20 @@ const _documentMarkupScript = r'''
           const url = new URL(target, location.href);
           if (url.origin === location.origin &&
               url.pathname.split('/').filter(Boolean).pop() === 'logout') {
-            return true;
+            return availableSignOut(control);
           }
         } catch (_) {}
       }
       return control.getAttributeNames().some(name =>
         /^(?:@click|x-on:click)(?:\.|$)/.test(name) &&
-        /^(?:logout|signOut)(?:\(\s*\))?;?$/.test(control.getAttribute(name).trim()));
+        /^(?:logout|signOut)(?:\(\s*\))?;?$/.test(control.getAttribute(name).trim())) &&
+        availableSignOut(control);
     });
   return JSON.stringify({
     url:location.href,
     html:root.outerHTML,
     runtimeUser,
-    visibleSignOut,
+    menuSignOut,
     responseStatus: navigation && navigation.responseStatus,
     verificationRequired: typeof window._cf_chl_opt !== 'undefined' ||
       /^Just a moment|Attention Required.*Cloudflare/i.test(document.title),
@@ -604,7 +647,7 @@ Future<String> navigateMissavDocument(
             '<script id="kiko-missav-runtime-user" '
             'type="application/json">$userJson</script>';
       }
-      if (favorites && document['visibleSignOut'] == true) {
+      if (favorites && document['menuSignOut'] == true) {
         html +=
             '<script id="kiko-missav-signed-in" type="application/json">true</script>';
       }
@@ -652,12 +695,8 @@ Future<String> navigateMissavDocument(
 }
 
 bool _isMissavFavoritesPage(String? url) {
-  if (url == null || !isMissavVerificationUrl(url)) return false;
-  final route = Uri.parse(url).pathSegments
-      .where((segment) => segment.isNotEmpty)
-      .skipWhile((segment) => RegExp(r'^dm\d+$').hasMatch(segment))
-      .toList();
-  return route.length <= 2 && route.lastOrNull == 'saved';
+  final uri = Uri.tryParse(url ?? '');
+  return uri != null && MissavClient.isFavoritesPage(uri);
 }
 
 Future<bool> _canReuseMissavFavorites(
@@ -1065,7 +1104,15 @@ connectMissavBrowserSession(
       client: client,
       clientGeneration: clientGeneration,
     );
-    final favorites = Uri.parse(client.collectionUrl('favorites'));
+    final backgroundRestore =
+        forAccountRestore && !requireLogin && !checkAccess;
+    final favorites = backgroundRestore
+        ? Uri.parse(MissavClient.accountCheckUrl)
+        : Uri.parse(client.collectionUrl('favorites'));
+    final initialUrl = backgroundRestore
+        ? favorites.toString()
+        : client.originHomeUrl;
+    var firstRecoveryPage = backgroundRestore;
     Future<Map<String, dynamic>> confirmFavorites(
       Future<String> Function() load,
     ) async {
@@ -1210,18 +1257,30 @@ connectMissavBrowserSession(
           await browser.evaluateJavaScript(script);
         },
         currentUrl: () async => browser.navigationState.value.url,
-        navigateDocument: (uri, cancelled) => navigateMissavDocument(
-          uri,
-          cancelled,
-          navigate: (signal) => _waitForDesktopPage(
-            browser,
-            uri.toString(),
-            cancelSignal: signal,
-          ),
-          read: browser.evaluateJavaScript,
-          stop: () => stopMissavDesktopNavigation(browser),
-          waitForFavoritesAccount: requireLogin && !connected,
-        ),
+        navigateDocument: (uri, cancelled) {
+          final recover = firstRecoveryPage && uri == favorites;
+          firstRecoveryPage = false;
+          return navigateMissavDocument(
+            uri,
+            cancelled,
+            navigate: (signal) => _waitForDesktopPage(
+              browser,
+              uri.toString(),
+              cancelSignal: signal,
+              restoringAccount: recover,
+            ),
+            read: browser.evaluateJavaScript,
+            stop: () => stopMissavDesktopNavigation(browser),
+            reuseFavorites: recover
+                ? (signal) => _canReuseMissavFavorites(
+                    () async => browser.navigationState.value.url,
+                    browser.evaluateJavaScript,
+                    signal,
+                  )
+                : null,
+            waitForFavoritesAccount: recover || requireLogin && !connected,
+          );
+        },
         disposeBrowser: () async {
           disposing = true;
           await resetMedia();
@@ -1270,8 +1329,9 @@ connectMissavBrowserSession(
         await _awaitConnectionPhase(
           () => _waitForDesktopPage(
             browser,
-            client.originHomeUrl,
+            initialUrl,
             cancelSignal: cancelSignal,
+            restoringAccount: backgroundRestore,
           ),
           connectionGeneration,
           cancelSignal,
@@ -1303,52 +1363,61 @@ connectMissavBrowserSession(
         currentUrl: Platform.isAndroid
             ? () => missavMobileSourceUrl(mobile)
             : mobile.currentUrl,
-        navigateDocument: (uri, cancelled) => navigateMissavDocument(
-          uri,
-          cancelled,
-          navigate: (signal) => waitForMissavMobilePage(
-            mobile,
-            uri.toString(),
-            cancelSignal: signal,
-            documentOnly: Platform.isAndroid,
-            ensureActive: () {
-              if (signal.isCompleted) {
-                throw StateError('MissAV navigation was cancelled.');
-              }
-            },
-          ),
-          read: mobile.runJavaScriptReturningResult,
-          stop: () => mobile.runJavaScript('window.stop();'),
-          reuseFavorites: requireLogin && !connected && uri == favorites
-              ? (signal) => _canReuseMissavFavorites(
-                  mobile.currentUrl,
-                  mobile.runJavaScriptReturningResult,
-                  signal,
-                )
-              : null,
-          waitForFavoritesAccount: requireLogin && !connected,
-          releaseDocument: Platform.isAndroid
-              ? (documentRead) async {
-                  final preserveLoginPage =
-                      requireLogin && !connected && preserveMobilePageOnFailure;
-                  if (!preserveLoginPage &&
-                      (documentRead ||
-                          connected ||
-                          !preserveMobilePageOnFailure)) {
-                    await parkMissavMobileBrowser(
-                      mobile,
-                      ensureActive: () => ensureMissavBrowserConnectionCurrent(
-                        connectionGeneration,
-                        cancelSignal,
-                        client: client,
-                        clientGeneration: clientGeneration,
-                        browserAdapter: browserAdapter,
-                      ),
-                    );
-                  }
+        navigateDocument: (uri, cancelled) {
+          final recover = firstRecoveryPage && uri == favorites;
+          firstRecoveryPage = false;
+          return navigateMissavDocument(
+            uri,
+            cancelled,
+            navigate: (signal) => waitForMissavMobilePage(
+              mobile,
+              uri.toString(),
+              cancelSignal: signal,
+              documentOnly: Platform.isAndroid,
+              restoringAccount: recover,
+              ensureActive: () {
+                if (signal.isCompleted) {
+                  throw StateError('MissAV navigation was cancelled.');
                 }
-              : null,
-        ),
+              },
+            ),
+            read: mobile.runJavaScriptReturningResult,
+            stop: () => mobile.runJavaScript('window.stop();'),
+            reuseFavorites:
+                recover || requireLogin && !connected && uri == favorites
+                ? (signal) => _canReuseMissavFavorites(
+                    mobile.currentUrl,
+                    mobile.runJavaScriptReturningResult,
+                    signal,
+                  )
+                : null,
+            waitForFavoritesAccount: recover || requireLogin && !connected,
+            releaseDocument: Platform.isAndroid
+                ? (documentRead) async {
+                    final preserveLoginPage =
+                        requireLogin &&
+                        !connected &&
+                        preserveMobilePageOnFailure;
+                    if (!preserveLoginPage &&
+                        (documentRead ||
+                            connected ||
+                            !preserveMobilePageOnFailure)) {
+                      await parkMissavMobileBrowser(
+                        mobile,
+                        ensureActive: () =>
+                            ensureMissavBrowserConnectionCurrent(
+                              connectionGeneration,
+                              cancelSignal,
+                              client: client,
+                              clientGeneration: clientGeneration,
+                              browserAdapter: browserAdapter,
+                            ),
+                      );
+                    }
+                  }
+                : null,
+          );
+        },
         disposeBrowser: () async {
           await resetMedia();
           await _disposeMobileBrowser(
@@ -1387,8 +1456,10 @@ connectMissavBrowserSession(
         await _awaitConnectionPhase(
           () => waitForMissavMobilePage(
             mobile,
-            client.originHomeUrl,
+            initialUrl,
             cancelSignal: cancelSignal,
+            documentOnly: backgroundRestore && Platform.isAndroid,
+            restoringAccount: backgroundRestore,
             ensureActive: () => ensureMissavBrowserConnectionCurrent(
               connectionGeneration,
               cancelSignal,

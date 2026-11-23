@@ -8,6 +8,7 @@ import 'package:dio/dio.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:iroru/src/services/log_service.dart';
 import 'package:iroru/src/videos/missav_client.dart';
 import 'package:iroru/src/services/proxy_config.dart';
 import 'package:iroru/src/services/remote_asset_cache.dart';
@@ -5162,19 +5163,115 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     );
     addTearDown(client.dispose);
 
-    for (var failure = 0; failure < 2; failure++) {
+    for (final reason in ['HTTP 503', 'could not confirm account']) {
+      LogService.instance.clear();
       await expectLater(
         client.restoreAccount(),
         throwsA(isA<MissavException>()),
       );
       expect(storage.cookie, 'session=saved');
       expect(client.hasRestorableSession, isTrue);
+      expect(LogService.instance.logs.single.message, contains(reason));
     }
     expect(await client.restoreAccount(), isFalse);
     expect(storage.values, isEmpty);
     expect(await client.restoreAccount(), isFalse);
     expect(adapter.requests, hasLength(3));
   });
+
+  test(
+    'confirms an inconclusive native favorites page in the background',
+    () async {
+      final storage = _storedBrowserSession();
+      final native = _Adapter((_) => _response('<main>Favorites</main>'));
+      final browser = MissavBrowserAdapter(
+        currentUrl: () async => MissavClient.origin,
+        runJavaScript: (_) async {},
+        navigateDocument: (uri, _) async {
+          expect(uri.path, '/en/saved');
+          return '<script id="kiko-missav-signed-in">true</script>';
+        },
+        disposeBrowser: () async {},
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = native,
+        secureStorage: storage,
+        restoreSavedSession: (client, _, _) async => client
+            .useVerifiedBrowserTransport(browser, forAccountRestore: true),
+      );
+      addTearDown(client.dispose);
+      expect(await client.restoreAccount(), isTrue);
+      expect(client.isLoggedIn, isTrue);
+      expect(native.requests, hasLength(1));
+    },
+  );
+
+  test(
+    'reports the browser startup failure instead of the native challenge',
+    () async {
+      final storage = _storedBrowserSession();
+      final native = _Adapter(
+        (_) => _response('<title>Just a moment</title>', statusCode: 403),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = native,
+        secureStorage: storage,
+        restoreSavedSession: (_, _, _) async =>
+            throw StateError('WebView runtime unavailable'),
+      );
+      addTearDown(client.dispose);
+      LogService.instance.clear();
+      await expectLater(client.restoreAccount(), throwsStateError);
+      expect(storage.cookie, 'session=saved');
+      expect(
+        LogService.instance.logs.single.message,
+        contains('stage=browserSetup reason=WebView runtime unavailable'),
+      );
+    },
+  );
+
+  for (final challenged in [false, true]) {
+    test('only a challenged background favorites page requests verification '
+        '(challenge: $challenged)', () async {
+      final storage = _storedBrowserSession();
+      final browser = MissavBrowserAdapter(
+        currentUrl: () async => MissavClient.origin,
+        runJavaScript: (_) async {},
+        navigateDocument: (uri, _) async => challenged
+            ? '<title>Just a moment</title>'
+            : '<main>Favorites</main>',
+        disposeBrowser: () async {},
+      );
+      final client = MissavClient(
+        dio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (_) => _response('<main>Favorites</main>'),
+          ),
+        secureStorage: storage,
+        restoreSavedSession: (client, _, _) async => client
+            .useVerifiedBrowserTransport(browser, forAccountRestore: true),
+      );
+      addTearDown(client.dispose);
+      LogService.instance.clear();
+      await expectLater(
+        client.restoreAccount(),
+        throwsA(
+          challenged
+              ? isA<MissavVerificationRequiredException>()
+              : isA<MissavException>().having(
+                  (error) => error is VideoVerificationRequired,
+                  'requires verification',
+                  isFalse,
+                ),
+        ),
+      );
+      final message = LogService.instance.logs.single.message;
+      expect(message, contains('stage=browserFavorites'));
+      expect(message, contains(challenged ? 'verification' : 'confirm'));
+      expect(message, isNot(contains('session=saved')));
+      expect(storage.cookie, 'session=saved');
+    });
+  }
 
   for (final nativeNeedsVerification in [false, true]) {
     test('preserves saved credentials when verification needs user action '
@@ -5398,6 +5495,35 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
     expect(adapter.requests, hasLength(2));
     expect(client.isLoggedIn, isFalse);
     expect(storage.values, isEmpty);
+  });
+
+  test('recheck requires current evidence from the favorites page', () async {
+    const account = '<body x-data="{user: {name: \'Viewer\'}}"></body>';
+    var redirect = false;
+    final native = _Adapter((request) {
+      if (redirect && request.uri.path == '/en/saved') {
+        return _response(
+          '',
+          statusCode: 302,
+          headers: {
+            'location': ['/en'],
+          },
+        );
+      }
+      return _response(account);
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = native,
+      secureStorage: _storedBrowserSession(),
+    );
+    addTearDown(client.dispose);
+    expect(await client.restoreAccount(), isTrue);
+    redirect = true;
+    await expectLater(
+      client.restoreAccount(recheck: true),
+      throwsA(isA<MissavException>()),
+    );
+    expect(client.hasRestorableSession, isTrue);
   });
 
   test('logout wins over a late account restore response', () async {

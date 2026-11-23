@@ -6,11 +6,13 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/log_service.dart';
 import '../services/proxy_config.dart';
 import '../services/remote_asset_cache.dart';
 import 'missav_browser_adapter.dart';
@@ -67,6 +69,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   }
 
   static const origin = 'https://missav.ai';
+  static const accountCheckUrl = '$origin/en/saved';
   static final _sourceDomains = {
     'missav.ai',
     'missav.ws',
@@ -528,6 +531,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         _loading.reset(restoreOnBrowse: cookies.header != null);
         _initialized = true;
       }
+    } catch (error) {
+      if (generation == _sessionGeneration && !_disposed) {
+        LogService.instance.error(
+          'MissAV restore failed: stage=readSession reason=${_restoreFailureReason(error)}',
+        );
+      }
+      rethrow;
     } finally {
       _initializing = null;
     }
@@ -663,43 +673,66 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final cancelToken = _accountRestoreToken = CancelToken();
     final uri = Uri.parse(origin);
     var restoringBrowser = _browserAdapter;
+    var stage = restoringBrowser == null
+        ? 'nativeFavorites'
+        : 'browserFavorites';
 
     Future<bool> restore() async {
       try {
         return await _restoreAccount(generation, cancelToken);
-      } on MissavVerificationRequiredException {
+      } on MissavException catch (error) {
         final restorer = restoreSavedSession;
-        if (_isLoggedIn || _browserAdapter != null || restorer == null) rethrow;
-        _checkCancelled(cancelToken, uri);
-        try {
-          await restorer(this, generation, cancelToken);
-        } catch (_) {
-          _checkGeneration(generation, uri);
+        if ((error is! MissavVerificationRequiredException &&
+                error is! _UnconfirmedFavorites) ||
+            restoringBrowser != null ||
+            restorer == null) {
+          rethrow;
         }
+        _checkGeneration(generation, uri);
+        _checkCancelled(cancelToken, uri);
+        stage = 'browserSetup';
+        await restorer(this, generation, cancelToken);
+        _checkGeneration(generation, uri);
         _checkCancelled(cancelToken, uri);
         restoringBrowser = _browserAdapter;
-        if (restoringBrowser == null) rethrow;
+        if (restoringBrowser == null) {
+          throw StateError('MissAV background browser was not attached.');
+        }
+        stage = 'browserFavorites';
         return _restoreAccount(generation, cancelToken);
       }
     }
 
     const timeout = Duration(seconds: 30);
     try {
-      return await restore().timeout(
+      final restored = await restore().timeout(
         timeout,
         onTimeout: () {
           cancelToken.cancel('MissAV account restoration timed out.');
-          if (generation == _sessionGeneration &&
-              _browserAccountUnconfirmed &&
-              restoringBrowser != null) {
-            restoreNativeTransport(expectedAdapter: restoringBrowser);
-          }
           throw TimeoutException(
             'MissAV account restoration timed out.',
             timeout,
           );
         },
       );
+      if (!restored) {
+        LogService.instance.warning(
+          'MissAV restore failed: stage=$stage reason=accountRejected',
+        );
+      }
+      return restored;
+    } catch (error) {
+      if (generation == _sessionGeneration &&
+          !_disposed &&
+          (!cancelToken.isCancelled || error is TimeoutException)) {
+        LogService.instance.error(
+          'MissAV restore failed: stage=$stage reason=${_restoreFailureReason(error)}',
+        );
+        if (_browserAccountUnconfirmed && restoringBrowser != null) {
+          restoreNativeTransport(expectedAdapter: restoringBrowser);
+        }
+      }
+      rethrow;
     } finally {
       if (identical(_accountRestoreToken, cancelToken)) {
         _accountRestoreToken = null;
@@ -707,8 +740,44 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
+  static String _restoreFailureReason(Object error) => switch (error) {
+    TimeoutException() => 'timeout',
+    PlatformException(:final code) => 'platform/$code',
+    DioException(:final type) => type.name,
+    MissavException(cause: DioException(:final type)) => type.name,
+    _UnconfirmedFavorites() => 'could not confirm account',
+    MissavVerificationRequiredException() => 'verification required',
+    MissavAuthenticationException() => 'account rejected',
+    MissavAccessDeniedException() => 'HTTP 403',
+    MissavRateLimitException() => 'HTTP 429',
+    MissavException(:final message)
+        when RegExp(r'^MissAV returned HTTP \d{3}\.$').hasMatch(message) ||
+            const {
+              'MissAV did not return the favorites page.',
+              'MissAV browser did not return a source document.',
+              'MissAV redirected too many times.',
+              'MissAV redirected the content page to another line.',
+            }.contains(message) =>
+      message,
+    StateError(:final message)
+        when const {
+          'Application overlay unavailable',
+          'WebView runtime unavailable',
+          'Source browser unavailable',
+          'Source browser session unavailable',
+          'MissAV could not be loaded.',
+          'MissAV navigation was blocked.',
+          'MissAV browser connection was closed.',
+          'MissAV background browser was not attached.',
+          'MissAV browser proxy was replaced.',
+          'MissAV verification requires the system proxy.',
+        }.contains(message) =>
+      message,
+    _ => error.runtimeType.toString(),
+  };
+
   Future<bool> _restoreAccount(int generation, CancelToken cancelToken) async {
-    final uri = Uri.parse('$origin/en/saved');
+    final uri = Uri.parse(accountCheckUrl);
     try {
       final (:document, uri: pageUri) = await _loadDocument(
         uri,
@@ -718,7 +787,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         accountCheck: true,
       );
       final sourceUser = _readFavoritesAccount(document);
-      if (pageUri.origin == uri.origin && sourceUser != null) {
+      final onFavorites = isFavoritesPage(pageUri);
+      if (onFavorites && sourceUser != null) {
         await _confirmAccount(sourceUser, uri, generation, cancelToken);
         return true;
       }
@@ -730,17 +800,17 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
                       .any((control) => control.text.trim() == 'Login')))) {
         throw MissavAuthenticationException(sourceUrl: uri.toString());
       }
-      if (isLoggedIn) return true;
-      throw MissavException(
-        'MissAV could not confirm the saved account session.',
-        sourceUrl: uri.toString(),
-      );
+      throw _UnconfirmedFavorites(uri);
     } on MissavAuthenticationException {
       _checkGeneration(generation, uri);
       _checkCancelled(cancelToken, uri);
       if (_browserAccountUnconfirmed && _cookies.header != null) {
         restoreNativeTransport();
-        return _restoreAccount(generation, cancelToken);
+        try {
+          return await _restoreAccount(generation, cancelToken);
+        } on MissavVerificationRequiredException {
+          throw _UnconfirmedFavorites(uri);
+        }
       }
       if (_browserAdapter != null) {
         restoreNativeTransport();
@@ -2136,6 +2206,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         throw MissavException(
           'MissAV browser navigation failed (${error.type.name}).',
           sourceUrl: uri.toString(),
+          cause: error,
         );
       }
     } else {
@@ -2735,6 +2806,22 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     'fil',
     'pt',
   };
+
+  static bool isFavoritesPage(Uri uri) {
+    if (!uri.hasAuthority ||
+        uri.scheme != 'https' ||
+        uri.origin != origin ||
+        uri.userInfo.isNotEmpty) {
+      return false;
+    }
+    final route = uri.pathSegments
+        .where((part) => part.isNotEmpty)
+        .skipWhile((part) => RegExp(r'^dm\d+$').hasMatch(part))
+        .toList();
+    return route.lastOrNull == 'saved' &&
+        (route.length == 1 ||
+            route.length == 2 && _sourceLanguages.contains(route.first));
+  }
 
   Uri? _accountPageUri(Uri uri) {
     final segments = uri.pathSegments;
@@ -3771,6 +3858,14 @@ class _MissavCookies {
     }
     return _MissavCookies(entries);
   }
+}
+
+class _UnconfirmedFavorites extends MissavException {
+  _UnconfirmedFavorites(Uri uri)
+    : super(
+        'MissAV could not confirm the saved account session.',
+        sourceUrl: uri.toString(),
+      );
 }
 
 class _ContentHostFailure extends MissavException {
