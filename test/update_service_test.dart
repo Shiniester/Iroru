@@ -411,9 +411,8 @@ void main() {
                   'https://github.com/Shiniester/Iroru/releases/tag/v4.19.2',
               'assets': [
                 {
-                  'name': 'KikoFlu-windows-setup_4192.exe',
-                  'browser_download_url':
-                      'https://example.com/windows-setup.exe',
+                  'name': 'Iroru-android-arm64-v8a_4192_com.meteor.iroru.apk',
+                  'browser_download_url': 'https://example.com/iroru.apk',
                   'size': 25000000,
                   'digest':
                       'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -428,7 +427,7 @@ void main() {
         });
 
         final dio = Dio()..httpClientAdapter = adapter;
-        final service = UpdateService(dio: dio);
+        final service = UpdateService(dio: dio, androidAbi: Abi.androidArm64);
 
         final updateInfo = await service.checkForUpdates(force: true);
         final cachedUpdateInfo = await service.checkForUpdates();

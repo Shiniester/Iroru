@@ -136,7 +136,7 @@ void main() {
       url: 'second.mp3',
     );
     final firstProvider = MemoryImage(
-      File('assets/icons/app_icon_opaque.png').readAsBytesSync(),
+      File('test/fixtures/app_icon_opaque.png').readAsBytesSync(),
     );
     final secondProvider = MemoryImage(
       File('assets/icons/privacy_protection_sample.png').readAsBytesSync(),

@@ -63,6 +63,7 @@ void main() {
         final session = MediaKitVideoPlaybackSession(player: player);
         final native = player.platform as NativePlayer;
         native.isVideoControllerAttached = false;
+        await native.setProperty('ao', 'null');
         final errors = <String>[];
         final failed = Completer<void>();
         final subscription = player.stream.error.listen((error) {
