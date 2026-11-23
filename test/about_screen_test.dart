@@ -431,6 +431,7 @@ class _PendingChannelSaveService extends _FakeUpdateService {
   Future<File> downloadUpdate({
     required String downloadUrl,
     required String fileName,
+    String? assetDigest,
     void Function(int received, int total)? onProgress,
     CancelToken? cancelToken,
     Directory? targetDirectory,

@@ -263,7 +263,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.prepare.outputs.tag }}
           APK_NAME: ${{ needs.android.outputs.apk_name }}
-          RELEASE_NOTES: ${{ inputs.release_notes }}
+          RELEASE_NOTES: |-
+            ${{ inputs.release_notes }}
+
+            旧下载目录中的音声和视频仍保存在原处。如需在新版离线播放，请重新下载。
+            如果旧版 Android 应用找不到新版 Beta，请从 GitHub Releases 手动安装 Beta APK。
           RELEASE_COMMIT: ${{ needs.prepare.outputs.commit_sha }}
         run: |
           set -euo pipefail

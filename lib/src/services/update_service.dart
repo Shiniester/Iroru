@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:open_filex/open_filex.dart';
@@ -37,7 +38,7 @@ class UpdateService {
     'https://gh-proxy.com/',
     'https://ghproxy.net/',
   ];
-  static const Duration _defaultDownloadTimeout = Duration(seconds: 30);
+  static const Duration _defaultDownloadTimeout = Duration(seconds: 60);
   static final RegExp _betaVersion = RegExp(r'^\d+\.\d+\.\d+-beta\.\d+$');
 
   static const String _keyUpdateChannel = 'update_channel';
@@ -48,6 +49,7 @@ class UpdateService {
   static const String _keyLastDownloadUrl = 'last_download_url';
   static const String _keyLastAssetName = 'last_asset_name';
   static const String _keyLastAssetSize = 'last_asset_size';
+  static const String _keyLastAssetDigest = 'last_asset_digest';
   static const String _keyLastReleaseUrl = 'last_release_url';
 
   int _channelRevision = 0;
@@ -157,6 +159,9 @@ class UpdateService {
           _cacheKey(_keyLastAssetName, selectedChannel),
         ),
         assetSize: prefs.getInt(_cacheKey(_keyLastAssetSize, selectedChannel)),
+        assetDigest: prefs.getString(
+          _cacheKey(_keyLastAssetDigest, selectedChannel),
+        ),
       );
     }
 
@@ -182,6 +187,7 @@ class UpdateService {
     final downloadUrl = matchedAsset?['browser_download_url'] as String?;
     final assetName = matchedAsset?['name'] as String?;
     final assetSize = matchedAsset?['size'] as int?;
+    final assetDigest = matchedAsset?['digest'] as String?;
 
     await _cacheIfCurrent(
       checkRevision,
@@ -195,6 +201,7 @@ class UpdateService {
         downloadUrl: downloadUrl,
         assetName: assetName,
         assetSize: assetSize,
+        assetDigest: assetDigest,
       ),
     );
     if (!_isCurrentCheck(checkRevision, channelRevision)) return null;
@@ -208,6 +215,7 @@ class UpdateService {
       downloadUrl: downloadUrl,
       assetName: assetName,
       assetSize: assetSize,
+      assetDigest: assetDigest,
     );
   }
 
@@ -331,6 +339,7 @@ class UpdateService {
     required String? downloadUrl,
     required String? assetName,
     required int? assetSize,
+    required String? assetDigest,
   }) async {
     final assetSizeKey = _cacheKey(_keyLastAssetSize, channel);
     // Update all in-memory fields before yielding to a channel change.
@@ -363,6 +372,11 @@ class UpdateService {
         _cacheKey(_keyLastAssetName, channel),
         assetName,
       ),
+      _setOptionalString(
+        prefs,
+        _cacheKey(_keyLastAssetDigest, channel),
+        assetDigest,
+      ),
       assetSize == null
           ? prefs.remove(assetSizeKey)
           : prefs.setInt(assetSizeKey, assetSize),
@@ -385,6 +399,7 @@ class UpdateService {
         _keyLastDownloadUrl,
         _keyLastAssetName,
         _keyLastAssetSize,
+        _keyLastAssetDigest,
       ])
         prefs.remove(_cacheKey(key, channel)),
     ]);
@@ -466,10 +481,13 @@ class UpdateService {
   ///
   /// Tries the official download URL first, then each built-in mirror in
   /// order, attempting every address once. A cancelled download stops the
-  /// chain without falling back.
+  /// chain without falling back. When GitHub supplied a SHA-256 digest, every
+  /// candidate must match it. Without a valid digest, only the official URL is
+  /// tried.
   Future<File> downloadUpdate({
     required String downloadUrl,
     required String fileName,
+    String? assetDigest,
     void Function(int received, int total)? onProgress,
     CancelToken? cancelToken,
     Directory? targetDirectory,
@@ -481,56 +499,72 @@ class UpdateService {
       await saveDir.create(recursive: true);
     }
 
-    final savePath = p.join(saveDir.path, fileName);
-
+    final expectedDigest = _parseSha256Digest(assetDigest);
     final candidates = <String>[
       downloadUrl,
-      for (final mirror in _downloadMirrors) _mirrorUrl(downloadUrl, mirror),
+      if (expectedDigest != null)
+        for (final mirror in _downloadMirrors) _mirrorUrl(downloadUrl, mirror),
     ];
+    final downloadDirectory = await saveDir.createTemp('.${fileName}_');
+    final finalPath = p.join(downloadDirectory.path, fileName);
 
     Exception? lastError;
-    for (var i = 0; i < candidates.length; i++) {
-      final tempPath = '$savePath.$i.part';
-      final tempFile = File(tempPath);
-      if (await tempFile.exists()) {
-        await tempFile.delete();
-      }
+    var completed = false;
+    try {
+      for (var i = 0; i < candidates.length; i++) {
+        final tempFile = File(p.join(downloadDirectory.path, '$i.part'));
 
-      try {
-        await _downloadAttempt(
-          candidates[i],
-          tempPath,
-          cancelToken: cancelToken,
-          onProgress: onProgress,
-        );
-      } on DioException catch (e) {
-        if (e.type == DioExceptionType.cancel &&
-            cancelToken?.isCancelled == true) {
-          rethrow;
+        try {
+          await _downloadAttempt(
+            candidates[i],
+            tempFile.path,
+            cancelToken: cancelToken,
+            onProgress: onProgress,
+          );
+          _throwIfCancelled(cancelToken);
+        } on DioException catch (e) {
+          if (e.type == DioExceptionType.cancel &&
+              cancelToken?.isCancelled == true) {
+            rethrow;
+          }
+          lastError = e;
+          continue;
+        } on Exception catch (e) {
+          lastError = e;
+          continue;
         }
-        lastError = e;
-        continue;
-      } on Exception catch (e) {
-        lastError = e;
-        continue;
-      }
 
-      if (!await tempFile.exists() || await tempFile.length() == 0) {
-        if (await tempFile.exists()) {
+        if (!await tempFile.exists() || await tempFile.length() == 0) {
+          if (await tempFile.exists()) {
+            await tempFile.delete();
+          }
+          lastError = FileSystemException(
+            'Downloaded file is empty or missing',
+            tempFile.path,
+          );
+          continue;
+        }
+
+        if (expectedDigest != null &&
+            !await _hasMatchingDigest(tempFile, expectedDigest)) {
+          _throwIfCancelled(cancelToken);
           await tempFile.delete();
+          lastError = const FormatException(
+            'Update does not match the GitHub SHA-256 digest',
+          );
+          continue;
         }
-        lastError = FileSystemException(
-          'Downloaded file is empty or missing',
-          tempPath,
-        );
-        continue;
-      }
 
-      final targetFile = File(savePath);
-      if (await targetFile.exists()) {
-        await targetFile.delete();
+        _throwIfCancelled(cancelToken);
+        final result = await tempFile.rename(finalPath);
+        _throwIfCancelled(cancelToken);
+        completed = true;
+        return result;
       }
-      return tempFile.rename(savePath);
+    } finally {
+      if (!completed && await downloadDirectory.exists()) {
+        await downloadDirectory.delete(recursive: true);
+      }
     }
 
     throw lastError ?? Exception('Update download failed');
@@ -595,8 +629,25 @@ class UpdateService {
     }
   }
 
-  String _mirrorUrl(String downloadUrl, String mirror) =>
-      '$mirror$downloadUrl';
+  String _mirrorUrl(String downloadUrl, String mirror) => '$mirror$downloadUrl';
+
+  String? _parseSha256Digest(String? digest) {
+    final match = RegExp(
+      r'^sha256:([0-9a-fA-F]{64})$',
+    ).firstMatch(digest ?? '');
+    return match?.group(1)?.toLowerCase();
+  }
+
+  void _throwIfCancelled(CancelToken? cancelToken) {
+    if (cancelToken?.isCancelled ?? false) {
+      throw cancelToken!.cancelError!;
+    }
+  }
+
+  Future<bool> _hasMatchingDigest(File file, String expectedDigest) async {
+    final actualDigest = (await sha256.bind(file.openRead()).single).toString();
+    return actualDigest == expectedDigest;
+  }
 
   /// Launch or install the downloaded update package.
   Future<bool> installUpdate(String filePath, {String? targetPlatform}) async {
@@ -749,6 +800,7 @@ class UpdateService {
           _keyLastDownloadUrl,
           _keyLastAssetName,
           _keyLastAssetSize,
+          _keyLastAssetDigest,
           _keyLastReleaseUrl,
         ]) {
           await prefs.remove(_cacheKey(key, channel));
@@ -762,6 +814,7 @@ class UpdateService {
         _keyLastDownloadUrl,
         _keyLastAssetName,
         _keyLastAssetSize,
+        _keyLastAssetDigest,
       ]) {
         await prefs.remove(key);
       }
@@ -781,6 +834,7 @@ class UpdateInfo {
   final String? downloadUrl;
   final String? assetName;
   final int? assetSize;
+  final String? assetDigest;
 
   const UpdateInfo({
     required this.latestVersion,
@@ -791,6 +845,7 @@ class UpdateInfo {
     this.downloadUrl,
     this.assetName,
     this.assetSize,
+    this.assetDigest,
   });
 
   @override

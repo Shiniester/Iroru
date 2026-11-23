@@ -95,10 +95,9 @@ The full-platform stable, Android-only stable, and Android Beta workflows build
 the filename produced by the Android build job. Validation checks the package
 name, version, ABI, and release certificate.
 
-Publish a stable release with the shared update rules before publishing the first
-Beta with the shared installation. In that release, state that the unified app
-uses its own data and does not import data from the former standalone Iroru Beta.
-Direct those users to the unified APK and keep the old app and data in place.
+The first Beta with the shared installation can ship before stable supports
+the shared package name. Users of older updaters must install the Beta APK from
+GitHub Releases. The former standalone Iroru Beta and its data stay on the device.
 Manual Beta releases use the latest stable release's next PATCH base. See
 [ADR 0015](../adr/0015-iroru-android-shared-installation.md).
 

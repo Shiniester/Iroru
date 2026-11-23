@@ -386,7 +386,7 @@ Future<void> _connectJableBrowserSession(
         connectedAdapter,
         cookieHeader: verification.cookies,
         userAgent: verification.userAgent,
-        signedIn: verification.requireLogin,
+        loginConfirmed: verification.requireLogin,
         expectedGeneration: expectedGeneration,
         connectionGeneration: connectionGeneration,
         ensureCurrent: ensureCurrent,

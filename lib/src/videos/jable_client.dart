@@ -401,7 +401,7 @@ class JableClient implements VideoSourceClient {
     MissavBrowserAdapter browser, {
     required String cookieHeader,
     required String userAgent,
-    required bool signedIn,
+    required bool loginConfirmed,
     required int expectedGeneration,
     required int connectionGeneration,
     required void Function() ensureCurrent,
@@ -438,7 +438,9 @@ class JableClient implements VideoSourceClient {
         connectionGeneration: connectionGeneration,
       );
       onCommitted(expectedGeneration + 1);
-      _advanceSessionGeneration(signedIn: signedIn);
+      _advanceSessionGeneration(
+        signedIn: loginConfirmed || account.isLoggedIn,
+      );
     });
   }
 

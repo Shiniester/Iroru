@@ -141,6 +141,21 @@ void main() {
       );
       await _pumpBrowserUntil(tester, () => confirmed != null);
       expect(await recheck, isTrue);
+      bool? result;
+      final completion = verifyJableAccess(
+        tester.element(find.text('Open Jable login')),
+        client,
+        sourceUrl: JableClient.origin,
+      ).then((value) => result = value);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.widgetWithText(FilledButton, strings.videoVerificationContinue),
+      );
+      await _pumpBrowserUntil(tester, () => result != null);
+
+      await completion;
+      expect(result, isTrue);
+      expect(client.account.isLoggedIn, isTrue);
     },
     variant: _desktop,
   );

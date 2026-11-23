@@ -281,7 +281,11 @@ jobs:
           APK_NAME: ${{ needs.android.outputs.apk_name }}
           TAG: ${{ needs.android.outputs.tag }}
           RELEASE_COMMIT: ${{ needs.android.outputs.commit_sha }}
-          RELEASE_NOTES: ${{ inputs.release_notes }}
+          RELEASE_NOTES: |-
+            ${{ inputs.release_notes }}
+
+            旧下载目录中的音声和视频仍保存在原处。如需在新版离线播放，请重新下载。
+            如果旧版 Android 应用找不到此 Beta，请手动安装本页的 APK。
         run: |
           set -euo pipefail
           assets=(
