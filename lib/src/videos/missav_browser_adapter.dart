@@ -12,15 +12,18 @@ class MissavBrowserAdapter implements HttpClientAdapter {
   MissavBrowserAdapter({
     required this.runJavaScript,
     required this.currentUrl,
-    required this.navigateDocument,
+    required Future<String> Function(Uri uri, Future<void> cancelled)
+    navigateDocument,
     required this.disposeBrowser,
     this.readCookieHeader,
-  }) : _isJable = false;
+  }) : _navigateDocument = ((uri, cancelled) async =>
+           (await navigateDocument(uri, cancelled), uri)),
+       _isJable = false;
 
   MissavBrowserAdapter.jable({
     required this.runJavaScript,
     required this.currentUrl,
-    required this.navigateDocument,
+    required this._navigateDocument,
     required this.disposeBrowser,
     this.readCookieHeader,
   }) : _isJable = true;
@@ -28,8 +31,8 @@ class MissavBrowserAdapter implements HttpClientAdapter {
   final bool _isJable;
   final Future<void> Function(String script) runJavaScript;
   final Future<String?> Function() currentUrl;
-  final Future<String> Function(Uri uri, Future<void> cancelled)
-  navigateDocument;
+  final Future<(String, Uri)> Function(Uri uri, Future<void> cancelled)
+  _navigateDocument;
   final Future<void> Function() disposeBrowser;
   final Future<String> Function()? readCookieHeader;
   final _pending = <int, _BrowserRequest>{};
@@ -48,7 +51,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
   static const _requestTimeout = Duration(seconds: 30);
   static const jableChannelName = 'KikoJableHttp';
 
-  String get _origin => _isJable ? 'https://jable.tv' : 'https://missav.ai';
+  String get origin => _isJable ? 'https://jable.tv' : 'https://missav.ai';
   String get _channelName => _isJable ? jableChannelName : channelName;
   String get _requestMap =>
       _isJable ? '__kikoJableRequests' : '__kikoMissavRequests';
@@ -56,7 +59,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
   bool _isSource(String? value) {
     final uri = Uri.tryParse(value ?? '');
     return uri?.scheme == 'https' &&
-        uri?.host == (_isJable ? 'jable.tv' : 'missav.ai') &&
+        uri?.origin == origin &&
         uri?.port == 443 &&
         uri?.userInfo.isEmpty == true;
   }
@@ -77,12 +80,12 @@ class MissavBrowserAdapter implements HttpClientAdapter {
       : MissavVerificationRequiredException(sourceUrl: url);
 
   void receiveMessage(Object? message, {String? origin}) {
-    if (_closed || (origin != null && origin != _origin)) return;
+    if (_closed || (origin != null && origin != this.origin)) return;
     try {
       final data = message is String ? jsonDecode(message) : message;
       if (data is! Map ||
           data['nonce'] != _nonce ||
-          data['origin'] != _origin ||
+          data['origin'] != this.origin ||
           data['id'] is! int) {
         return;
       }
@@ -172,7 +175,13 @@ class MissavBrowserAdapter implements HttpClientAdapter {
 
   /// Navigates the shared browser to a source HTML document and returns its
   /// rendered markup. API calls continue to use [fetch].
-  Future<String> loadDocument(Uri uri, {CancelToken? cancelToken}) async {
+  Future<String> loadDocument(Uri uri, {CancelToken? cancelToken}) async =>
+      (await loadDocumentPage(uri, cancelToken: cancelToken)).$1;
+
+  Future<(String, Uri)> loadDocumentPage(
+    Uri uri, {
+    CancelToken? cancelToken,
+  }) async {
     if (!_isSource(uri.toString())) {
       throw _unsupported('documents', uri.toString());
     }
@@ -188,21 +197,28 @@ class MissavBrowserAdapter implements HttpClientAdapter {
       unawaited(cancelToken.whenCancel.then((_) => _cancel(id)));
     }
     try {
-      final documentFuture = _runExclusive<String>(id, operation, () async {
-        operation.sent = true;
-        late final String body;
-        try {
-          body = await navigateDocument(uri, operation.cancelSignal.future);
-        } catch (error, trace) {
+      final documentFuture = _runExclusive<(String, Uri)>(
+        id,
+        operation,
+        () async {
+          operation.sent = true;
+          final (String, Uri) page;
+          try {
+            page = await _navigateDocument(uri, operation.cancelSignal.future);
+          } catch (error, trace) {
+            _checkActive(id, operation);
+            Error.throwWithStackTrace(error, trace);
+          }
           _checkActive(id, operation);
-          Error.throwWithStackTrace(error, trace);
-        }
-        _checkActive(id, operation);
-        return body;
-      });
-      return await Future.any<String>([
+          if (!_isSource(page.$2.toString())) {
+            throw _unsupported('redirects', page.$2.toString());
+          }
+          return page;
+        },
+      );
+      return await Future.any<(String, Uri)>([
         documentFuture,
-        operation.result.future.then((value) => value as String),
+        operation.result.future.then((value) => value as (String, Uri)),
       ]);
     } finally {
       _pending.remove(id);
@@ -309,7 +325,7 @@ const send = data => {
     window.$_channelName.postMessage(JSON.stringify(message));
   }
 };
-if (location.origin !== '$_origin' || new URL(request.url).origin !== '$_origin') return;
+if (location.origin !== '$origin' || new URL(request.url).origin !== '$origin') return;
 const controllers = window.$_requestMap ||= new Map();
 const controller = new AbortController();
 controllers.set(request.id, controller);

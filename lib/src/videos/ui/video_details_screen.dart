@@ -44,6 +44,21 @@ VideoVerificationRequired videoVerificationFor(
         ? JableVerificationRequiredException(sourceUrl: video.pageUrl)
         : MissavVerificationRequiredException(sourceUrl: video.pageUrl));
 
+Map<String, Object?> _videoHistoryDetails(VideoItem video) {
+  final cover = stableVideoHistoryUrl(video.cover);
+  final pageUrl = stableVideoHistoryUrl(video.pageUrl);
+  return {
+    'title': video.title,
+    'sourceKey': video.sourceKey,
+    'videoId': video.id,
+    'storageKey': video.storageKey,
+    if (cover != null) 'cover': cover,
+    if (pageUrl != null) 'pageUrl': pageUrl,
+    if (video.durationSeconds case final seconds? when seconds > 0)
+      'durationMs': seconds * 1000,
+  };
+}
+
 class VideoDetailsScreen extends ConsumerStatefulWidget {
   const VideoDetailsScreen({
     super.key,
@@ -114,8 +129,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       : null;
 
   VideoDownloadTask? get _availableTask =>
-      widget.downloadedTask ??
       _downloads.forVideo(widget.video.storageKey) ??
+      widget.downloadedTask ??
       _downloadedTask;
 
   VideoDownloadTask? get _completedDownloadTask {
@@ -296,6 +311,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
 
   Future<void> _initialize({VideoDetails? supplement}) async {
     final generation = ++_loadGeneration;
+    int? jableContentGeneration;
     _cancelDetailsRequest();
     final requestToken = _detailsRequestToken = CancelToken();
     final loadDuringEntry =
@@ -339,8 +355,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       if (loadDuringEntry) {
         _preparePlaybackSession(generation, requestToken).ignore();
       }
+      jableContentGeneration = _jableAccount?.contentGeneration;
       Future<void> onReady(VideoDetails details) async {
         if (!await _waitForRouteIdle(generation)) return;
+        if (jableContentGeneration != _jableAccount?.contentGeneration) return;
         if (_details == null) {
           task = _completedDownloadTask ?? task;
         }
@@ -373,6 +391,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         _ => await _sourceClient.details(widget.video, onReady: onReady),
       };
       if (!await _waitForRouteIdle(generation)) return;
+      if (jableContentGeneration != _jableAccount?.contentGeneration) {
+        await _finishJableContentChange();
+        return;
+      }
       if (_details == null) {
         task = _completedDownloadTask ?? task;
       }
@@ -392,6 +414,11 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       }
     } catch (error) {
       if (!await _waitForRouteIdle(generation)) return;
+      if (jableContentGeneration != null &&
+          jableContentGeneration != _jableAccount?.contentGeneration) {
+        await _finishJableContentChange();
+        return;
+      }
       final completedDownload = _details == null
           ? _completedDownloadTask
           : null;
@@ -411,6 +438,18 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         _error = error;
         _verificationError = error is VideoVerificationRequired ? error : null;
       });
+    }
+  }
+
+  Future<void> _finishJableContentChange() async {
+    final details = _details;
+    if (details == null) {
+      await _initialize();
+      return;
+    }
+    setState(() => _loading = false);
+    if (_jableAccount?.isLoggedIn == true) {
+      await _refreshJableFavorite(details);
     }
   }
 
@@ -665,16 +704,27 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         widget.video.storageKey == previous.video.storageKey &&
         _jableAccount?.revision == revision;
     if (!await _routeReadiness.waitForIdle() || !isCurrent()) return;
-    late final VideoDetails fresh;
+    late final ({String? id, bool? selected}) favorite;
     try {
-      fresh = await _sourceClient.details(previous.video);
+      final client = _sourceClient;
+      final previousHost = Uri.tryParse(previous.video.pageUrl)?.host;
+      if (client is JableClient &&
+          (!client.usesAutomaticMirror ||
+              previousHost != Uri.parse(JableClient.origin).host)) {
+        final marker = await client.account.favoriteStateForVideo(previous);
+        if (marker == null) return;
+        favorite = marker;
+      } else {
+        final fresh = await client.details(previous.video);
+        favorite = (id: fresh.sourceId, selected: fresh.isFavorite);
+      }
     } catch (_) {
       if (isCurrent()) await _sourceFallback();
       return;
     }
     if (!isCurrent()) return;
     setState(() {
-      _favorite = fresh.isFavorite ?? false;
+      _favorite = favorite.selected ?? false;
       // Account changes must not reopen the active HLS stream.
       _details = VideoDetails(
         video: previous.video,
@@ -682,8 +732,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         metadata: previous.metadata,
         related: previous.related,
         streams: previous.streams,
-        sourceId: fresh.sourceId,
-        isFavorite: fresh.isFavorite,
+        sourceId: favorite.id,
+        isFavorite: favorite.selected,
       );
     });
   }
@@ -703,12 +753,12 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         final account = ref.read(jableVideoClientProvider).account;
         try {
           await account.setVideoFavorite(details, favorite);
-        } on JableVerificationRequiredException {
+        } on JableVerificationRequiredException catch (error) {
           if (!mounted || !identical(_details, details)) return;
           final verified = await ref.read(jableAccessVerifierProvider)(
             context,
             ref.read(jableVideoClientProvider),
-            sourceUrl: details.video.pageUrl,
+            sourceUrl: error.sourceUrl ?? JableClient.origin,
           );
           if (!verified || !mounted || !identical(_details, details)) return;
           await account.setVideoFavorite(details, favorite);
@@ -1357,6 +1407,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         key: _playerKey,
         videoId: details.video.storageKey,
         title: details.video.title,
+        historyDetails: _videoHistoryDetails(details.video),
         autoPlayOnStart: widget.autoPlayVideo,
         onPlayNextRelated: nextRelated == null
             ? null

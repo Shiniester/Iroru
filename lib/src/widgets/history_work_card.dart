@@ -23,19 +23,13 @@ import '../providers/works_provider.dart' show LayoutType;
 import '../utils/age_rating.dart';
 import '../utils/collection_grid_layout.dart';
 import '../../l10n/app_localizations.dart';
+import 'local_history_card.dart';
 import 'privacy_blur_cover.dart';
-import 'work_detail/work_cover_frame.dart';
 import 'app_bottom_dock_transition.dart';
 import 'work_cover_image.dart';
 import 'age_rating_chip.dart';
 
 final _log = LogService.instance;
-
-TextStyle historyWorkCardTitleStyle(BuildContext context) => TextStyle(
-  fontSize: 13,
-  fontWeight: FontWeight.w600,
-  color: Theme.of(context).colorScheme.onSurface,
-);
 
 class HistoryWorkCard extends ConsumerWidget {
   final HistoryRecord record;
@@ -57,7 +51,7 @@ class HistoryWorkCard extends ConsumerWidget {
     final work = record.work;
     final showAgeRating = ref.watch(workCardDisplayProvider).showAgeRating;
     final isList = layoutType == LayoutType.list;
-    final titleStyle = historyWorkCardTitleStyle(context);
+    final titleStyle = localHistoryCardTitleStyle(context);
     final listCoverSize = isList
         ? collectionListCoverSizeForTitle(context, titleStyle: titleStyle)
         : null;
@@ -69,282 +63,93 @@ class HistoryWorkCard extends ConsumerWidget {
           )
         : null;
 
-    final initialCoverImageProvider = host.isEmpty
-        ? null
-        : createWorkCoverImageProvider(
-            work: work,
-            host: host,
-            token: token,
-            cacheWidth: listCoverCacheWidth,
-          );
+    final coverImage = createWorkCoverImageProvider(
+      work: work,
+      host: host,
+      token: token,
+      cacheWidth: listCoverCacheWidth,
+    );
+    final l10n = S.of(context);
+    final track = record.lastTrack;
+    final duration = track?.duration ?? Duration.zero;
+    final position = formatDuration(
+      Duration(milliseconds: record.lastPositionMs),
+    );
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final coverWidth = isList ? listCoverSize!.width : constraints.maxWidth;
-        final cornerRadius = collectionCoverRadius(coverWidth);
-        final infoScale = collectionCoverInfoScale(coverWidth);
-        final cover = ClipRRect(
-          borderRadius: BorderRadius.circular(cornerRadius),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              WorkCoverClip(
-                cornerRadius: cornerRadius,
-                child: Material(
-                  color: Colors.transparent,
-                  child: PrivacyBlurCover(
-                    child: WorkCoverImage(
-                      image: createWorkCoverImageProvider(
-                        work: work,
-                        host: host,
-                        token: token,
-                        cacheWidth: listCoverCacheWidth,
-                      ),
-                      fadeInDuration: const Duration(milliseconds: 500),
-                      placeholder: (context) => Container(
-                        color: Colors.grey[200],
-                        child: const Center(
-                          child: Icon(Icons.image, color: Colors.grey),
-                        ),
-                      ),
-                      errorBuilder: (context, error, stack) => Container(
-                        color: Colors.grey[200],
-                        child: const Center(
-                          child: Icon(Icons.broken_image, color: Colors.grey),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  height: 60,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withValues(alpha: 0.7),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              if (!isList &&
-                  showAgeRating &&
-                  AgeRatingFormatter.hasValue(work.age))
-                Positioned(
-                  top: 8 * infoScale,
-                  right: 8 * infoScale,
-                  child: AgeRatingChip(
-                    age: work.age,
-                    compact: true,
-                    fontSize: 10 * infoScale,
-                    padding: EdgeInsets.symmetric(
-                      horizontal: 6 * infoScale,
-                      vertical: 2 * infoScale,
-                    ),
-                  ),
-                ),
-              if (record.lastTrack != null)
-                Positioned(
-                  right: isList ? 8 : 8,
-                  bottom: 8,
-                  child: Material(
-                    color: Theme.of(context).colorScheme.primary,
-                    shape: const CircleBorder(),
-                    elevation: 4,
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: () => _resumePlayback(context, ref),
-                      child: Padding(
-                        padding: EdgeInsets.all(isList ? 4 : 10),
-                        child: Icon(
-                          Icons.play_arrow,
-                          size: isList ? 20 : 24,
-                          color: Theme.of(context).colorScheme.onPrimary,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
+    return LocalHistoryCard(
+      layoutType: layoutType,
+      title: work.title,
+      sourceLabel: work.sourceLabel,
+      cover: PrivacyBlurCover(
+        child: WorkCoverImage(
+          image: coverImage,
+          fadeInDuration: const Duration(milliseconds: 500),
+          placeholder: (context) => Container(
+            color: Colors.grey[200],
+            child: const Center(child: Icon(Icons.image, color: Colors.grey)),
           ),
-        );
-        final info = Container(
-          padding: EdgeInsets.all(isList ? 12 : collectionGridInfoPadding),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                work.title,
-                maxLines: collectionCardTitleMaxLines,
-                overflow: TextOverflow.ellipsis,
-                style: titleStyle,
+          errorBuilder: (context, error, stack) => Container(
+            color: Colors.grey[200],
+            child: const Center(
+              child: Icon(Icons.broken_image, color: Colors.grey),
+            ),
+          ),
+        ),
+      ),
+      coverOverlay: showAgeRating && AgeRatingFormatter.hasValue(work.age)
+          ? (scale) => AgeRatingChip(
+              age: work.age,
+              compact: true,
+              fontSize: 10 * scale,
+              padding: EdgeInsets.symmetric(
+                horizontal: 6 * scale,
+                vertical: 2 * scale,
               ),
-              const SizedBox(height: 2),
-              Text(
-                work.sourceLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 4),
-              if (record.lastTrack != null)
-                Builder(
-                  builder: (context) {
-                    final lastTrack = record.lastTrack!;
-                    final trackDurationMs = lastTrack.duration?.inMilliseconds;
-                    final progressValue =
-                        trackDurationMs != null && trackDurationMs > 0
-                        ? (record.lastPositionMs / trackDurationMs).clamp(
-                            0.0,
-                            1.0,
-                          )
-                        : 0.0;
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          lastTrack.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Theme.of(context).colorScheme.secondary,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                '${formatDuration(Duration(milliseconds: record.lastPositionMs))} / ${formatDuration(lastTrack.duration ?? Duration.zero)}',
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                              ),
-                            ),
-                            if (record.playlistTotal > 0)
-                              Text(
-                                '${record.playlistIndex + 1} / ${record.playlistTotal}',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Theme.of(context).colorScheme.outline,
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        LinearProgressIndicator(
-                          value: progressValue,
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.surfaceContainerHighest,
-                          color: Theme.of(context).colorScheme.primary,
-                          minHeight: 3,
-                          borderRadius: BorderRadius.circular(1.5),
-                        ),
-                      ],
-                    );
-                  },
-                )
-              else
-                Text(
-                  S.of(context).notPlayedYet,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-                ),
-            ],
+            )
+          : null,
+      progressTitle: track?.title ?? l10n.notPlayedYet,
+      progressText: track == null
+          ? null
+          : duration > Duration.zero
+          ? '$position / ${formatDuration(duration)}'
+          : position,
+      progressTrailing: track != null && record.playlistTotal > 0
+          ? '${record.playlistIndex + 1} / ${record.playlistTotal}'
+          : null,
+      progressValue: duration.inMilliseconds > 0
+          ? record.lastPositionMs / duration.inMilliseconds
+          : null,
+      resumeLabel: l10n.resume,
+      onResume: track == null ? null : () => _resumePlayback(context, ref),
+      onOpen:
+          onTap ??
+          () => pushWorkDetailRoute(
+            context,
+            builder: (context) => WorkDetailScreen(
+              work: work,
+              initialCoverImageProvider: host.isEmpty ? null : coverImage,
+            ),
           ),
-        );
-
-        return Card(
-          margin: isList
-              ? const EdgeInsets.symmetric(
-                  vertical: collectionListCardVerticalMargin,
-                )
-              : EdgeInsets.zero,
-          clipBehavior: Clip.antiAlias,
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(isList ? 12 : cornerRadius),
-          ),
-          child: InkWell(
-            onTap:
-                onTap ??
-                () => pushWorkDetailRoute(
-                  context,
-                  builder: (context) => WorkDetailScreen(
-                    work: work,
-                    initialCoverImageProvider: initialCoverImageProvider,
-                  ),
-                ),
-            onLongPress: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: Text(S.of(context).deleteRecord),
-                  content: Text(
-                    S.of(context).deletePlayRecordConfirm(work.title),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: Text(S.of(context).cancel),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        ref.read(historyProvider.notifier).remove(work.id);
-                        Navigator.pop(context);
-                      },
-                      child: Text(S.of(context).delete),
-                    ),
-                  ],
-                ),
-              );
-            },
-            child: isList
-                ? Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox.fromSize(size: listCoverSize!, child: cover),
-                        const SizedBox(width: 8),
-                        Expanded(child: info),
-                      ],
-                    ),
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      AspectRatio(
-                        aspectRatio: collectionCoverAspectRatio,
-                        child: cover,
-                      ),
-                      info,
-                    ],
-                  ),
-          ),
-        );
-      },
+      onRemove: () => showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(l10n.deleteRecord),
+          content: Text(l10n.deletePlayRecordConfirm(work.title)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(l10n.cancel),
+            ),
+            TextButton(
+              onPressed: () {
+                ref.read(historyProvider.notifier).remove(work.id);
+                Navigator.pop(context);
+              },
+              child: Text(l10n.delete),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

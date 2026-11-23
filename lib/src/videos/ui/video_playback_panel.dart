@@ -9,6 +9,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../services/log_service.dart';
 import '../../services/remote_asset_cache.dart';
 import '../../utils/snackbar_util.dart';
 import '../../services/proxy_config.dart';
@@ -587,6 +588,7 @@ class VideoPlaybackPanel extends StatefulWidget {
     required this.videoId,
     required this.library,
     this.title = '',
+    this.historyDetails = const {},
     this.autoPlayOnStart = false,
     this.onPlayNextRelated,
     this.streams = const [],
@@ -610,6 +612,7 @@ class VideoPlaybackPanel extends StatefulWidget {
   final String videoId;
   final VideoLibrary library;
   final String title;
+  final Map<String, Object?> historyDetails;
   final bool autoPlayOnStart;
   final Future<void> Function()? onPlayNextRelated;
   final List<VideoStream> streams;
@@ -657,6 +660,8 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Duration? _pendingLoadPosition;
   String? _pendingLoadVideoId;
   String? _loadedVideoId;
+  String? _historyVideoId;
+  Map<String, Object?> _loadedHistoryDetails = const {};
   ({String videoId, Duration position})? _pendingSourcePosition;
   Duration? _seekPreview;
   Duration? _pendingSeekPosition;
@@ -1006,6 +1011,11 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   void didUpdateWidget(VideoPlaybackPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     final videoIdChanged = oldWidget.videoId != widget.videoId;
+    if (_loadedVideoId == widget.videoId &&
+        (oldWidget.title != widget.title ||
+            !mapEquals(oldWidget.historyDetails, widget.historyDetails))) {
+      _loadedHistoryDetails = _sourceHistoryDetails();
+    }
     if (videoIdChanged ||
         oldWidget.localPath != widget.localPath ||
         !listEquals(oldWidget.streams, widget.streams)) {
@@ -1134,6 +1144,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     bool newVideo = false,
   }) {
     final sourceVideoId = widget.videoId;
+    final sourceHistoryDetails = _sourceHistoryDetails();
     final sourceLocalPath = widget.localPath;
     final sourceStreams = widget.streams;
     final sourceStreamIndex = _streamIndex;
@@ -1214,8 +1225,12 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       }
       if (widget.savePositionOnSourceChange) {
         _loadedVideoId = sourceVideoId;
+        _loadedHistoryDetails = widget.videoId == sourceVideoId
+            ? _sourceHistoryDetails()
+            : sourceHistoryDetails;
       }
       if (!_isLoadCurrent(generation)) return;
+      if (_historyVideoId != sourceVideoId) _historyVideoId = null;
       _sourceLoaded = true;
       if (firstSourceLoad &&
           pauseGeneration == _pauseGeneration &&
@@ -1531,6 +1546,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     final target = position ?? _seekPreview;
     if (target == null) return;
     _canSavePosition = true;
+    if (_sourceLoaded && widget.library.hasHistory(widget.videoId)) {
+      _historyVideoId = widget.videoId;
+    }
     final snapshot = _session.snapshot.value;
     final clamped = _clampPosition(target, snapshot.duration);
     _seekPreviewClearTimer?.cancel();
@@ -2143,6 +2161,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   void _onSnapshotChanged() {
     if (_disposed || !mounted) return;
     final snapshot = _session.snapshot.value;
+    if (_sourceLoaded && snapshot.playing) {
+      _historyVideoId = widget.videoId;
+    }
     final pendingSeek = _pendingSeekPosition;
     final positionConfirmed =
         pendingSeek != null &&
@@ -2413,32 +2434,61 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     if (!_disposed && mounted) await WidgetsBinding.instance.endOfFrame;
   }
 
-  Future<void> _savePosition({bool release = false}) {
-    if (!_canSavePosition) return Future<void>.value();
+  Future<void> _savePosition({bool release = false}) async {
+    if (!_canSavePosition) return;
     if (release) _canSavePosition = false;
+    final videoId = widget.savePositionOnSourceChange
+        ? _loadedVideoId
+        : widget.videoId;
+    if (videoId == null || _historyVideoId != videoId) return;
+
+    final snapshotPosition = _session.snapshot.value.position;
+    final Duration position;
+    final Map<String, Object?> details;
     if (widget.savePositionOnSourceChange) {
-      final videoId = _loadedVideoId;
-      if (videoId == null) return Future<void>.value();
       final pendingPosition = _pendingLoadVideoId == videoId
           ? _pendingLoadPosition
           : null;
       final sourceChangePosition = _pendingSourcePosition;
-      final position =
+      position =
           sourceChangePosition != null &&
               sourceChangePosition.videoId == videoId
           ? sourceChangePosition.position
-          : _pendingSeekPosition ??
-                pendingPosition ??
-                _session.snapshot.value.position;
-      return widget.library.savePosition(videoId, position);
+          : _pendingSeekPosition ?? pendingPosition ?? snapshotPosition;
+      details = _loadedHistoryDetails;
+    } else {
+      if (!_sourceLoaded && _pendingLoadPosition == null) return;
+      position =
+          _pendingSeekPosition ?? _pendingLoadPosition ?? snapshotPosition;
+      details = _sourceHistoryDetails();
     }
-    if (!_sourceLoaded && _pendingLoadPosition == null) return Future.value();
-    return widget.library.savePosition(
-      widget.videoId,
-      _pendingSeekPosition ??
-          _pendingLoadPosition ??
-          _session.snapshot.value.position,
-    );
+    try {
+      await widget.library.savePosition(
+        videoId,
+        position,
+        details: _historyDetailsForSave(details),
+      );
+    } catch (error) {
+      LogService.instance.error(
+        'Video history save failed: $error',
+        tag: 'Video',
+      );
+    }
+  }
+
+  Map<String, Object?> _sourceHistoryDetails() => {
+    ...widget.historyDetails,
+    if (!widget.historyDetails.containsKey('title') && widget.title.isNotEmpty)
+      'title': widget.title,
+  };
+
+  Map<String, Object?> _historyDetailsForSave(Map<String, Object?> source) {
+    final details = <String, Object?>{...source};
+    final duration = _session.snapshot.value.duration;
+    if (duration > Duration.zero) {
+      details['durationMs'] = duration.inMilliseconds;
+    }
+    return details;
   }
 
   Future<void> _saveLoadedSourcePosition() async {

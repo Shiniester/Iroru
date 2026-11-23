@@ -40,7 +40,9 @@ final videoClientProvider = ChangeNotifierProvider<MissavClient>(
 );
 
 final jableVideoClientProvider = Provider<JableClient>((ref) {
-  final client = JableClient(restoreSavedSession: restoreJableBrowserSession);
+  final client = JableClient.withMirror(
+    restoreSavedSession: restoreJableBrowserSession,
+  );
   ref.onDispose(client.dispose);
   return client;
 });
@@ -48,6 +50,7 @@ final jableVideoClientProvider = Provider<JableClient>((ref) {
 final jableAccessVerifierProvider = Provider((ref) => verifyJableAccess);
 final missavAccessVerifierProvider = Provider((ref) => verifyMissavAccess);
 final missavAccountVerifierProvider = Provider((ref) => verifyMissavAccount);
+final missavAccountLoginProvider = Provider((ref) => verifyMissavLogin);
 
 final videoSourceClientProvider = Provider.family<VideoSourceClient, String>(
   (ref, sourceKey) => switch (sourceKey) {

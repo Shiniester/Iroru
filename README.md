@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/icons/app_icon_opaque.png" alt="Iroru" width="120" height="120">
+  <img src="assets/icons/app_icon_login.png" alt="Iroru" width="120" height="120">
 
   # Iroru
 
@@ -88,6 +88,9 @@
 前往 [GitHub Releases](https://github.com/Shiniester/Iroru/releases/latest) 下载最新版本。
 
 支持平台：Android（arm64-v8a）、iOS（未签名 IPA）、Windows（安装包 / 便携版）、macOS（Apple Silicon，DMG）、Linux（x64）
+
+Android 用户可在**关于 → 更新渠道**选择**正式版**或**测试版**。仅安装了旧 Iroru Beta
+时，请从 GitHub Releases 安装 Iroru。统一版使用自己的数据，不导入旧数据。
 
 ### 从旧版换装
 

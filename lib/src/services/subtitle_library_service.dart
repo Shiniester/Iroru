@@ -444,9 +444,8 @@ class SubtitleLibraryService {
 
   /// 获取字幕库目录
   static Future<Directory> getSubtitleLibraryDirectory() async {
-    final downloadDir = await DownloadPathService.getDownloadDirectory();
-    final libraryDir = Directory(
-      p.join(downloadDir.path, SubtitleLibraryRules.libraryFolderName),
+    final libraryDir = DownloadFolder.subtitles.inRoot(
+      await DownloadPathService.getDownloadDirectory(),
     );
 
     // 如果不存在则自动创建

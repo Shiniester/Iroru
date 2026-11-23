@@ -545,8 +545,11 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   Future<void> _saveProgress(String chapter, int page) async {
     final comic = widget.comic;
     if (comic == null) return;
+    final pageCount = _chapter?.id == chapter && _pages.isNotEmpty
+        ? _pages.length
+        : null;
     try {
-      await _library.saveProgress(comic, chapter, page);
+      await _library.saveProgress(comic, chapter, page, pageCount: pageCount);
     } catch (error) {
       LogService.instance.error('Comic progress: $error', tag: 'Comics');
     }

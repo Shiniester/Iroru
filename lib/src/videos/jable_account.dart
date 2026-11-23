@@ -11,10 +11,12 @@ class JableAccount extends ChangeNotifier {
   final JableClient _client;
   bool _isLoggedIn = false;
   int _revision = 0;
+  int _contentGeneration = 0;
   bool _disposed = false;
 
   bool get isLoggedIn => _isLoggedIn;
   int get revision => _revision;
+  int get contentGeneration => _contentGeneration;
 
   static bool isFavoritesUri(Uri uri) =>
       uri.scheme == 'https' &&
@@ -27,14 +29,26 @@ class JableAccount extends ChangeNotifier {
   static bool hasFavoritesList(Document document) =>
       document.querySelector('#$_favoritesBlockId') != null;
 
-  void _sessionChanged() {
-    _isLoggedIn = false;
-    _changed();
+  void _sessionChanged({bool signedIn = false}) {
+    if (_isLoggedIn != signedIn) {
+      _setLoggedIn(signedIn);
+    } else {
+      _changed();
+    }
   }
 
   void _setLoggedIn(bool value) {
     if (_disposed || value == _isLoggedIn) return;
     _isLoggedIn = value;
+    if (_client.usesAutomaticMirror) {
+      _contentChanged();
+    } else {
+      _changed();
+    }
+  }
+
+  void _contentChanged() {
+    _contentGeneration++;
     _changed();
   }
 
@@ -47,6 +61,11 @@ class JableAccount extends ChangeNotifier {
   }
 
   Future<bool> checkLogin() async {
+    await _client.initialize();
+    return _client._loading.checkAccount(_checkLogin);
+  }
+
+  Future<bool> _checkLogin() async {
     await _client._prepareOnlineAccess();
     if (!_hasSession) {
       _setLoggedIn(false);
@@ -55,20 +74,20 @@ class JableAccount extends ChangeNotifier {
 
     final uri = Uri.parse(favoritesUrl);
     final generation = _client._generation;
-    final document = await _client._loadDocument(uri);
+    final (document, page) = await _client._loadDocumentPage(uri);
     _client._ensureGeneration(generation, uri);
-    if (hasFavoritesList(document)) {
-      _setLoggedIn(true);
-      return true;
-    }
-    if (_isLoginPage(document, uri)) {
-      _setLoggedIn(false);
-      return false;
-    }
+    final signedIn = _loginStatus(document, page);
+    _setLoggedIn(signedIn);
+    return signedIn;
+  }
+
+  bool _loginStatus(Document document, Uri page) {
+    if (hasFavoritesList(document)) return true;
+    if (_isLoginUrl(page) || _isLoginPage(document, page)) return false;
     throw VideoSourceException(
       'Jable returned an invalid favorites page.',
       sourceKey: _client.sourceKey,
-      sourceUrl: uri.toString(),
+      sourceUrl: favoritesUrl,
     );
   }
 
@@ -79,6 +98,27 @@ class JableAccount extends ChangeNotifier {
     return (id: id, selected: button!.classes.contains('active'));
   }
 
+  Future<({String id, bool selected})?> favoriteStateForVideo(
+    VideoDetails details,
+  ) async {
+    if (!isLoggedIn) return null;
+    try {
+      await _client._prepareOnlineAccess();
+      return await _loadFavoriteControl(_videoUri(details));
+    } on DioException {
+      return null;
+    } on VideoSourceException {
+      return null;
+    }
+  }
+
+  Future<({String id, bool selected})?> _loadFavoriteControl(Uri uri) async {
+    final (document, page) = await _client._loadDocumentPage(uri);
+    return _client._videoId(page.toString()) == _client._videoId(uri.toString())
+        ? _favoriteControl(document)
+        : null;
+  }
+
   Future<void> setVideoFavorite(VideoDetails details, bool favorite) async {
     final videoUri = _videoUri(details);
     await _client._prepareOnlineAccess();
@@ -87,7 +127,12 @@ class JableAccount extends ChangeNotifier {
       throw JableLoginRequiredException(sourceUrl: videoUri.toString());
     }
     _client._ensureGeneration(generation, videoUri);
-    final sourceId = details.sourceId?.trim();
+    final sourceId =
+        details.sourceId?.trim() ??
+        (Uri.parse(details.video.pageUrl).host != JableClient._officialHost
+            ? (await _loadFavoriteControl(videoUri))?.id
+            : null);
+    _client._ensureGeneration(generation, videoUri);
     if (sourceId == null || sourceId.isEmpty) {
       throw VideoSourceException(
         'Jable did not provide a favorite control for this video.',
@@ -435,7 +480,9 @@ class JableAccount extends ChangeNotifier {
         sourceUrl: details.video.pageUrl,
       );
     }
-    final uri = _client._sourceUri(pageUrl);
+    final uri = _client
+        ._sourceUri(pageUrl, allowMirror: true)
+        .replace(host: JableClient._officialHost);
     final segments = _client._segments(uri);
     if (segments.length != 2 || segments.first != 'videos') {
       throw VideoSourceException(
@@ -444,7 +491,7 @@ class JableAccount extends ChangeNotifier {
         sourceUrl: uri.toString(),
       );
     }
-    return uri;
+    return Uri.parse('${uri.origin}${uri.path}');
   }
 
   bool get _hasSession =>

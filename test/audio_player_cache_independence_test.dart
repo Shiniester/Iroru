@@ -11,6 +11,7 @@ import 'package:iroru/src/models/download_task.dart';
 import 'package:iroru/src/services/audio_cache_downloader.dart';
 import 'package:iroru/src/services/audio_player_service.dart';
 import 'package:iroru/src/services/cache_service.dart';
+import 'package:iroru/src/services/download_path_service.dart';
 import 'package:iroru/src/services/download_service.dart';
 import 'package:iroru/src/services/speculative_transfer_coordinator.dart';
 import 'package:iroru/src/services/storage_service.dart';
@@ -35,7 +36,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       'server_host': 'https://example.invalid',
       'current_user': '{"name":"tester"}',
-      'custom_download_path': root.path,
+      StorageService.customDownloadPathKey: root.path,
     });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
@@ -67,6 +68,35 @@ void main() {
     final taskId = downloadedTaskId;
     if (taskId != null) await DownloadService.instance.deleteTask(taskId);
     await root.delete(recursive: true);
+  });
+
+  test('an offline queue opens its audio after a download root change', () async {
+    final initial = await Directory(p.join(root.path, 'initial')).create();
+    final destination = Directory(p.join(root.path, 'destination'));
+    await StorageService.setString(
+      StorageService.customDownloadPathKey,
+      initial.path,
+    );
+    final work = Directory(p.join(initial.path, 'audio', '123'));
+    final trackFile = File(p.join(work.path, 'disc', 'track.mp3'));
+    await trackFile.parent.create(recursive: true);
+    await trackFile.writeAsBytes([1, 2, 3]);
+    final track = AudioTrack(
+      id: 'offline-track',
+      title: 'track.mp3',
+      url: trackFile.uri.toString(),
+      workId: 123,
+      subtitleWorkDirPath: work.path,
+    );
+
+    final result = await DownloadPathService.setCustomPath(destination.path);
+    expect(result.success, isTrue);
+    expect(await trackFile.exists(), isFalse);
+    await service.updateQueue([track]).timeout(const Duration(seconds: 2));
+    expect(
+      player.source,
+      p.join(destination.path, 'audio', '123', 'disc', 'track.mp3'),
+    );
   });
 
   test(
@@ -473,7 +503,7 @@ void main() {
       createdAt: DateTime.utc(2026),
       completedAt: DateTime.utc(2026),
     );
-    final downloadedFile = File(p.join(root.path, '7654321', fileName));
+    final downloadedFile = File(p.join(root.path, 'audio', '7654321', fileName));
     await downloadedFile.parent.create(recursive: true);
     await downloadedFile.writeAsBytes(bytes);
     final preferences = await SharedPreferences.getInstance();

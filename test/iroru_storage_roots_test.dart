@@ -96,7 +96,10 @@ void main() {
     expect(await history.getAllHistory(), isEmpty);
     expect(await subtitles.getAllFiles(), isEmpty);
     expect((await accounts.database).path, p.join(support.path, 'accounts.db'));
-    expect((await history.database).path, p.join(support.path, 'history.db'));
+    expect(
+      (await history.database).path,
+      p.join(support.path, 'local_history.db'),
+    );
     expect(
       (await subtitles.database).path,
       p.join(support.path, 'subtitle_library.db'),
@@ -149,7 +152,7 @@ void main() {
       readOnly: true,
     );
     final historyDatabase = await openDatabase(
-      p.join(support.path, 'history.db'),
+      p.join(support.path, 'local_history.db'),
       readOnly: true,
     );
     final subtitleDatabase = await openDatabase(
@@ -163,8 +166,8 @@ void main() {
         'user',
       );
       expect(
-        (await historyDatabase.query('history')).single['work_id'],
-        5,
+        (await historyDatabase.query('local_history')).single['item_id'],
+        '5',
       );
       expect(
         (await subtitleDatabase.query('subtitle_files')).single['file_name'],

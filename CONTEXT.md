@@ -17,6 +17,9 @@ Audio, Comics, and Videos each retain their browsing history when another entry
 is selected.
 _Avoid_: Player navigation, bottom menu
 
+**Download Root (下载根目录)**:
+音声、漫画和视频下载共用的上级目录。三类下载共用「下载路径」设置。
+
 **Video Screen (视频页)**:
 The app page for browsing videos from a Video Source.
 _Avoid_: Video player, source website
@@ -75,7 +78,11 @@ _Avoid_: Audio account, comic account
 
 **Video Source Account Session (视频源账号会话)**:
 The period during which a Video Source accepts a sign-in to a Video Source
-Account. A valid session can continue after the app closes and reopens.
+Account. A valid session can continue after the app closes and reopens. A
+session is bound to the Account Host that confirmed it, and its cookies are not
+reused on another Account Host. Jable confirms a session by granting access to
+the account's Favorites. Account features for the same Video Source share the
+result of an in-progress session check.
 
 **Video Source Verification (视频源验证)**:
 The website check required before a Video Source permits access from the current
@@ -83,23 +90,32 @@ network. It is separate from signing in to a Video Source Account.
 _Avoid_: Video account login
 
 **Content Host (内容线路)**:
-A Video Source host that serves catalog pages without Video Source Verification.
-For MissAV, Content Hosts are the measured mirror list.
+A host that serves a Video Source's catalog and video details. For MissAV,
+Content Hosts are the measured mirrors and its Official Hosts. Jable uses the
+manually selected Video Source Mirror when one is set. For both sources,
+automatic mode uses a mirror for anonymous access, during session recovery, and
+after session invalidation. It prefers an Official Host after account
+confirmation. A manual mirror selection remains in effect.
 _Avoid_: Source mirror, browsing mirror
 
 **Account Host (账号线路)**:
-A Video Source host used for account login and account APIs. For MissAV, Account
-Hosts are `missav.live`, `missav.ws`, and `missav.ai`.
+A Video Source host used for account login and account APIs. The MissAV
+Account Host is `missav.ai`; its sign-in page has no Account Host selection.
+`missav.live` and `missav.ws` remain public content fallbacks and do not
+receive MissAV account cookies. The Jable Account Host is `jable.tv`.
 _Avoid_: Login mirror
 
 **Official Host (官方线路)**:
-A MissAV host that may require Video Source Verification: `missav.live`,
-`missav.ws`, or `missav.ai`. Official Hosts are the last Content Host fallback.
+A host operated by the Video Source. For MissAV, Official Hosts are
+`missav.live`, `missav.ws`, and `missav.ai`. For Jable, the Official Host is
+`jable.tv`. Official Hosts may require Video Source Verification.
 _Avoid_: Primary mirror, canonical host
 
 **Last Good Content Host (上次可用内容线路)**:
-The Content Host that most recently returned a valid content page. It is tried
-before the measured Content Host order.
+The Video Source Mirror that most recently returned a valid content page.
+It is the first automatic mirror candidate for anonymous access or while the
+session is unconfirmed. A confirmed automatic account session prefers the
+Official Host; a manual mirror selection overrides both.
 _Avoid_: Preferred mirror, saved mirror
 
 **Video Source Mirror (视频源镜像)**:
@@ -177,6 +193,11 @@ _Avoid_: Video Resume Position, audio playback history
 **Video Resume Position (视频续播进度)**:
 The saved playback time used to resume a particular video.
 _Avoid_: Video Watch History, Reading Progress
+
+**Local History (本地历史)**:
+This device's most recent playback or reading position for each audio work,
+comic, or video, identified within its media type and source.
+_Avoid_: Video Watch History, Historical Playback Queue
 
 **Video Download (视频下载)**:
 A saved copy of a video for playback without access to its Video Source.
@@ -774,7 +795,7 @@ _Avoid_: guest demo account, offline account
 
 **Update Channel (更新渠道)**:
 The release family selected for Iroru update checks: Stable Release or Beta
-Release.
+Release. On Android, both channels update the same Iroru installation.
 
 **Stable Release (正式版)**:
 A published Iroru version intended for regular use.
@@ -784,5 +805,5 @@ A published Iroru version intended for testing changes before a Stable Release.
 _Avoid_: Development build, nightly build
 
 **Iroru Beta**:
-The Android testing edition of Iroru. It is installed alongside the stable app
-and keeps separate app data.
+The former standalone Android app for testing Iroru. Existing installations
+keep their own app data.

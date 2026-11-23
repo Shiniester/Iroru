@@ -33,6 +33,10 @@ void main() {
     final comicIndex = navigationTitles.indexOf(rootStrings.comicSettings);
     expect(navigationTitles[comicIndex - 1], rootStrings.audioSettings);
     expect(navigationTitles[comicIndex + 1], rootStrings.videoSettings);
+    expect(
+      navigationTitles.where((title) => title == rootStrings.downloadPath),
+      hasLength(1),
+    );
     final videoSettings = find.text(rootStrings.videoSettings);
     await tester.ensureVisible(videoSettings);
     await tester.tap(videoSettings);

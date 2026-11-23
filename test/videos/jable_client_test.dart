@@ -4,11 +4,575 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:iroru/src/services/proxy_config.dart';
 import 'package:iroru/src/videos/jable_client.dart';
+import 'package:iroru/src/videos/jable_mirrors.dart';
 import 'package:iroru/src/videos/missav_browser_adapter.dart';
 import 'package:iroru/src/videos/video_models.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('keeps browsing anonymous while a saved account is checked', () async {
+    final storage = _MemorySecureStorage()
+      ..values['iroru.jable_verified_session'] =
+          '{"cookie":"cf_clearance=saved","userAgent":"Saved UA"}';
+    final confirmation = Completer<ResponseBody>();
+    final official = _Adapter(
+      (request) => request.uri.path.startsWith('/my/')
+          ? confirmation.future
+          : _html('<title>Official catalog</title>'),
+    );
+    final mirror = _Adapter((_) => _mirrorCatalog);
+    final client = _mirrorClient(official, mirror, storage: storage);
+    addTearDown(client.dispose);
+    final loggedIn = Completer<void>();
+    client.account.addListener(() {
+      if (client.account.isLoggedIn && !loggedIn.isCompleted) {
+        loggedIn.complete();
+      }
+    });
+
+    final anonymous = await client.browse(client.homeUrl);
+    expect(anonymous.url, 'https://jable1.net/new-release/');
+    expect(anonymous.videos.single.pageUrl, 'https://jable1.net/videos/one/');
+    expect(mirror.requests.single.headers['Cookie'], isNull);
+    expect(mirror.requests.single.headers['User-Agent'], 'Mozilla/5.0');
+    expect(client.contentGeneration, 0);
+    expect(official.requests.single.headers['Cookie'], 'cf_clearance=saved');
+
+    confirmation.complete(
+      _html('<div id="list_videos_my_favourite_videos"></div>'),
+    );
+    await loggedIn.future;
+    final authenticated = await client.browse(anonymous.url);
+    expect(authenticated.url, 'https://jable.tv/new-release/');
+    expect(client.contentGeneration, 1);
+    expect(mirror.requests, hasLength(1));
+
+    await client.clearSession();
+    expect(client.contentGeneration, 2);
+    await client.browse(authenticated.url);
+    expect(mirror.requests, hasLength(2));
+    expect(mirror.requests.last.headers['Cookie'], isNull);
+  });
+
+  test('retries session restoration after a temporary failure', () async {
+    final storage = _MemorySecureStorage()
+      ..values['iroru.jable_verified_session'] =
+          '{"cookie":"cf_clearance=saved","userAgent":"Saved UA"}';
+    final confirmation = Completer<(String, Uri)>();
+    final browser = MissavBrowserAdapter.jable(
+      runJavaScript: (_) async {},
+      currentUrl: () async => JableClient.origin,
+      navigateDocument: (_, _) => confirmation.future,
+      disposeBrowser: () async {},
+    );
+    var attempts = 0;
+    final mirror = Dio()..httpClientAdapter = _Adapter((_) => _mirrorCatalog);
+    final client = JableClient(
+      mirrorDio: mirror,
+      secureStorage: storage,
+      restoreSavedSession: (client, generation) async {
+        if (++attempts == 1) throw StateError('Browser is offline');
+        client.useVerifiedBrowserTransport(
+          browser,
+          expectedGeneration: generation,
+        );
+      },
+    );
+    addTearDown(() {
+      client.dispose();
+      mirror.close(force: true);
+    });
+    final loggedIn = Completer<void>();
+    client.account.addListener(() {
+      if (client.account.isLoggedIn && !loggedIn.isCompleted) {
+        loggedIn.complete();
+      }
+    });
+
+    await client.browse(client.homeUrl);
+    expect(attempts, 1);
+    await Future.wait([
+      client.browse(client.homeUrl),
+      client.browse(client.homeUrl),
+    ]);
+    expect(attempts, 2);
+
+    confirmation.complete((
+      '<div id="list_videos_my_favourite_videos"></div>',
+      Uri.parse(JableAccount.favoritesUrl),
+    ));
+    await loggedIn.future;
+    expect(client.activeMirrorHost, 'jable.tv');
+  });
+
+  test(
+    'plays the official detail while browser restoration is pending',
+    () async {
+      final storage = _MemorySecureStorage()
+        ..values['iroru.jable_verified_session'] =
+            '{"cookie":"cf_clearance=saved","userAgent":"Saved UA"}';
+      final restoration = Completer<void>();
+      final official = _Adapter(
+        (_) => _html('<script>var hlsUrl = "/official.m3u8";</script>'),
+      );
+      final client = JableClient(
+        dio: Dio()..httpClientAdapter = official,
+        mirrorDio: Dio()..httpClientAdapter = _Adapter((_) => _mirrorCatalog),
+        secureStorage: storage,
+        restoreSavedSession: (_, _) => restoration.future,
+      );
+      addTearDown(client.dispose);
+      addTearDown(() {
+        if (!restoration.isCompleted) restoration.complete();
+      });
+
+      final page = await client.browse(client.homeUrl);
+      expect(page.videos, hasLength(1));
+      final details = client.details(page.videos.single)..ignore();
+      await pumpEventQueue();
+
+      expect(official.requests.map((request) => request.uri.path), [
+        '/videos/one/',
+      ]);
+      expect(
+        (await details).streams.single.url,
+        'https://jable.tv/official.m3u8',
+      );
+    },
+  );
+
+  test(
+    'does not retry a failed browser restoration for official details',
+    () async {
+      final storage = _MemorySecureStorage()
+        ..values['iroru.jable_verified_session'] =
+            '{"cookie":"cf_clearance=saved","userAgent":"Saved UA"}';
+      final restorationFailed = Completer<void>();
+      var restoreAttempts = 0;
+      final mirror = _Adapter((_) async {
+        await restorationFailed.future;
+        return _html('', statusCode: 404);
+      });
+      final official = _Adapter(
+        (_) => _html('<script>var hlsUrl = "/official.m3u8";</script>'),
+      );
+      final client = JableClient(
+        dio: Dio()..httpClientAdapter = official,
+        mirrorDio: Dio()..httpClientAdapter = mirror,
+        secureStorage: storage,
+        restoreSavedSession: (_, _) async {
+          restoreAttempts++;
+          restorationFailed.complete();
+          throw StateError('Browser is offline');
+        },
+      );
+      addTearDown(client.dispose);
+
+      final details = await client.details(
+        const VideoItem(
+          id: 'one',
+          title: 'One',
+          sourceKey: 'jable',
+          pageUrl: 'https://jable1.net/videos/one/',
+        ),
+      );
+
+      expect(mirror.requests.single.uri.path, '/videos/one/');
+      expect(official.requests.single.uri.path, '/videos/one/');
+      expect(details.streams.single.url, 'https://jable.tv/official.m3u8');
+      expect(restoreAttempts, 1);
+    },
+  );
+
+  test(
+    'returns to the automatic mirror after a browser login redirect',
+    () async {
+      final client = _mirrorClient(
+        _Adapter((_) => throw StateError('Unexpected native request')),
+        _Adapter((_) => _mirrorCatalog),
+      );
+      addTearDown(client.dispose);
+      await client.importVerifiedSession(
+        cookieHeader: 'cf_clearance=saved',
+        userAgent: 'Saved UA',
+      );
+      final favorites = Uri.parse(JableAccount.favoritesUrl);
+      final login = Uri.parse('${JableClient.origin}/login/');
+      final browser = MissavBrowserAdapter.jable(
+        runJavaScript: (_) async {},
+        currentUrl: () async => JableClient.origin,
+        navigateDocument: (uri, _) async => uri == favorites
+            ? ('<div id="list_videos_my_favourite_videos"></div>', uri)
+            : ('<title>Sign in</title>', login),
+        disposeBrowser: () async {},
+      );
+      client.useVerifiedBrowserTransport(
+        browser,
+        expectedGeneration: client.sessionGeneration,
+      );
+      expect(await client.account.checkLogin(), isTrue);
+      expect(client.activeMirrorHost, 'jable.tv');
+
+      await expectLater(
+        client.search('example'),
+        throwsA(isA<VideoSourceException>()),
+      );
+      expect(client.account.isLoggedIn, isFalse);
+      final page = await client.browse(client.homeUrl);
+      expect(Uri.parse(page.url).host, jableMirrors.first.host);
+    },
+  );
+
+  testWidgets('restores the last good mirror and measures it again', (
+    tester,
+  ) async {
+    final previousMode = ProxyConfig.mode;
+    ProxyConfig.mode = ProxyMode.direct;
+    addTearDown(() => ProxyConfig.mode = previousMode);
+    final cached = jableMirrors.last;
+    final measured = jableMirrors[1];
+    SharedPreferences.setMockInitialValues({
+      jableLastGoodHostKey: cached.baseUrl,
+    });
+    final preferences = await SharedPreferences.getInstance();
+    final probes = <String>[];
+    final mirror = _Adapter((request) {
+      if (!request.uri.queryParameters.containsKey('ts')) {
+        return _mirrorCatalog;
+      }
+      probes.add(request.uri.host);
+      if (request.uri.host == measured.host) {
+        return _html(
+          '<html><div id="site-content"><div id="list_videos_new_release"></div></div></html>',
+        );
+      }
+      return _html('Unavailable', statusCode: 503);
+    });
+    final official = _Adapter(
+      (_) => throw StateError('Unexpected official request'),
+    );
+    final client = _mirrorClient(official, mirror, preferences: preferences);
+    addTearDown(client.dispose);
+
+    final firstBrowse = client.browse(client.homeUrl);
+    await tester.pump(Duration.zero);
+    expect(Uri.parse((await firstBrowse).url).host, cached.host);
+    expect(probes, isEmpty);
+    await tester.pump(const Duration(seconds: 1));
+    expect(probes, [cached.host, jableMirrors.first.host, measured.host]);
+    expect(client.activeMirrorHost, measured.host);
+    expect(preferences.getString(jableLastGoodHostKey), cached.baseUrl);
+
+    final reopened = _mirrorClient(official, mirror, preferences: preferences);
+    addTearDown(reopened.dispose);
+    final firstAfterRestart = reopened.browse(reopened.homeUrl);
+    await tester.pump(Duration.zero);
+    expect(Uri.parse((await firstAfterRestart).url).host, cached.host);
+    await tester.pump(const Duration(seconds: 1));
+    expect(probes.skip(3), [
+      cached.host,
+      jableMirrors.first.host,
+      measured.host,
+    ]);
+
+    final nextBrowse = reopened.browse(reopened.homeUrl);
+    await tester.pump(Duration.zero);
+    expect(Uri.parse((await nextBrowse).url).host, measured.host);
+    await tester.pump(const Duration(seconds: 1));
+    expect(preferences.getString(jableLastGoodHostKey), measured.baseUrl);
+    expect(probes, hasLength(6));
+  });
+
+  test('keeps a missing video host but clears an unavailable mirror', () async {
+    final cached = jableMirrors.last;
+    SharedPreferences.setMockInitialValues({
+      jableLastGoodHostKey: cached.baseUrl,
+    });
+    final preferences = await SharedPreferences.getInstance();
+    final official = _Adapter((_) => _html('<title>Official catalog</title>'));
+    final mirror = _Adapter(
+      (request) => _html(
+        '',
+        statusCode: request.uri.path.startsWith('/videos/') ? 404 : 503,
+      ),
+    );
+    final client = _mirrorClient(official, mirror, preferences: preferences);
+    addTearDown(client.dispose);
+
+    const video = VideoItem(
+      id: 'missing',
+      title: 'Missing',
+      sourceKey: 'jable',
+      pageUrl: 'https://jable.tv/videos/missing/',
+    );
+    await expectLater(
+      client.details(video),
+      throwsA(isA<VideoSourceException>()),
+    );
+    expect(mirror.requests.single.uri.host, cached.host);
+    expect(official.requests.single.uri.path, '/videos/missing/');
+    expect(preferences.getString(jableLastGoodHostKey), cached.baseUrl);
+
+    final page = await client.browse(client.homeUrl);
+    expect(Uri.parse(page.url).host, 'jable.tv');
+    expect(preferences.getString(jableLastGoodHostKey), '');
+  });
+
+  test(
+    'falls back only for mirror failures, not a valid empty search',
+    () async {
+      final official = _Adapter(
+        (_) => _html('<title>Official catalog</title>'),
+      );
+      final mirror = _Adapter((request) {
+        if (request.uri.path == '/search/empty/') {
+          return _html('''
+          <div id="site-content">
+            <div id="list_videos_videos_list_search_result"></div>
+          </div>
+        ''');
+        }
+        if (request.uri.path == '/latest-updates/') {
+          return ResponseBody.fromString(
+            '',
+            302,
+            headers: {
+              'location': ['https://jable.tv/my/favourites/videos/'],
+            },
+          );
+        }
+        return _html('<title>Mirror unavailable</title>');
+      });
+      final client = _mirrorClient(official, mirror);
+      addTearDown(client.dispose);
+
+      expect((await client.search('empty')).videos, isEmpty);
+      expect(official.requests, isEmpty);
+
+      final repaired = await client.browse(
+        'https://jable1.net/latest-updates/?from=2',
+      );
+      expect(repaired.url, 'https://jable.tv/latest-updates/?from=2');
+      expect(official.requests.single.uri.path, '/latest-updates/');
+      await client.search('invalid');
+      expect(official.requests, hasLength(2));
+    },
+  );
+
+  test('rejects a late mirror result after confirming login', () async {
+    final requested = Completer<void>();
+    final response = Completer<ResponseBody>();
+    final mirror = _Adapter((_) {
+      requested.complete();
+      return response.future;
+    });
+    final client = _mirrorClient(
+      _Adapter(
+        (_) => _html('<div id="list_videos_my_favourite_videos"></div>'),
+      ),
+      mirror,
+    );
+    addTearDown(client.dispose);
+    await client.importVerifiedSession(
+      cookieHeader: 'cf_clearance=verified',
+      userAgent: 'Browser agent',
+    );
+    var published = false;
+    final pending = client.browse(
+      client.homeUrl,
+      onParsed: (_) => published = true,
+    );
+    final rejected = expectLater(pending, throwsA(isA<VideoSourceException>()));
+    await requested.future;
+    expect(await client.account.checkLogin(), isTrue);
+    response.complete(_mirrorCatalog);
+    await rejected;
+    expect(published, isFalse);
+    expect(client.account.isLoggedIn, isTrue);
+  });
+
+  test(
+    'keeps a pinned download on its original mirror line after login',
+    () async {
+      final official = _Adapter((request) {
+        if (request.uri.path.startsWith('/my/')) {
+          return _html('<div id="list_videos_my_favourite_videos"></div>');
+        }
+        return _html('<script>var hlsUrl = "/official.m3u8";</script>');
+      });
+      final mirror = _Adapter(
+        (_) => _html('''
+        <div class="video-info">
+          <button class="btn-action fav active" data-fav-video-id="123"></button>
+        </div>
+        <script>var hlsUrl = "/mirror.m3u8";</script>
+      '''),
+      );
+      final client = _mirrorClient(official, mirror);
+      addTearDown(client.dispose);
+      const video = VideoItem(
+        id: 'one',
+        title: 'One',
+        sourceKey: 'jable',
+        pageUrl: 'https://jable.tv/videos/one/',
+        cover: '',
+      );
+      final anonymous = await client.details(video);
+      expect(anonymous.sourceId, isNull);
+      expect(
+        anonymous.streams.single.headers['Referer'],
+        'https://jable1.net/videos/one/',
+      );
+      await client.importVerifiedSession(
+        cookieHeader: 'cf_clearance=verified',
+        userAgent: 'Browser agent',
+      );
+      expect(await client.account.checkLogin(), isTrue);
+
+      final fresh = await client.details(anonymous.video);
+      final pinned = await client.detailsForDownload(anonymous.video);
+      expect(fresh.streams.single.url, 'https://jable.tv/official.m3u8');
+      expect(pinned.streams.single.url, 'https://jable1.net/mirror.m3u8');
+      expect(pinned.video.storageKey, video.storageKey);
+
+      final unconfigured = _client(official);
+      addTearDown(unconfigured.dispose);
+      final officialRequestCount = official.requests.length;
+      await expectLater(
+        unconfigured.detailsForDownload(anonymous.video),
+        throwsA(isA<VideoSourceException>()),
+      );
+      expect(official.requests, hasLength(officialRequestCount));
+    },
+  );
+
+  test('keeps manual playback on the selected mirror after login', () async {
+    SharedPreferences.setMockInitialValues({});
+    const host = 'jable888.com';
+    const baseUrl = 'https://$host';
+    final official = _Adapter((request) {
+      if (request.uri.path == '/my/favourites/videos/') {
+        return _html('<div id="list_videos_my_favourite_videos"></div>');
+      }
+      if (request.uri.queryParameters['action'] == 'delete_from_favourites') {
+        expect(request.uri.queryParameters['video_id'], 'official-id');
+        return _html('{"status":"success"}');
+      }
+      return _html('''
+        <div class="video-info">
+          <button class="btn-action fav active"
+            data-fav-video-id="official-id"></button>
+        </div>
+      ''');
+    });
+    final mirror = _Adapter((request) {
+      if (request.uri.path.startsWith('/videos/')) {
+        return _html('<script>var hlsUrl = "/mirror.m3u8";</script>');
+      }
+      return _mirrorCatalog;
+    });
+    final client = _mirrorClient(official, mirror);
+    addTearDown(client.dispose);
+    await client.selectMirror(baseUrl);
+    await client.importVerifiedSession(
+      cookieHeader: 'cf_clearance=verified',
+      userAgent: 'Browser agent',
+    );
+    expect(await client.account.checkLogin(), isTrue);
+    expect(client.activeMirrorHost, host);
+    expect(client.usesAutomaticMirror, isFalse);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getString(jableMirrorBaseUrlKey), baseUrl);
+    FlutterSecureStorage.setMockInitialValues({});
+    final reopened = JableClient.withMirror();
+    addTearDown(reopened.dispose);
+    await reopened.initialize();
+    expect(reopened.activeMirrorHost, host);
+    expect(reopened.usesAutomaticMirror, isFalse);
+
+    final catalog = await client.browse(client.homeUrl);
+    expect(catalog.videos.single.pageUrl, '$baseUrl/videos/one/');
+    final details = await client.details(
+      const VideoItem(
+        id: 'one',
+        title: 'One',
+        sourceKey: 'jable',
+        pageUrl: '$baseUrl/videos/one/?from=mirror',
+      ),
+      onReady: (details) {
+        expect(official.requests, hasLength(1));
+        expect(details.streams.single.url, '$baseUrl/mirror.m3u8');
+      },
+    );
+    expect(
+      details.streams.single.headers['Referer'],
+      '$baseUrl/videos/one/?from=mirror',
+    );
+    expect(official.requests[1].uri.hasQuery, isFalse);
+    expect(details.isFavorite, isTrue);
+    await client.account.setVideoFavorite(details, false);
+    expect(official.requests.last.uri.host, 'jable.tv');
+    expect(official.requests.last.headers['Cookie'], 'cf_clearance=verified');
+    expect(mirror.requests.map((request) => request.uri.host), [host, host]);
+    expect(
+      mirror.requests.every((request) => request.headers['Cookie'] == null),
+      isTrue,
+    );
+
+    await client.selectMirror(null);
+    expect(preferences.getString(jableMirrorBaseUrlKey), '');
+    expect(client.activeMirrorHost, 'jable.tv');
+  });
+
+  test('does not try another host when the selected playback fails', () async {
+    SharedPreferences.setMockInitialValues({});
+    final official = _Adapter(
+      (request) => request.uri.path.startsWith('/videos/')
+          ? _html('<script>var hlsUrl = "/official.m3u8";</script>')
+          : _html('<title>Official catalog</title>'),
+    );
+    final mirror = _Adapter((_) => _html('<html>Unavailable</html>'));
+    final client = _mirrorClient(official, mirror);
+    addTearDown(client.dispose);
+    await client.selectMirror('https://jable666.net');
+
+    const video = VideoItem(
+      id: 'one',
+      title: 'One',
+      sourceKey: 'jable',
+      pageUrl: 'https://jable1.net/videos/one/',
+      cover: '',
+    );
+    await expectLater(
+      client.details(video),
+      throwsA(isA<VideoSourceException>()),
+    );
+    expect(mirror.requests.single.uri.host, 'jable666.net');
+    expect(official.requests, isEmpty);
+
+    final page = await client.browse(client.homeUrl);
+    expect(Uri.parse(page.url).host, 'jable.tv');
+    expect(mirror.requests.last.uri.host, 'jable666.net');
+
+    await expectLater(
+      client.detailsForDownload(video),
+      throwsA(isA<VideoSourceException>()),
+    );
+    expect(mirror.requests.last.uri.host, 'jable1.net');
+    expect(official.requests, hasLength(1));
+
+    final download = await client.detailsForDownload(
+      video,
+      useOriginalHost: false,
+    );
+    expect(mirror.requests.last.uri.host, 'jable666.net');
+    expect(download.streams.single.url, 'https://jable.tv/official.m3u8');
+  });
+
   test(
     'parses category cards and menu tags without pagination links',
     () async {
@@ -967,7 +1531,7 @@ void main() {
             MissavBrowserAdapter.jable(
               runJavaScript: (_) async {},
               currentUrl: () async => JableClient.origin,
-              navigateDocument: (_, _) async => markup,
+              navigateDocument: (uri, _) async => (markup, uri),
               disposeBrowser: () async {},
             ),
             expectedGeneration: client.sessionGeneration,
@@ -1070,16 +1634,22 @@ void main() {
           documentNavigations++;
           documentPaths.add(uri.path);
           if (uri.path.isEmpty || uri.path == '/') {
-            return '''<html><body><div id="list_videos_home_videos_list">
+            return (
+              '''<html><body><div id="list_videos_home_videos_list">
               <div class="video-img-box"><a href="/videos/one/"></a>
                 <div class="detail"><h6>One</h6></div>
               </div>
               <div class="video-img-box"><a href="/videos/two/"></a>
                 <div class="detail"><h6>Two</h6></div>
               </div>
-            </div></body></html>''';
+            </div></body></html>''',
+              uri,
+            );
           }
-          return '<html><head><title>Restored browser</title></head></html>';
+          return (
+            '<html><head><title>Restored browser</title></head></html>',
+            uri,
+          );
         },
         disposeBrowser: () async {},
       );
@@ -1105,6 +1675,26 @@ void main() {
     },
   );
 }
+
+JableClient _mirrorClient(
+  _Adapter official,
+  _Adapter mirror, {
+  _MemorySecureStorage? storage,
+  SharedPreferences? preferences,
+}) => JableClient(
+  dio: Dio()..httpClientAdapter = official,
+  mirrorDio: Dio()..httpClientAdapter = mirror,
+  mirrorPreferences: preferences,
+  secureStorage: storage ?? _MemorySecureStorage(),
+);
+
+ResponseBody get _mirrorCatalog => _html('''
+  <div id="site-content"><div id="list_videos_latest_videos_list">
+    <div class="video-img-box"><a href="/videos/one/"></a>
+      <div class="detail"><h6>One</h6></div>
+    </div>
+  </div></div>
+''');
 
 JableClient _client(_Adapter adapter) {
   final dio = Dio()..httpClientAdapter = adapter;

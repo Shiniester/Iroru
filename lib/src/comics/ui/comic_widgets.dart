@@ -4,6 +4,8 @@ import '../../widgets/player/player_cover_widget.dart';
 import '../../widgets/metadata_search_chip.dart';
 import '../../widgets/tab_page_motion.dart';
 import '../../widgets/image_prefetch_queue.dart';
+import '../../widgets/local_history_card.dart';
+import '../../widgets/privacy_blur_cover.dart';
 import '../../widgets/sliver_masonry_grid_tail.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
@@ -709,6 +711,8 @@ class ComicGrid extends ConsumerStatefulWidget {
   const ComicGrid({
     super.key,
     required this.comics,
+    this.history = const {},
+    this.onResumeHistory,
     this.downloadedOnly = false,
     this.padding,
     this.controller,
@@ -718,6 +722,8 @@ class ComicGrid extends ConsumerStatefulWidget {
     this.footer,
   });
   final List<Comic> comics;
+  final Map<String, ComicProgress> history;
+  final ValueChanged<ComicProgress>? onResumeHistory;
   final bool downloadedOnly;
   final EdgeInsets? padding;
   final ScrollController? controller;
@@ -1091,17 +1097,81 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
     _syncForegroundCoverKeys(notifyEvenIfUnchanged: true);
   }
 
+  Widget _historyCard(
+    Comic comic,
+    ComicProgress progress,
+    LayoutType layoutType, {
+    required double coverWidth,
+    required double? placeholderAspectRatio,
+    required VoidCallback onFirstFrameReady,
+    required bool loadImage,
+    required bool useCachedFrame,
+    required VoidCallback onRetry,
+  }) {
+    final s = S.of(context);
+    final pageCount = progress.pageCount;
+    final progressValue = pageCount != null && pageCount > 0
+        ? ((progress.page + 1) / pageCount).clamp(0.0, 1.0).toDouble()
+        : null;
+    final sourceLabel =
+        ref
+            .read(comicSourcesProvider)
+            .where((source) => source.key == comic.source)
+            .firstOrNull
+            ?.name ??
+        comic.source;
+    return LocalHistoryCard(
+      key: ValueKey('comic-history-${comic.source}-${comic.id}'),
+      layoutType: layoutType,
+      title: comic.title,
+      sourceLabel: sourceLabel,
+      cover: PrivacyBlurCover(
+        child: Center(
+          child: ComicCover(
+            source: comic.source,
+            page: comic.coverPage,
+            maxWidth: coverWidth,
+            placeholderAspectRatio: placeholderAspectRatio,
+            onFirstFrameReady: onFirstFrameReady,
+            onRetry: onRetry,
+            loadImage: loadImage,
+            useCachedFrame: useCachedFrame,
+            animateLoadingIndicator: loadImage,
+          ),
+        ),
+      ),
+      onOpen: () => openComic(
+        context,
+        comic,
+        downloadedOnly: widget.downloadedOnly,
+        initialCoverWidth: coverWidth,
+      ),
+      onResume: widget.onResumeHistory == null
+          ? null
+          : () => widget.onResumeHistory!(progress),
+      resumeLabel: s.comicContinue,
+      onRemove: widget.onLongPress == null
+          ? null
+          : () => widget.onLongPress!(comic),
+      progressTitle: progress.chapterTitle,
+      progressText: s.comicPreviewPage(progress.page + 1),
+      progressValue: progressValue,
+    );
+  }
+
   Widget _readyCard(
     Comic comic,
     Widget Function(double?, VoidCallback, bool, bool, VoidCallback)
     buildCard, {
     required double coverWidth,
+    required LayoutType layoutType,
     required bool loadImage,
     required bool useCachedFrame,
   }) {
     final page = comic.coverPage;
     final request = _ComicImageRequest(comic.source, page);
     final placeholderAspectRatio = _coverAspectRatios[request.key];
+    final progress = widget.history[comic.key];
     return _ComicCardWhenReady(
       source: comic.source,
       page: page,
@@ -1114,13 +1184,25 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
         _coverAspectRatios[request.key] = ratio;
         _scheduleCoverInspection();
       },
-      buildChild: (onFirstFrameReady) => buildCard(
-        placeholderAspectRatio,
-        onFirstFrameReady,
-        loadImage,
-        useCachedFrame,
-        () => _retryCover(comic),
-      ),
+      buildChild: (onFirstFrameReady) => progress == null
+          ? buildCard(
+              placeholderAspectRatio,
+              onFirstFrameReady,
+              loadImage,
+              useCachedFrame,
+              () => _retryCover(comic),
+            )
+          : _historyCard(
+              comic,
+              progress,
+              layoutType,
+              coverWidth: coverWidth,
+              placeholderAspectRatio: placeholderAspectRatio,
+              onFirstFrameReady: onFirstFrameReady,
+              loadImage: loadImage,
+              useCachedFrame: useCachedFrame,
+              onRetry: () => _retryCover(comic),
+            ),
     );
   }
 
@@ -1129,6 +1211,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
     Widget Function(double?, VoidCallback, bool, bool, VoidCallback)
     buildCard, {
     required double coverWidth,
+    required LayoutType layoutType,
   }) => ValueListenableBuilder<Set<String>>(
     valueListenable: _foregroundCoverKeys,
     builder: (context, visibleKeys, _) {
@@ -1159,6 +1242,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
             comic,
             buildCard,
             coverWidth: coverWidth,
+            layoutType: layoutType,
             loadImage: foreground,
             useCachedFrame: cachedPicture != null,
           ),
@@ -1288,7 +1372,13 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                 detailMetrics.padding.horizontal -
                 detailMetrics.spacing * (detailMetrics.crossAxisCount - 1)) /
             detailMetrics.crossAxisCount;
-        _coverDisplayWidth = isList ? comicListCoverWidth : gridCoverWidth;
+        final historyListCoverWidth = widget.history.isEmpty
+            ? comicListCoverWidth
+            : collectionListCoverSizeForTitle(
+                context,
+                titleStyle: localHistoryCardTitleStyle(context),
+              ).width;
+        _coverDisplayWidth = isList ? historyListCoverWidth : gridCoverWidth;
         _coverCachePixelWidth =
             (_coverDisplayWidth! * MediaQuery.devicePixelRatioOf(context))
                 .ceil();
@@ -1455,7 +1545,10 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                             ),
                           ),
                         ),
-                        coverWidth: comicListCoverWidth,
+                        coverWidth: widget.history.containsKey(comics[i].key)
+                            ? historyListCoverWidth
+                            : comicListCoverWidth,
+                        layoutType: layoutType,
                       ),
                       childCount: comics.length,
                     ),
@@ -1586,6 +1679,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                         ),
                       ),
                       coverWidth: gridCoverWidth,
+                      layoutType: layoutType,
                     ),
                   ),
                 ),

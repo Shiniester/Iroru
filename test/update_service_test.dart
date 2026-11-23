@@ -4,6 +4,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -283,18 +284,25 @@ void main() {
       },
     );
 
-    test('Android Beta skips APKs for the old and stable installs', () async {
+    test('Android Beta skips legacy APKs in releases and cache', () async {
       const compatible =
           'Iroru-android-arm64-v8a_7.0.1-beta.1_'
+          'com.meteor.iroru.apk';
+      const legacy =
+          'Iroru-android-arm64-v8a_7.0.1-beta.2_'
           'com.meteor.iroru.beta.apk';
+      SharedPreferences.setMockInitialValues({
+        'update_channel': 'beta',
+        'last_checked_version_beta': '7.0.1-beta.2',
+        'last_check_time_beta': DateTime.now().millisecondsSinceEpoch,
+        'last_asset_name_beta': legacy,
+        'last_download_url_beta': 'https://example.com/$legacy',
+      });
       final adapter = _MockHttpClientAdapter(
         (_) => _jsonResponse([
           for (final (version, name) in [
             ('7.0.1-beta.3', 'Iroru-android-arm64-v8a_7.0.1-beta.3.apk'),
-            (
-              '7.0.1-beta.2',
-              'Iroru-android-arm64-v8a_7.0.1-beta.2_com.meteor.iroru.apk',
-            ),
+            ('7.0.1-beta.2', legacy),
             ('7.0.1-beta.1', compatible),
           ])
             {
@@ -313,14 +321,13 @@ void main() {
         dio: Dio()..httpClientAdapter = adapter,
         androidAbi: Abi.androidArm64,
       );
-      final update = await service.checkForUpdates(
-        force: true,
-        channel: UpdateChannel.beta,
-      );
 
+      expect(await service.shouldShowRedDot(), isFalse);
+      final update = await service.checkForUpdates();
       expect(update?.latestVersion, '7.0.1-beta.1');
       expect(update?.downloadUrl, 'https://example.com/$compatible');
-      expect(update?.isCrossChannel, isTrue);
+      expect(update?.hasNewVersion, isTrue);
+      expect(await service.shouldShowRedDot(), isTrue);
     });
 
     test(
@@ -391,7 +398,9 @@ void main() {
     test(
       'checkForUpdates returns UpdateInfo for official stable release',
       () async {
+        final requests = <RequestOptions>[];
         final adapter = _MockHttpClientAdapter((options) {
+          requests.add(options);
           return ResponseBody.fromString(
             jsonEncode({
               'tag_name': 'v4.19.2',
@@ -402,10 +411,11 @@ void main() {
                   'https://github.com/Shiniester/Iroru/releases/tag/v4.19.2',
               'assets': [
                 {
-                  'name': 'KikoFlu-windows-setup_4192.exe',
-                  'browser_download_url':
-                      'https://example.com/windows-setup.exe',
+                  'name': 'Iroru-android-arm64-v8a_4192_com.meteor.iroru.apk',
+                  'browser_download_url': 'https://example.com/iroru.apk',
                   'size': 25000000,
+                  'digest':
+                      'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 },
               ],
             }),
@@ -417,27 +427,34 @@ void main() {
         });
 
         final dio = Dio()..httpClientAdapter = adapter;
-        final service = UpdateService(dio: dio);
+        final service = UpdateService(dio: dio, androidAbi: Abi.androidArm64);
 
         final updateInfo = await service.checkForUpdates(force: true);
+        final cachedUpdateInfo = await service.checkForUpdates();
         expect(updateInfo, isNotNull);
         expect(updateInfo!.latestVersion, '4.19.2');
         expect(updateInfo.currentVersion, '4.4.0');
         expect(updateInfo.hasNewVersion, isTrue);
         expect(updateInfo.releaseNotes, 'Official release improvements');
         expect(
+          updateInfo.assetDigest,
+          'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        );
+        expect(
           updateInfo.releaseUrl,
           'https://github.com/Shiniester/Iroru/releases/tag/v4.19.2',
         );
+        expect(cachedUpdateInfo?.assetDigest, updateInfo.assetDigest);
+        expect(requests, hasLength(1));
       },
     );
 
     test(
-      'default channel follows installed edition until overridden',
+      'default channel follows the installed version until overridden',
       () async {
         PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.1',
           buildNumber: '1',
           buildSignature: '',
@@ -454,8 +471,8 @@ void main() {
       'beta check paginates and accepts only published beta prereleases',
       () async {
         PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.9',
           buildNumber: '1',
           buildSignature: '',
@@ -517,11 +534,69 @@ void main() {
     );
 
     test(
+      'Android Beta selects the highest version regardless of API order',
+      () async {
+        PackageInfo.setMockInitialValues(
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
+          version: '6.2.1-beta.9',
+          buildNumber: '1',
+          buildSignature: '',
+        );
+        final adapter = _MockHttpClientAdapter((_) => _jsonResponse([
+          {
+            'tag_name': 'v6.2.1-beta.9',
+            'draft': false,
+            'prerelease': true,
+            'body': 'Older beta',
+            'html_url':
+                'https://github.com/Shiniester/Iroru/releases/tag/v6.2.1-beta.9',
+            'assets': [
+              {
+                'name':
+                    'Iroru-android-arm64-v8a_6.2.1-beta.9_com.meteor.iroru.apk',
+                'browser_download_url':
+                    'https://example.com/Iroru-android-arm64-v8a_6.2.1-beta.9_com.meteor.iroru.apk',
+              },
+            ],
+          },
+          {
+            'tag_name': 'v6.2.1-beta.10',
+            'draft': false,
+            'prerelease': true,
+            'body': 'Newer beta',
+            'html_url':
+                'https://github.com/Shiniester/Iroru/releases/tag/v6.2.1-beta.10',
+            'assets': [
+              {
+                'name':
+                    'Iroru-android-arm64-v8a_6.2.1-beta.10_com.meteor.iroru.apk',
+                'browser_download_url':
+                    'https://example.com/Iroru-android-arm64-v8a_6.2.1-beta.10_com.meteor.iroru.apk',
+              },
+            ],
+          },
+        ]));
+        final service = UpdateService(
+          dio: Dio()..httpClientAdapter = adapter,
+          androidAbi: Abi.androidArm64,
+        );
+
+        final updateInfo = await service.checkForUpdates(force: true);
+
+        expect(updateInfo?.latestVersion, '6.2.1-beta.10');
+        expect(updateInfo?.downloadUrl,
+            'https://example.com/Iroru-android-arm64-v8a_6.2.1-beta.10_com.meteor.iroru.apk');
+        expect(updateInfo?.hasNewVersion, isTrue);
+      },
+    );
+
+    test(
       'beta channel reports no published beta and never falls back to stable',
       () async {
         PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.1',
           buildNumber: '1',
           buildSignature: '',
@@ -559,8 +634,8 @@ void main() {
       'beta request failures propagate instead of reporting no beta release',
       () async {
         PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.1',
           buildNumber: '1',
           buildSignature: '',
@@ -624,6 +699,10 @@ void main() {
         );
         await prefs.setString('last_asset_name_beta', 'old.apk');
         await prefs.setInt('last_asset_size_beta', 100);
+        await prefs.setString(
+          'last_asset_digest_beta',
+          'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        );
         await service.checkForUpdates(force: true, channel: UpdateChannel.beta);
         final cachedBeta = await service.checkForUpdates(
           channel: UpdateChannel.beta,
@@ -634,13 +713,14 @@ void main() {
 
         expect(stable?.latestVersion, '4.5.0');
         expect(beta?.latestVersion, '4.4.0-beta.1');
-        expect(beta?.hasNewVersion, isTrue);
-        expect(beta?.isCrossChannel, isTrue);
+        expect(beta?.hasNewVersion, isFalse);
         expect(cachedBeta?.latestVersion, '4.4.0-beta.2');
+        expect(cachedBeta?.hasNewVersion, isFalse);
         expect(cachedBeta?.releaseNotes, isNull);
         expect(cachedBeta?.downloadUrl, isNull);
         expect(cachedBeta?.assetName, isNull);
         expect(cachedBeta?.assetSize, isNull);
+        expect(cachedBeta?.assetDigest, isNull);
         expect(cachedBeta?.releaseUrl, 'https://example.com/beta-2');
         expect(cachedStable?.latestVersion, '4.5.0');
         expect(cachedStable?.releaseNotes, 'Stable notes');
@@ -777,7 +857,7 @@ void main() {
                 }
               : [
                   {
-                    'tag_name': 'v4.3.0-beta.1',
+                    'tag_name': 'v4.4.1-beta.1',
                     'draft': false,
                     'prerelease': true,
                     'assets': [],
@@ -809,8 +889,8 @@ void main() {
       'version comparison orders beta numbers and stable releases',
       () async {
         PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.9',
           buildNumber: '1',
           buildSignature: '',
@@ -847,66 +927,56 @@ void main() {
         });
         final stableInfo = await UpdateService(
           dio: Dio()..httpClientAdapter = stableAdapter,
-        ).checkForUpdates(force: true);
+        ).checkForUpdates(force: true, channel: UpdateChannel.stable);
         expect(stableInfo?.hasNewVersion, isTrue);
       },
     );
 
     test(
-      'cross-channel lower stable stays visible but older same-channel beta does not',
+      'switching from Beta to stable waits for a newer stable version',
       () async {
         PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
+          appName: 'Iroru',
+          packageName: 'com.meteor.iroru',
           version: '4.5.3-beta.2',
           buildNumber: '1',
           buildSignature: '',
         );
+        var stableVersion = '4.5.2';
         final stableAdapter = _MockHttpClientAdapter((_) {
           return _jsonResponse({
-            'tag_name': 'v4.5.2',
+            'tag_name': 'v$stableVersion',
             'draft': false,
             'prerelease': false,
-            'assets': [],
+            'assets': [
+              {
+                'name':
+                    'Iroru-android-arm64-v8a_${stableVersion}_com.meteor.iroru.apk',
+              },
+            ],
           });
         });
-        final stableInfo = await UpdateService(
+        final service = UpdateService(
           dio: Dio()..httpClientAdapter = stableAdapter,
-        ).checkForUpdates(force: true, channel: UpdateChannel.stable);
-
-        expect(stableInfo?.latestVersion, '4.5.2');
-        expect(stableInfo?.isCrossChannel, isTrue);
-        expect(stableInfo?.hasNewVersion, isTrue);
-
-        PackageInfo.setMockInitialValues(
-          appName: 'KikoFlu Beta',
-          packageName: 'com.meteor.iroru.beta',
-          version: '4.5.3-beta.10',
-          buildNumber: '1',
-          buildSignature: '',
+          androidAbi: Abi.androidArm64,
         );
-        final betaAdapter = _MockHttpClientAdapter((_) {
-          return _jsonResponse([
-            {
-              'tag_name': 'v4.5.3-beta.9',
-              'draft': false,
-              'prerelease': true,
-              'assets': [],
-            },
-          ]);
-        });
-        final betaInfo = await UpdateService(
-          dio: Dio()..httpClientAdapter = betaAdapter,
-        ).checkForUpdates(force: true, channel: UpdateChannel.beta);
+        await service.setUpdateChannel(UpdateChannel.stable);
+        final stableInfo = await service.checkForUpdates(force: true);
+        expect(stableInfo?.latestVersion, '4.5.2');
+        expect(stableInfo?.hasNewVersion, isFalse);
+        expect((await service.checkForUpdates())?.hasNewVersion, isFalse);
+        expect(await service.shouldShowRedDot(), isFalse);
 
-        expect(betaInfo?.latestVersion, '4.5.3-beta.9');
-        expect(betaInfo?.isCrossChannel, isFalse);
-        expect(betaInfo?.hasNewVersion, isFalse);
+        stableVersion = '4.5.3';
+        final newerStable = await service.checkForUpdates(force: true);
+        expect(newerStable?.latestVersion, '4.5.3');
+        expect(newerStable?.hasNewVersion, isTrue);
+        expect(await service.shouldShowRedDot(), isTrue);
       },
     );
 
     test(
-      'downloadUpdate downloads file with progress and cleans temporary .part',
+      'downloadUpdate downloads file with progress and leaves no temporary file',
       () async {
         final adapter = _MockHttpClientAdapter((options) {
           return ResponseBody.fromString(
@@ -930,9 +1000,322 @@ void main() {
 
         expect(downloadedFile.existsSync(), isTrue);
         expect(downloadedFile.readAsStringSync(), 'installer binary data');
-        expect(File('${downloadedFile.path}.part').existsSync(), isFalse);
+        expect(_partFiles(temporaryDirectory).isEmpty, isTrue);
       },
     );
+
+    group('UpdateService Download Fallback', () {
+      const installerData = 'installer binary data';
+      final installerDigest = _sha256Digest(installerData);
+      final mirrorDigest = _sha256Digest('mirror data');
+
+      test('downloads from the official URL when it succeeds', () async {
+        final requestedUrls = <String>[];
+        final adapter = _MockHttpClientAdapter((options) {
+          requestedUrls.add(options.path);
+          return ResponseBody.fromString('official data', HttpStatus.ok);
+        });
+        final service = UpdateService(dio: Dio()..httpClientAdapter = adapter);
+
+        final file = await service.downloadUpdate(
+          downloadUrl: 'https://example.com/app.exe',
+          fileName: 'app.exe',
+          targetDirectory: temporaryDirectory,
+        );
+
+        expect(file.readAsStringSync(), 'official data');
+        expect(requestedUrls, ['https://example.com/app.exe']);
+      });
+
+      test(
+        'rejects a mismatched official file and uses a matching mirror',
+        () async {
+          final requestedUrls = <String>[];
+          final adapter = _MockHttpClientAdapter((options) {
+            requestedUrls.add(options.path);
+            if (options.path == 'https://example.com/app.exe') {
+              return ResponseBody.fromString('tampered data', HttpStatus.ok);
+            }
+            return ResponseBody.fromString(installerData, HttpStatus.ok);
+          });
+          final service = UpdateService(
+            dio: Dio()..httpClientAdapter = adapter,
+          );
+
+          final file = await service.downloadUpdate(
+            downloadUrl: 'https://example.com/app.exe',
+            fileName: 'app.exe',
+            assetDigest: installerDigest,
+            targetDirectory: temporaryDirectory,
+          );
+
+          expect(file.readAsStringSync(), installerData);
+          expect(requestedUrls, [
+            'https://example.com/app.exe',
+            'https://ghfast.top/https://example.com/app.exe',
+          ]);
+        },
+      );
+
+      test(
+        'falls back to the first mirror when the official URL fails',
+        () async {
+          final requestedUrls = <String>[];
+          final adapter = _MockHttpClientAdapter((options) {
+            requestedUrls.add(options.path);
+            if (options.path == 'https://example.com/app.exe') {
+              return ResponseBody.fromString('', HttpStatus.notFound);
+            }
+            return ResponseBody.fromString('mirror data', HttpStatus.ok);
+          });
+          final service = UpdateService(
+            dio: Dio()..httpClientAdapter = adapter,
+          );
+
+          final file = await service.downloadUpdate(
+            downloadUrl: 'https://example.com/app.exe',
+            fileName: 'app.exe',
+            assetDigest: mirrorDigest,
+            targetDirectory: temporaryDirectory,
+          );
+
+          expect(file.readAsStringSync(), 'mirror data');
+          expect(requestedUrls, [
+            'https://example.com/app.exe',
+            'https://ghfast.top/https://example.com/app.exe',
+          ]);
+        },
+      );
+
+      test('falls back through mirrors in order until one succeeds', () async {
+        final requestedUrls = <String>[];
+        final adapter = _MockHttpClientAdapter((options) {
+          requestedUrls.add(options.path);
+          final path = options.path;
+          if (path == 'https://example.com/app.exe' ||
+              path == 'https://ghfast.top/https://example.com/app.exe') {
+            return ResponseBody.fromString('', HttpStatus.notFound);
+          }
+          return ResponseBody.fromString('third data', HttpStatus.ok);
+        });
+        final service = UpdateService(dio: Dio()..httpClientAdapter = adapter);
+
+        final file = await service.downloadUpdate(
+          downloadUrl: 'https://example.com/app.exe',
+          fileName: 'app.exe',
+          assetDigest: _sha256Digest('third data'),
+          targetDirectory: temporaryDirectory,
+        );
+
+        expect(file.readAsStringSync(), 'third data');
+        expect(requestedUrls, [
+          'https://example.com/app.exe',
+          'https://ghfast.top/https://example.com/app.exe',
+          'https://gh-proxy.com/https://example.com/app.exe',
+        ]);
+      });
+
+      test(
+        'continues after a mismatched mirror to a matching mirror',
+        () async {
+          final requestedUrls = <String>[];
+          final adapter = _MockHttpClientAdapter((options) {
+            requestedUrls.add(options.path);
+            if (options.path == 'https://example.com/app.exe') {
+              return ResponseBody.fromString('', HttpStatus.notFound);
+            }
+            if (options.path ==
+                'https://ghfast.top/https://example.com/app.exe') {
+              return ResponseBody.fromString(
+                'tampered mirror data',
+                HttpStatus.ok,
+              );
+            }
+            return ResponseBody.fromString(installerData, HttpStatus.ok);
+          });
+          final service = UpdateService(
+            dio: Dio()..httpClientAdapter = adapter,
+          );
+
+          final file = await service.downloadUpdate(
+            downloadUrl: 'https://example.com/app.exe',
+            fileName: 'app.exe',
+            assetDigest: installerDigest,
+            targetDirectory: temporaryDirectory,
+          );
+
+          expect(file.readAsStringSync(), installerData);
+          expect(requestedUrls, [
+            'https://example.com/app.exe',
+            'https://ghfast.top/https://example.com/app.exe',
+            'https://gh-proxy.com/https://example.com/app.exe',
+          ]);
+        },
+      );
+
+      for (final digest in [null, 'not-a-sha256-digest']) {
+        test(
+          'skips mirrors when the GitHub digest is ${digest == null ? 'missing' : 'malformed'}',
+          () async {
+            final requestedUrls = <String>[];
+            final adapter = _MockHttpClientAdapter((options) {
+              requestedUrls.add(options.path);
+              if (options.path == 'https://example.com/app.exe') {
+                return ResponseBody.fromString('', HttpStatus.notFound);
+              }
+              return ResponseBody.fromString(installerData, HttpStatus.ok);
+            });
+            final service = UpdateService(
+              dio: Dio()..httpClientAdapter = adapter,
+            );
+
+            await expectLater(
+              service.downloadUpdate(
+                downloadUrl: 'https://example.com/app.exe',
+                fileName: 'app.exe',
+                assetDigest: digest,
+                targetDirectory: temporaryDirectory,
+              ),
+              throwsA(isA<DioException>()),
+            );
+
+            expect(requestedUrls, ['https://example.com/app.exe']);
+            expect(
+              File(p.join(temporaryDirectory.path, 'app.exe')).existsSync(),
+              isFalse,
+            );
+            expect(_partFiles(temporaryDirectory), isEmpty);
+          },
+        );
+      }
+
+      test('throws when the official URL and every mirror fail', () async {
+        final adapter = _MockHttpClientAdapter((_) {
+          return ResponseBody.fromString('', HttpStatus.notFound);
+        });
+        final service = UpdateService(dio: Dio()..httpClientAdapter = adapter);
+
+        await expectLater(
+          service.downloadUpdate(
+            downloadUrl: 'https://example.com/app.exe',
+            fileName: 'app.exe',
+            assetDigest: installerDigest,
+            targetDirectory: temporaryDirectory,
+          ),
+          throwsA(isA<DioException>()),
+        );
+      });
+
+      test('does not fall back when the download is cancelled', () async {
+        final requestStarted = Completer<void>();
+        final adapter = _StallingMockAdapter((_) {
+          requestStarted.complete();
+          return true;
+        });
+        final service = UpdateService(dio: Dio()..httpClientAdapter = adapter);
+        final cancelToken = CancelToken();
+
+        final download = service.downloadUpdate(
+          downloadUrl: 'https://example.com/app.exe',
+          fileName: 'app.exe',
+          cancelToken: cancelToken,
+          targetDirectory: temporaryDirectory,
+        );
+
+        await requestStarted.future;
+        cancelToken.cancel();
+
+        await expectLater(
+          download,
+          throwsA(
+            isA<DioException>().having(
+              (e) => e.type,
+              'type',
+              DioExceptionType.cancel,
+            ),
+          ),
+        );
+      });
+
+      test(
+        'a cancelled same-name download does not remove the next download',
+        () async {
+          final requestStarted = Completer<void>();
+          final adapter = _StallingMockAdapter((options) {
+            if (options.path != 'https://first.example/app.exe') return false;
+            requestStarted.complete();
+            return true;
+          });
+          final service = UpdateService(
+            dio: Dio()..httpClientAdapter = adapter,
+          );
+          final cancelToken = CancelToken();
+
+          final cancelledDownload = service.downloadUpdate(
+            downloadUrl: 'https://first.example/app.exe',
+            fileName: 'app.exe',
+            cancelToken: cancelToken,
+            targetDirectory: temporaryDirectory,
+          );
+          await requestStarted.future;
+
+          final completedDownload = service.downloadUpdate(
+            downloadUrl: 'https://second.example/app.exe',
+            fileName: 'app.exe',
+            assetDigest: mirrorDigest,
+            targetDirectory: temporaryDirectory,
+          );
+          final completedFile = await completedDownload;
+          cancelToken.cancel();
+
+          await expectLater(
+            cancelledDownload,
+            throwsA(
+              isA<DioException>().having(
+                (e) => e.type,
+                'type',
+                DioExceptionType.cancel,
+              ),
+            ),
+          );
+
+          expect(completedFile.existsSync(), isTrue);
+          expect(completedFile.readAsStringSync(), 'mirror data');
+          expect(_partFiles(temporaryDirectory), isEmpty);
+          expect(
+            temporaryDirectory.listSync().whereType<Directory>().where(
+              (directory) => directory.path.contains('.app.exe_'),
+            ),
+            hasLength(1),
+          );
+        },
+      );
+
+      test('falls back to the next mirror when the body stalls', () async {
+        final requestedUrls = <String>[];
+        final adapter = _StallingMockAdapter((options) {
+          requestedUrls.add(options.path);
+          return options.path == 'https://example.com/app.exe';
+        });
+        final service = UpdateService(
+          dio: Dio()..httpClientAdapter = adapter,
+          downloadTimeout: const Duration(milliseconds: 50),
+        );
+
+        final file = await service.downloadUpdate(
+          downloadUrl: 'https://example.com/app.exe',
+          fileName: 'app.exe',
+          assetDigest: mirrorDigest,
+          targetDirectory: temporaryDirectory,
+        );
+
+        expect(file.readAsStringSync(), 'mirror data');
+        expect(requestedUrls, [
+          'https://example.com/app.exe',
+          'https://ghfast.top/https://example.com/app.exe',
+        ]);
+      });
+    });
 
     test(
       'installUpdate calls openFile with application/vnd.android.package-archive on Android',
@@ -979,6 +1362,8 @@ void main() {
           hasNewVersion: true,
           downloadUrl: 'https://example.com/beta.apk',
           assetName: 'beta.apk',
+          assetDigest:
+              'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
         );
 
         final download = controller.startDownload(updateInfo);
@@ -995,6 +1380,10 @@ void main() {
           isNull,
         );
         expect(service.installCalls, 0);
+        expect(
+          service.lastAssetDigest,
+          'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+        );
       },
     );
 
@@ -1140,6 +1529,15 @@ void main() {
   });
 }
 
+String _sha256Digest(String value) =>
+    'sha256:${sha256.convert(utf8.encode(value))}';
+
+List<File> _partFiles(Directory directory) => directory
+    .listSync(recursive: true)
+    .whereType<File>()
+    .where((file) => file.path.endsWith('.part'))
+    .toList();
+
 ResponseBody _jsonResponse(Object? data) {
   return ResponseBody.fromString(
     jsonEncode(data),
@@ -1161,16 +1559,19 @@ class _RejectingChannelStore extends InMemorySharedPreferencesStore {
 
 class _DeferredDownloadService extends UpdateService {
   final downloads = <Completer<File>>[];
+  String? lastAssetDigest;
   int installCalls = 0;
 
   @override
   Future<File> downloadUpdate({
     required String downloadUrl,
     required String fileName,
+    String? assetDigest,
     void Function(int received, int total)? onProgress,
     CancelToken? cancelToken,
     Directory? targetDirectory,
   }) {
+    lastAssetDigest = assetDigest;
     final download = Completer<File>();
     downloads.add(download);
     return download.future;
@@ -1181,6 +1582,42 @@ class _DeferredDownloadService extends UpdateService {
     installCalls++;
     return true;
   }
+}
+
+class _StallingMockAdapter implements HttpClientAdapter {
+  final bool Function(RequestOptions options) shouldStall;
+
+  _StallingMockAdapter(this.shouldStall);
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) {
+    if (!shouldStall(options)) {
+      return Future.value(
+        ResponseBody.fromString('mirror data', HttpStatus.ok),
+      );
+    }
+
+    final controller = StreamController<Uint8List>();
+    cancelFuture?.whenComplete(() {
+      if (!controller.isClosed) controller.close();
+    });
+    return Future.value(
+      ResponseBody(
+        controller.stream,
+        HttpStatus.ok,
+        headers: {
+          Headers.contentLengthHeader: ['11'],
+        },
+      ),
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 class _MockHttpClientAdapter implements HttpClientAdapter {

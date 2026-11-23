@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/icons/app_icon_opaque.png" alt="Iroru" width="120" height="120">
+  <img src="assets/icons/app_icon_login.png" alt="Iroru" width="120" height="120">
 
   # Iroru
 
@@ -87,6 +87,10 @@
 Download the latest version from [GitHub Releases](https://github.com/Shiniester/Iroru/releases/latest).
 
 Platforms: Android (arm64-v8a), iOS (unsigned IPA), Windows (installer / portable), macOS (Apple Silicon, DMG), Linux (x64)
+
+On Android, choose **Stable** or **Beta** under **About → Update channel**. If you
+only have the former standalone Iroru Beta, install Iroru from GitHub Releases.
+The unified app uses its own data and does not import data from the old app.
 
 ### Installing after the app ID change
 

@@ -519,7 +519,8 @@ class SEn extends S {
   String get downloadPath => 'Download Path';
 
   @override
-  String get downloadPathSubtitle => 'Customize download file save location';
+  String get downloadPathSubtitle =>
+      'Set the download location for audio, comics, and videos';
 
   @override
   String get maxConcurrentDownloads => 'Max Concurrent Downloads';
@@ -604,13 +605,6 @@ class SEn extends S {
   String get noBetaRelease => 'No beta release is available yet.';
 
   @override
-  String get updateChannelVersionAvailable => 'Selected channel version';
-
-  @override
-  String get crossChannelUpdateNotice =>
-      'Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.';
-
-  @override
   String get author => 'Author';
 
   @override
@@ -642,7 +636,7 @@ class SEn extends S {
   String get view => 'View';
 
   @override
-  String get alreadyLatestVersion => 'Already the latest version';
+  String get noNewerVersion => 'No newer version in this channel';
 
   @override
   String get checkUpdateFailed =>
@@ -3474,7 +3468,7 @@ class SEn extends S {
 
   @override
   String activeDownloadsWarning(int count) {
-    return '$count download tasks are in progress. Please cancel or complete them before switching paths';
+    return '$count download tasks are active. Pause them or wait for them to finish before changing the path.';
   }
 
   @override
@@ -3487,7 +3481,7 @@ class SEn extends S {
 
   @override
   String get migrateFilesToNewDir =>
-      'Existing downloaded files will be migrated to the new directory:';
+      'Existing downloads and the subtitle library will move to this folder.';
 
   @override
   String get migrationMayTakeTime =>
@@ -3501,7 +3495,7 @@ class SEn extends S {
 
   @override
   String get restoreDefaultPathConfirm =>
-      'Restore download path to default location and migrate all files.\n\nContinue?';
+      'Restoring the default path moves existing downloads and the subtitle library to the default folder.';
 
   @override
   String get defaultPathRestored => 'Default path restored';
@@ -3533,11 +3527,14 @@ class SEn extends S {
   String get setCustomPath => 'Set Custom Path';
 
   @override
+  String get saveDownloadsInFilesApp => 'Save Downloads in Files';
+
+  @override
   String get usageInstructions => 'Usage Instructions';
 
   @override
   String get downloadPathUsageDesc =>
-      '• After customizing the path, all existing files will be automatically migrated\n• Do not close the app during migration\n• Choose a directory with sufficient storage space\n• When restoring the default path, files will be migrated back automatically';
+      'Audio, comics, and videos use separate folders under the download path. Changing the path or restoring the default moves existing downloads and the subtitle library. The destination needs enough free space.';
 
   @override
   String get llmTranslationSettings => 'LLM Translation Settings';
@@ -4299,6 +4296,12 @@ class SEn extends S {
   String get libraryHistory => 'History';
 
   @override
+  String get localHistory => 'Local history';
+
+  @override
+  String get noLocalHistory => 'No local history';
+
+  @override
   String get libraryFavorites => 'Favorites';
 
   @override
@@ -4433,9 +4436,6 @@ class SEn extends S {
   String get videoAccountEmail => 'Email';
 
   @override
-  String get videoAccountHost => 'Login host';
-
-  @override
   String get videoAccountBrowserLogin => 'Sign in on website';
 
   @override
@@ -4446,6 +4446,13 @@ class SEn extends S {
       'Sign in to Jable to view and manage your video favorites.';
 
   @override
+  String get videoJableMirrorSettings => 'Jable host';
+
+  @override
+  String get videoJableMirrorDescription =>
+      'Manual selection applies to browsing, search, and playback. When signed in, automatic mode uses the official host.';
+
+  @override
   String get videoMirrorSettings => 'MissAV host';
 
   @override
@@ -4453,7 +4460,10 @@ class SEn extends S {
       'All hosts are listed. Unavailable hosts cannot be selected. The selected host is used for browsing, search, and playback.';
 
   @override
-  String get videoMirrorAutomatic => 'Choose the fastest host automatically';
+  String get videoSourceHost => 'Host';
+
+  @override
+  String get videoMirrorAutomatic => 'Choose host automatically';
 
   @override
   String get videoMirrorUseFastest => 'Use fastest';
@@ -4474,7 +4484,7 @@ class SEn extends S {
   String get videoMirrorSelect => 'Use';
 
   @override
-  String get videoMirrorInUse => 'In use';
+  String get videoMirrorSelected => 'Selected';
 
   @override
   String videoMirrorCurrent(String host) {
@@ -4487,6 +4497,14 @@ class SEn extends S {
 
   @override
   String get videoLoginComplete => 'Done';
+
+  @override
+  String get videoLoginConfirmationFailed =>
+      'Could not confirm sign-in from Favorites. Check that you are signed in on the website, then select Done again.';
+
+  @override
+  String get videoLoginHandoffFailed =>
+      'Website sign-in was confirmed. The app could not take over the session. Select Done to try again.';
 
   @override
   String get videoJableSignedIn => 'Signed in to Jable';

@@ -5,7 +5,7 @@ import 'dart:ui' as ui;
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide LocalHistoryEntry;
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -22,6 +22,7 @@ import 'package:iroru/src/providers/audio_provider.dart';
 import 'package:iroru/src/providers/auth_provider.dart';
 import 'package:iroru/src/providers/lyric_provider.dart';
 import 'package:iroru/src/services/audio_player_service.dart';
+import 'package:iroru/src/services/local_history_database.dart';
 import 'package:iroru/src/services/remote_asset_cache.dart';
 import 'package:iroru/src/services/storage_service.dart';
 import 'package:iroru/src/utils/theme.dart';
@@ -51,6 +52,7 @@ import 'package:iroru/src/widgets/work_detail/work_title_header.dart';
 import 'package:iroru/src/widgets/work_detail/work_metadata_sections.dart';
 
 import '../support/linux_golden_file_comparator.dart';
+import 'local_history_database_fake.dart';
 
 final _testPlaybackSessions = <_FakePlaybackSession>[];
 
@@ -705,7 +707,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      oldSession.emitSnapshot(position: stalePosition);
+      oldSession.emitSnapshot(position: stalePosition, playing: true);
       final navigator = Navigator.of(
         tester.element(find.byKey(const ValueKey('player-a-old'))),
       );
@@ -728,7 +730,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      currentSession.emitSnapshot(position: currentPosition);
+      currentSession.emitSnapshot(position: currentPosition, playing: true);
       await tester.pump(const Duration(seconds: 6));
       expect(library.positionFor('A'), currentPosition);
 
@@ -4256,6 +4258,7 @@ void main() {
       });
       final library = VideoLibrary(
         preferences: await SharedPreferences.getInstance(),
+        historyDatabase: FakeLocalHistoryDatabase(),
       );
       await library.initialize();
       final session = _FakeAdvancedPlaybackSession();
@@ -4309,6 +4312,7 @@ void main() {
       });
       final library = VideoLibrary(
         preferences: await SharedPreferences.getInstance(),
+        historyDatabase: FakeLocalHistoryDatabase(),
       );
       await library.initialize();
       final session = _FakeAdvancedPlaybackSession();
@@ -4352,6 +4356,7 @@ void main() {
       });
       final library = VideoLibrary(
         preferences: await SharedPreferences.getInstance(),
+        historyDatabase: FakeLocalHistoryDatabase(),
       );
       await library.initialize();
       final session = _FakeAdvancedPlaybackSession();
@@ -5301,6 +5306,48 @@ void main() {
   }
 
   _testPlayerWidget(
+    'source switch continues when the outgoing history write fails',
+    (tester) async {
+      final history = _FailOnceVideoHistoryDatabase();
+      final library = await _testLibrary(historyDatabase: history);
+      final session = _FakePlaybackSession();
+      final platform = _TestVideoPlayerPlatform();
+      Future<void> load(String videoId) => tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: S.supportedLocales,
+          localizationsDelegates: S.localizationsDelegates,
+          home: Scaffold(
+            body: VideoPlaybackPanel(
+              videoId: videoId,
+              library: library,
+              streams: _details().streams,
+              savePositionOnSourceChange: true,
+              sessionFactory: () => session,
+              platform: platform,
+            ),
+          ),
+        ),
+      );
+
+      await load('A');
+      await tester.pumpAndSettle();
+      const position = Duration(seconds: 42);
+      session.emitSnapshot(position: position, playing: true);
+      await load('B');
+      await tester.pumpAndSettle();
+      expect(session.loadStreamCount, 2);
+      expect(library.hasHistory('A'), isFalse);
+
+      session.emitSnapshot(position: const Duration(seconds: 9), playing: true);
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pump();
+      expect(library.positionFor('A'), position);
+      expect(library.positionFor('B'), const Duration(seconds: 9));
+    },
+  );
+
+  _testPlayerWidget(
     'source switches save pending seeks for their video across rapid changes',
     (tester) async {
       const initialA = Duration(seconds: 4);
@@ -5309,7 +5356,8 @@ void main() {
       const seekA = Duration(seconds: 25);
       const seekB = Duration(seconds: 31);
       const seekAWhileReloading = Duration(seconds: 41);
-      final library = await _testLibrary();
+      final historyDatabase = FakeLocalHistoryDatabase();
+      final library = await _testLibrary(historyDatabase: historyDatabase);
       await library.savePosition('A', initialA);
       await library.savePosition('B', initialB);
       await library.savePosition('C', initialC);
@@ -5318,6 +5366,7 @@ void main() {
 
       Future<void> pumpSource(
         String videoId, {
+        String? title,
         List<VideoStream>? streams,
         bool settle = true,
       }) async {
@@ -5332,6 +5381,10 @@ void main() {
                 key: const ValueKey('source-switch-player'),
                 videoId: videoId,
                 library: library,
+                historyDetails: {
+                  'title': title ?? 'Video $videoId',
+                  'cover': 'https://covers.example/$videoId.jpg',
+                },
                 streams: streams ?? _details().streams,
                 initialPosition: videoId == 'A' ? initialA : Duration.zero,
                 savePositionOnSourceChange: true,
@@ -5349,7 +5402,10 @@ void main() {
       }
 
       await pumpSource('A');
-      session.emitSnapshot(position: const Duration(seconds: 20));
+      session.emitSnapshot(
+        position: const Duration(seconds: 20),
+        duration: const Duration(minutes: 1, seconds: 1),
+      );
       await tester.pump();
       final sliderFinder = find.byKey(const ValueKey('video-position-slider'));
       var slider = tester.widget<Slider>(sliderFinder);
@@ -5361,6 +5417,12 @@ void main() {
 
       await pumpSource('B');
       expect(library.positionFor('A'), seekA);
+      expect(
+        historyDatabase
+            .entry(LocalHistoryType.video, 'A')
+            ?.details['durationMs'],
+        61000,
+      );
       expect(session.requestedPositions.last, initialB);
       slider = tester.widget<Slider>(sliderFinder);
       slider.onChanged!(seekB.inMilliseconds.toDouble());
@@ -5397,6 +5459,12 @@ void main() {
       expect(session.snapshot.value.position, seekA);
 
       await pumpSource('B', settle: false);
+      await pumpSource('B', title: 'Updated video B', settle: false);
+      await tester.pump(const Duration(seconds: 5));
+      expect(
+        historyDatabase.entry(LocalHistoryType.video, 'A')?.details['title'],
+        'Video A',
+      );
       await pumpSource('C', settle: false);
       reloadGate.complete();
       await tester.pumpAndSettle();
@@ -5405,6 +5473,14 @@ void main() {
       expect(library.positionFor('A'), seekAWhileReloading);
       expect(library.positionFor('B'), seekB);
       expect(session.requestedPositions.last, initialC);
+      expect(
+        historyDatabase.entry(LocalHistoryType.video, 'A')?.details['title'],
+        'Video A',
+      );
+      expect(
+        historyDatabase.entry(LocalHistoryType.video, 'B')?.details['title'],
+        'Video B',
+      );
     },
   );
 
@@ -7133,6 +7209,7 @@ void main() {
               video: video,
               sessionFactory: () => session,
             ),
+            completeMissavWebLogin: true,
           ),
         );
         await tester.pumpAndSettle();
@@ -7143,9 +7220,8 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text(s.login));
         await tester.pumpAndSettle();
-        final fields = find.byType(TextField);
-        await tester.enterText(fields.first, 'viewer@example.test');
-        await tester.enterText(fields.last, 'password');
+        expect(find.byType(VideoAccountScreen), findsOneWidget);
+        expect(find.byType(TextField), findsNothing);
         await tester.tap(find.text(s.login));
         await tester.pumpAndSettle();
         expect(find.text('Account B'), findsOneWidget);
@@ -7216,14 +7292,20 @@ void main() {
       const challengeUrl = 'https://missav.ai/en/saved';
       final challengeRequests = <String>[];
       var restoreAttempts = 0;
-      final client = _TestMissavClient(_details())
-        ..accountRestore = () async {
-          restoreAttempts++;
-          if (favorite) throw const MissavException('Restore unavailable.');
-          throw const MissavVerificationRequiredException(
-            sourceUrl: challengeUrl,
-          );
-        };
+      final client = _TestMissavClient(_details())..savedSession = true;
+      client.accountRestore = () async {
+        restoreAttempts++;
+        if (favorite) {
+          if (restoreAttempts == 1) {
+            throw const MissavException('Restore unavailable.');
+          }
+          client.switchAccount(isFavorite: false);
+          return true;
+        }
+        throw const MissavVerificationRequiredException(
+          sourceUrl: challengeUrl,
+        );
+      };
       final library = await _testLibrary();
       final downloads = _TestVideoDownloads(client: client, library: library);
       await tester.pumpWidget(
@@ -7252,18 +7334,17 @@ void main() {
       expect(restoreAttempts, 1);
       expect(find.text(strings.videoSourceUnavailable), findsNothing);
       expect(find.text(strings.login), findsOneWidget);
-      expect(find.text(strings.videoVerifyAccess), findsOneWidget);
+      expect(find.text(strings.videoLoginRequired), findsNothing);
       expect(client.videoFavoriteChanges, isEmpty);
       expect(client.playlistsCalls, 0);
 
       if (favorite) {
-        final fields = find.byType(TextField);
-        await tester.enterText(fields.first, 'viewer@example.test');
-        await tester.enterText(fields.last, 'password');
-        await tester.ensureVisible(find.text(strings.login));
-        await tester.tap(find.text(strings.login));
+        expect(find.text(strings.videoVerifyAccess), findsNothing);
+        await tester.ensureVisible(find.text(strings.retry));
+        await tester.tap(find.text(strings.retry));
         await tester.pumpAndSettle();
         expect(find.text('Account B'), findsOneWidget);
+        expect(restoreAttempts, 2);
         expect(challengeRequests, isEmpty);
       } else {
         expect(find.text(strings.videoVerificationRequired), findsOneWidget);
@@ -8427,6 +8508,12 @@ void main() {
       ),
       findsOneWidget,
     );
+
+    const movedPath = '/new-downloads/videos/index.m3u8';
+    downloads.moveLocalFile(movedPath);
+    await tester.pumpAndSettle();
+    expect(session.loadFileCount, 2);
+    expect(session.localPath, movedPath);
   });
 
   _testPlayerWidget('offline Jable release date follows locale changes', (
@@ -8635,6 +8722,7 @@ void main() {
     });
     final library = VideoLibrary(
       preferences: await SharedPreferences.getInstance(),
+      historyDatabase: FakeLocalHistoryDatabase(),
     );
     await library.initialize();
     final timer = VideoSleepTimer.shared;
@@ -9305,6 +9393,7 @@ Widget _app(
   bool? jableVerificationResult,
   List<String>? jableVerificationUrls,
   List<String>? missavAccountVerificationUrls,
+  bool completeMissavWebLogin = false,
   AppNavigationController? appNavigationController,
 }) => ProviderScope(
   overrides: [
@@ -9325,6 +9414,11 @@ Widget _app(
       }) async {
         missavAccountVerificationUrls.add(sourceUrl);
         return (verified: false, signedIn: false);
+      }),
+    if (completeMissavWebLogin)
+      missavAccountLoginProvider.overrideWithValue((_, _) async {
+        client.completeWebLogin();
+        return true;
       }),
     if (jableVerificationResult != null)
       jableAccessVerifierProvider.overrideWithValue((
@@ -9379,12 +9473,30 @@ Widget _app(
   ),
 );
 
-Future<VideoLibrary> _testLibrary({double? volume, Duration? position}) async {
+class _FailOnceVideoHistoryDatabase extends FakeLocalHistoryDatabase {
+  bool _failed = false;
+
+  @override
+  Future<void> save(LocalHistoryType type, LocalHistoryEntry entry) async {
+    if (!_failed) {
+      _failed = true;
+      throw StateError('history write failed');
+    }
+    await super.save(type, entry);
+  }
+}
+
+Future<VideoLibrary> _testLibrary({
+  double? volume,
+  Duration? position,
+  FakeLocalHistoryDatabase? historyDatabase,
+}) async {
   SharedPreferences.setMockInitialValues({
     if (volume != null) 'video_volume_v1': volume,
   });
   final library = VideoLibrary(
     preferences: await SharedPreferences.getInstance(),
+    historyDatabase: historyDatabase ?? FakeLocalHistoryDatabase(),
   );
   await library.initialize();
   if (position != null) await library.savePosition('dvd-1', position);
@@ -9455,6 +9567,7 @@ class _TestMissavClient extends MissavClient {
   VideoDetails detailsResult;
   VideoDetails? readyDetails;
   bool loggedIn;
+  bool savedSession = false;
   final Object? initializeError;
   CancelToken? lastDetailsToken;
   CancelToken? lastRelatedToken;
@@ -9518,6 +9631,9 @@ class _TestMissavClient extends MissavClient {
   bool get isLoggedIn => loggedIn;
 
   @override
+  bool get hasRestorableSession => savedSession || super.hasRestorableSession;
+
+  @override
   String? get accountName => _accountName;
 
   @override
@@ -9531,8 +9647,7 @@ class _TestMissavClient extends MissavClient {
     notifyListeners();
   }
 
-  @override
-  Future<void> login({required String email, required String password}) async {
+  void completeWebLogin() {
     _generation++;
     final anonymous = detailsResult;
     loggedIn = true;
@@ -9637,6 +9752,11 @@ class _TestVideoDownloads extends VideoDownloads {
     notifyListeners();
   }
 
+  void moveLocalFile(String path) {
+    task = task!.copyWith(localPath: path);
+    notifyListeners();
+  }
+
   @override
   Future<void> initialize() async {}
 
@@ -9703,6 +9823,7 @@ class _FakePlaybackSession implements VideoPlaybackSession {
 
   void emitSnapshot({
     Duration? position,
+    Duration? duration,
     bool? playing,
     bool? buffering,
     Duration? bufferPosition,
@@ -9712,6 +9833,7 @@ class _FakePlaybackSession implements VideoPlaybackSession {
   }) {
     _snapshot.value = _snapshot.value.copyWith(
       position: position,
+      duration: duration,
       playing: playing,
       buffering: buffering,
       bufferPosition: bufferPosition,

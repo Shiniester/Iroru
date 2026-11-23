@@ -251,6 +251,131 @@ void main() {
     );
   }
 
+  testWidgets('Jable public search refreshes after a session route change', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final account = _TestJableAccount();
+    final staleResults = Completer<VideoSearchResults>();
+    final submitted = <({String query, List<String> filterUrls})>[];
+    const submittedFilter = VideoLink(
+      label: 'Public filter',
+      url: 'https://jable.tv/categories/public-filter/',
+      kind: VideoLinkKind.category,
+    );
+    const currentVideo = VideoItem(
+      id: 'current-public',
+      sourceKey: 'jable',
+      title: 'Current public result',
+      pageUrl: 'https://jable.tv/videos/current-public/',
+    );
+    const staleVideo = VideoItem(
+      id: 'stale-public',
+      sourceKey: 'jable',
+      title: 'Stale public result',
+      pageUrl: 'https://jable.tv/videos/stale-public/',
+    );
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Jable search',
+          sourceKey: 'jable',
+          jableAccount: account,
+          initialQuery: 'public query',
+          initialFilters: const [submittedFilter],
+          search: (query, filters, _) {
+            submitted.add((
+              query: query,
+              filterUrls: filters.map((filter) => filter.url).toList(),
+            ));
+            return submitted.length == 1
+                ? staleResults.future
+                : Future.value(
+                    const VideoSearchResults.collection([currentVideo]),
+                  );
+          },
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(submitted, hasLength(1));
+
+    await tester.enterText(
+      find.byKey(const ValueKey('video-search-input')),
+      'unsubmitted draft',
+    );
+
+    account.expireSession();
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(submitted, hasLength(2));
+    for (final search in submitted) {
+      expect(search.query, 'public query');
+      expect(search.filterUrls, [submittedFilter.url]);
+    }
+    expect(find.text(currentVideo.title), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('video-search-input')))
+          .controller
+          ?.text,
+      'unsubmitted draft',
+    );
+
+    staleResults.complete(const VideoSearchResults.collection([staleVideo]));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text(currentVideo.title), findsOneWidget);
+    expect(find.text(staleVideo.title), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('video-search-input')))
+          .controller
+          ?.text,
+      'unsubmitted draft',
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    account.dispose();
+  });
+
+  testWidgets('Jable public generation change ignores an unsubmitted draft', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final account = _TestJableAccount();
+    var searchCount = 0;
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Jable search',
+          sourceKey: 'jable',
+          jableAccount: account,
+          search: (_, _, _) async {
+            searchCount++;
+            return const VideoSearchResults.collection([]);
+          },
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final input = find.byKey(const ValueKey('video-search-input'));
+    await tester.enterText(input, 'draft only');
+
+    account.expireSession();
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(searchCount, 0);
+    expect(tester.widget<TextField>(input).controller?.text, 'draft only');
+    await tester.pumpWidget(const SizedBox.shrink());
+    account.dispose();
+  });
+
   testWidgets(
     'Jable search renders supported filters and source navigation choices',
     (tester) async {
@@ -2940,12 +3065,16 @@ class _TestAccountClient extends MissavClient {
 class _TestJableAccount extends ChangeNotifier implements JableAccount {
   bool _loggedIn = true;
   int _revision = 0;
+  int _contentGeneration = 0;
 
   @override
   bool get isLoggedIn => _loggedIn;
 
   @override
   int get revision => _revision;
+
+  @override
+  int get contentGeneration => _contentGeneration;
 
   @override
   Future<List<VideoItem>> searchFavorites(
@@ -2961,6 +3090,7 @@ class _TestJableAccount extends ChangeNotifier implements JableAccount {
   void expireSession() {
     _loggedIn = false;
     _revision++;
+    _contentGeneration++;
     notifyListeners();
   }
 

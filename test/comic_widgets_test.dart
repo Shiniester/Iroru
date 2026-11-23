@@ -61,6 +61,7 @@ import 'package:iroru/src/comics/ui/comic_page_preview.dart';
 import 'package:iroru/src/comics/ui/comic_chapter_thumbnails.dart';
 import 'package:iroru/src/comics/ui/comic_search_screen.dart';
 import 'package:iroru/src/widgets/pagination_bar.dart';
+import 'package:iroru/src/widgets/local_history_card.dart';
 import 'package:iroru/src/widgets/settings_option_dialog.dart';
 import 'package:iroru/src/widgets/work_image_reader.dart';
 import 'package:iroru/src/widgets/cover_preview_dialog.dart';
@@ -328,6 +329,7 @@ class _Library extends ComicLibrary {
   Future<void> deleteTask(String id) async {}
 
   ComicProgress? last;
+  List<ComicProgress>? historyResult;
   Completer<ComicProgress?>? progressGate;
   int favoriteWrites = 0;
   int favoriteReads = 0, historyReads = 0;
@@ -359,22 +361,51 @@ class _Library extends ComicLibrary {
   Future<List<ComicProgress>> history() async {
     historyReads++;
     onHistoryRead?.call();
-    return last == null ? [] : [last!];
+    return historyResult ?? (last == null ? [] : [last!]);
   }
 
   @override
   Future<ComicProgress?> progress(Comic comic) async =>
       progressGate == null ? last : progressGate!.future;
   @override
-  Future<void> saveProgress(Comic comic, String chapter, int page) async {
-    last = ComicProgress(comic, chapter, page, DateTime.now());
+  Future<void> saveProgress(
+    Comic comic,
+    String chapter,
+    int page, {
+    int? pageCount,
+  }) async {
+    last = ComicProgress(
+      comic,
+      chapter,
+      page,
+      DateTime.now(),
+      pageCount: pageCount,
+    );
   }
+}
+
+class _QueuedHistoryLibrary extends _Library {
+  final historyResponses = <Future<List<ComicProgress>>>[];
+
+  @override
+  Future<List<ComicProgress>> history() {
+    historyReads++;
+    if (historyResponses.isNotEmpty) return historyResponses.removeAt(0);
+    return Future.value(historyResult ?? (last == null ? const [] : [last!]));
+  }
+
+  void refresh() => notifyListeners();
 }
 
 class _NotifyingLibrary extends _Library {
   @override
-  Future<void> saveProgress(Comic comic, String chapter, int page) async {
-    await super.saveProgress(comic, chapter, page);
+  Future<void> saveProgress(
+    Comic comic,
+    String chapter,
+    int page, {
+    int? pageCount,
+  }) async {
+    await super.saveProgress(comic, chapter, page, pageCount: pageCount);
     notifyListeners();
   }
 
@@ -13958,6 +13989,231 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'comic history card shows exact progress and resumes its offline page',
+    (tester) async {
+      const historyComic = Comic(
+        source: 'fixture',
+        id: 'history-resume',
+        title: 'History resume',
+        cover: 'history-resume-cover',
+        chapters: [ComicChapter('two', 'Chapter 2')],
+      );
+      final library = _NotifyingLibrary()
+        ..last = ComicProgress(
+          historyComic,
+          'two',
+          4,
+          DateTime(2026),
+          pageCount: 8,
+        );
+      final source = _Source();
+      final downloads = _PreviewDownloads(
+        library,
+        source,
+        List.generate(8, (index) => ComicPage('offline-page-$index')),
+      );
+      await pump(
+        tester,
+        const ComicScreen(),
+        library,
+        source,
+        downloads: downloads,
+      );
+      final s = S.of(tester.element(find.byType(ComicScreen)));
+      await selectComicPage(tester, 2);
+      await tester.pumpAndSettle();
+      await waitForComicCardImage(tester, 'History resume');
+
+      final card = find.byType(LocalHistoryCard);
+      expect(card, findsOneWidget);
+      expect(
+        find.descendant(of: card, matching: find.text('Chapter 2')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: card, matching: find.text(s.comicPreviewPage(5))),
+        findsOneWidget,
+      );
+      final progress = tester.widget<LinearProgressIndicator>(
+        find.descendant(
+          of: card,
+          matching: find.byType(LinearProgressIndicator),
+        ),
+      );
+      expect(progress.value, closeTo(5 / 8, 0.001));
+
+      final resume = find.descendant(
+        of: card,
+        matching: find.byTooltip(s.comicContinue),
+      );
+      expect(resume, findsOneWidget);
+      await tester.tap(resume);
+      await tester.pumpAndSettle();
+      final reader = find.byType(ComicReaderScreen);
+      expect(reader, findsOneWidget);
+      expect(tester.widget<ComicReaderScreen>(reader).initialPage, 4);
+      expect(readerPageValue('5/8'), findsOneWidget);
+      expect(source.pageRequests, isEmpty);
+
+      Navigator.of(tester.element(reader)).pop();
+      await tester.pumpAndSettle();
+      expect(library.last?.chapterId, 'two');
+      expect(library.last?.page, 4);
+      expect(library.last?.pageCount, 8);
+      await tester.longPress(card);
+      await tester.pumpAndSettle();
+      final delete = find.widgetWithText(TextButton, s.delete);
+      expect(delete, findsOneWidget);
+      await tester.tap(delete);
+      await tester.pumpAndSettle();
+      expect(library.last, isNull);
+      expect(find.byType(LocalHistoryCard), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'comic history pagination keeps progress cards and prefetches first covers',
+    (tester) async {
+      await StorageService.setInt('comic_page_size_preference', 20);
+      final history = List.generate(
+        25,
+        (index) => ComicProgress(
+          Comic(
+            source: 'fixture',
+            id: 'history-$index',
+            title: 'History $index',
+            cover: 'history-cover-$index',
+            chapters: const [ComicChapter('one', 'Chapter 1')],
+          ),
+          'one',
+          index,
+          DateTime(2026),
+          pageCount: 40,
+        ),
+      );
+      final library = _Library()..historyResult = history;
+      final firstCover = Completer<Uint8List>();
+      var firstCoverLoads = 0;
+      await pump(
+        tester,
+        const ComicScreen(),
+        library,
+        _Source(),
+        loadImage: (page) {
+          if (page.url == 'history-cover-0') {
+            firstCoverLoads++;
+            return firstCover.future;
+          }
+          return Future.value(_png);
+        },
+        settle: false,
+      );
+      await waitForComicCardImage(tester, 'Fixture book');
+      await selectComicPage(tester, 2);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(firstCoverLoads, 1);
+      firstCover.complete(_png);
+      await tester.pump();
+      await waitForComicCardImage(tester, 'History 0');
+      await tester.pumpAndSettle();
+
+      final grid = find.byType(ComicGrid);
+      expect(tester.widget<ComicGrid>(grid).comics, hasLength(20));
+      expect(tester.widget<ComicGrid>(grid).history, hasLength(20));
+      expect(tester.widget<ComicGrid>(grid).comics.first.id, 'history-0');
+      expect(firstCoverLoads, 1);
+
+      final scrollable = find.descendant(
+        of: grid,
+        matching: find.byType(Scrollable),
+      );
+      final next = find.descendant(of: grid, matching: find.text('Next'));
+      await tester.scrollUntilVisible(
+        next.hitTestable(),
+        400,
+        scrollable: scrollable,
+        maxScrolls: 40,
+      );
+      await tester.tap(next);
+      await pumpFrames(tester);
+      await waitForComicCardImage(tester, 'History 20');
+
+      expect(tester.widget<ComicGrid>(grid).comics, hasLength(5));
+      expect(tester.widget<ComicGrid>(grid).history, hasLength(5));
+      expect(tester.widget<ComicGrid>(grid).comics.first.id, 'history-20');
+      expect(library.historyReads, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('comic history refresh keeps the newest progress snapshot', (
+    tester,
+  ) async {
+    const staleComic = Comic(
+      source: 'fixture',
+      id: 'stale-history',
+      title: 'Stale history',
+      cover: 'stale-history-cover',
+      chapters: [ComicChapter('one', 'Chapter 1')],
+    );
+    const currentComic = Comic(
+      source: 'fixture',
+      id: 'current-history',
+      title: 'Current history',
+      cover: 'current-history-cover',
+      chapters: [ComicChapter('one', 'Chapter 1')],
+    );
+    final library = _QueuedHistoryLibrary()
+      ..historyResult = [
+        ComicProgress(staleComic, 'one', 1, DateTime(2026), pageCount: 8),
+      ];
+    await pump(tester, const ComicScreen(), library, _Source(), settle: false);
+    await waitForComicCardImage(tester, 'Fixture book');
+    await selectComicPage(tester, 2);
+    await tester.pumpAndSettle();
+    await waitForComicCardImage(tester, 'Stale history');
+    final initialReads = library.historyReads;
+
+    final staleRefresh = Completer<List<ComicProgress>>();
+    final currentRefresh = Completer<List<ComicProgress>>();
+    library.historyResponses.addAll([
+      staleRefresh.future,
+      currentRefresh.future,
+    ]);
+    library.refresh();
+    await tester.pump();
+    expect(library.historyReads, initialReads + 1);
+
+    library.refresh();
+    await tester.pump();
+    expect(library.historyReads, initialReads + 2);
+
+    currentRefresh.complete([
+      ComicProgress(currentComic, 'one', 6, DateTime(2026), pageCount: 9),
+    ]);
+    staleRefresh.complete([
+      ComicProgress(staleComic, 'one', 1, DateTime(2026), pageCount: 8),
+    ]);
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    final grid = find.descendant(
+      of: find.byKey(const ValueKey('comic-tab-2')),
+      matching: find.byType(ComicGrid),
+    );
+    final gridWidget = tester.widget<ComicGrid>(grid);
+    expect(gridWidget.comics.first.id, currentComic.id);
+    expect(gridWidget.history[currentComic.key]?.page, 6);
+    expect(gridWidget.history[currentComic.key]?.pageCount, 9);
+    expect(gridWidget.history.containsKey(staleComic.key), isFalse);
+    expect(find.text('Current history'), findsOneWidget);
+    expect(find.text('Stale history'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('comic page selection animates and retains home state', (
     tester,
   ) async {
@@ -14088,8 +14344,48 @@ void main() {
       await tester.pump();
       expect(library.last?.chapterId, 'one');
       expect(library.last?.page, 5);
+      expect(library.last?.pageCount, 8);
     },
   );
+  testWidgets('loading a new chapter does not save its page count', (
+    tester,
+  ) async {
+    final library = _Library();
+    final source = _DistinctChapterPageSource();
+    final chapterGate = Completer<List<ComicPage>>();
+    source.pageGates['two'] = chapterGate;
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+        initialPage: 5,
+      ),
+      library,
+      source,
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(library.last?.chapterId, 'one');
+    expect(library.last?.pageCount, 8);
+
+    await tester.tapAt(tester.getCenter(find.byType(Scaffold)));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Choose chapters'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ListTile, 'Chapter 2'));
+    await tester.pump();
+    expect(source.pageRequests.where((id) => id == 'two'), hasLength(1));
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    expect(library.last?.chapterId, 'one');
+    expect(library.last?.page, 5);
+    expect(library.last?.pageCount, 8);
+    chapterGate.complete(List.generate(3, (i) => ComicPage('late-$i')));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
     'reader has one Mini Player and retains progress after the full player closes',
     (tester) async {

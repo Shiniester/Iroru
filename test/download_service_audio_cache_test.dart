@@ -78,7 +78,7 @@ void main() {
         createdAt: DateTime.utc(2026),
       );
       SharedPreferences.setMockInitialValues({
-        'custom_download_path': root.path,
+        StorageService.customDownloadPathKey: root.path,
         'download_tasks': jsonEncode([
           partialTask.toJson(),
           completedCacheTask.toJson(),
@@ -123,7 +123,7 @@ void main() {
       await _resumeAndWait(service, partialTask);
       expect(
         await File(
-          p.join(root.path, '${partialTask.workId}', partialTask.fileName),
+          p.join(root.path, 'audio', '${partialTask.workId}', partialTask.fileName),
         ).readAsBytes(),
         wav,
       );
@@ -133,6 +133,7 @@ void main() {
         await File(
           p.join(
             root.path,
+            'audio',
             '${completedCacheTask.workId}',
             completedCacheTask.fileName,
           ),
@@ -165,7 +166,7 @@ void main() {
       );
       await addedCompleted.timeout(const Duration(seconds: 15));
       expect(
-        await File(p.join(root.path, '1003', 'track-c.wav')).readAsBytes(),
+        await File(p.join(root.path, 'audio', '1003', 'track-c.wav')).readAsBytes(),
         wav,
       );
     },

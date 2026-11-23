@@ -5,12 +5,25 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import 'local_work_metadata_service.dart';
 import 'log_service.dart';
 import 'storage_service.dart';
 import 'subtitle_library_rules.dart';
 
 final _log = LogService.instance;
+
+enum DownloadFolder {
+  audio('audio'),
+  comics('comics'),
+  videos('videos'),
+  subtitles(SubtitleLibraryRules.libraryFolderName);
+
+  const DownloadFolder(this.directoryName);
+
+  final String directoryName;
+
+  Directory inRoot(Directory root) =>
+      Directory(p.join(root.path, directoryName));
+}
 
 /// 下载路径管理服务
 class DownloadPathService {
@@ -19,22 +32,16 @@ class DownloadPathService {
   /// 获取当前下载路径（自定义路径或默认路径）
   static Future<Directory> getDownloadDirectory() async {
     final customPath = getCustomPath();
-
     if (customPath != null && customPath.isNotEmpty) {
-      final dir = Directory(customPath);
-      if (await dir.exists()) {
-        return dir;
-      }
-      try {
-        if (!await _persistCustomPath(null)) {
-          _log.warning('无法清除已失效的下载目录设置', tag: 'DownloadPath');
-        }
-      } catch (error) {
-        _log.warning('无法清除已失效的下载目录设置: $error', tag: 'DownloadPath');
-      }
+      return Directory(Platform.isIOS ? await _iosFilesPath() : customPath);
     }
-
     return _getDefaultDownloadDirectory();
+  }
+
+  static Future<Directory> getDirectory(DownloadFolder folder) async {
+    final directory = folder.inRoot(await getDownloadDirectory());
+    await directory.create(recursive: true);
+    return directory;
   }
 
   /// 获取默认下载路径
@@ -63,7 +70,7 @@ class DownloadPathService {
     if (Platform.isAndroid) {
       return await _pickDirectoryAndroid();
     } else if (Platform.isIOS) {
-      return await _pickDirectoryIOS();
+      return _iosFilesPath();
     } else if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
       return await _pickDirectoryDesktop();
     }
@@ -80,11 +87,9 @@ class DownloadPathService {
     return null;
   }
 
-  /// iOS 平台选择目录
-  static Future<String?> _pickDirectoryIOS() async {
-    // iOS 使用文档选择器
-    final result = await FilePicker.platform.getDirectoryPath();
-    return result;
+  static Future<String> _iosFilesPath() async {
+    final documents = await getApplicationDocumentsDirectory();
+    return p.join(documents.path, 'Downloads');
   }
 
   /// 桌面平台（Windows/macOS/Linux）选择目录
@@ -131,11 +136,11 @@ class DownloadPathService {
     final oldDir = await getDownloadDirectory();
 
     if (await _sameDirectory(oldDir, newDir)) {
-      return MigrationResult(success: true, message: '目录未改变，无需迁移');
+      return MigrationResult(root: oldDir, message: '目录未改变，无需迁移');
     }
 
     if (await _pathsOverlap(oldDir, newDir)) {
-      return MigrationResult(success: false, message: '原目录与新目录存在重叠，无法迁移');
+      return MigrationResult(message: '原目录与新目录存在重叠，无法迁移');
     }
 
     // 确保新目录存在
@@ -143,7 +148,7 @@ class DownloadPathService {
       try {
         await newDir.create(recursive: true);
       } catch (e) {
-        return MigrationResult(success: false, message: '无法创建目录: $e');
+        return MigrationResult(message: '无法创建目录: $e');
       }
     }
 
@@ -161,9 +166,9 @@ class DownloadPathService {
 
     if (await _sameDirectory(currentDir, defaultDir)) {
       if (!await _persistCustomPath(null)) {
-        return MigrationResult(success: false, message: '保存下载路径设置失败');
+        return MigrationResult(message: '保存下载路径设置失败');
       }
-      return MigrationResult(success: true, message: '当前已使用默认路径');
+      return MigrationResult(root: defaultDir, message: '当前已使用默认路径');
     }
 
     return _migrateFiles(
@@ -174,8 +179,6 @@ class DownloadPathService {
   }
 
   /// 迁移文件从旧目录到新目录
-  /// 只迁移符合下载结构的文件（数字或 RJ 命名的 workId 文件夹）
-  /// 保护用户可能存放在下载目录中的其他文件
   static Future<MigrationResult> _migrateFiles(
     Directory oldDir,
     Directory newDir, {
@@ -185,7 +188,6 @@ class DownloadPathService {
     final committedTargets = <Directory>[];
     var preferenceSaved = false;
     var fileCount = 0;
-    var workFolderCount = 0;
     var skippedCount = 0;
     var errorCount = 0;
     final skippedItems = <String>[];
@@ -193,80 +195,55 @@ class DownloadPathService {
     try {
       // 检查旧目录是否存在
       if (!await oldDir.exists()) {
-        if (!await savePath()) {
-          return MigrationResult(success: false, message: '保存下载路径设置失败');
-        }
-        return MigrationResult(success: true, message: '原目录不存在，无需迁移');
+        return MigrationResult(message: '无法访问原下载目录。恢复原目录后重试。');
       }
 
       if (await _pathsOverlap(oldDir, newDir)) {
-        return MigrationResult(success: false, message: '原目录与新目录存在重叠，无法迁移');
+        return MigrationResult(message: '原目录与新目录存在重叠，无法迁移');
       }
 
-      final managedDirectories = <({Directory source, String name})>[];
+      final managedDirectories = <String, Directory>{};
 
-      // 只遍历旧目录的第一层（不递归）
       await for (final entity in oldDir.list(followLinks: false)) {
-        if (entity is Directory) {
-          final folderName = p.basename(entity.path);
-          final workId = LocalWorkMetadataService.parseWorkIdFromName(
-            folderName,
-          );
-
-          // 迁移以数字命名的文件夹（作品文件夹）或字幕库文件夹
-          if (workId != null ||
-              folderName == SubtitleLibraryRules.libraryFolderName) {
-            managedDirectories.add((source: entity, name: folderName));
-          } else {
-            // 跳过非作品命名且不是字幕库的文件夹（可能是用户的其他文件）
-            skippedCount++;
-            skippedItems.add(folderName);
-            _log.debug('跳过文件夹: $folderName', tag: 'DownloadPath');
-          }
-        } else if (entity is File) {
-          // 跳过下载目录根目录下的文件（可能是用户的其他文件）
-          final fileName = p.basename(entity.path);
+        final name = p.basename(entity.path);
+        if (entity is Directory &&
+            DownloadFolder.values.any((folder) => folder.directoryName == name)) {
+          managedDirectories[name] = entity;
+        } else {
           skippedCount++;
-          skippedItems.add(fileName);
-          _log.debug('跳过根目录文件: $fileName', tag: 'DownloadPath');
+          skippedItems.add(name);
+          _log.debug('跳过非下载项目: $name', tag: 'DownloadPath');
         }
       }
 
       final conflictingItems = <String>[];
-      for (final item in managedDirectories) {
-        final destination = Directory(p.join(newDir.path, item.name));
+      for (final folder in DownloadFolder.values) {
+        final destination = folder.inRoot(newDir);
         if (await _pathExists(destination.path)) {
-          conflictingItems.add(item.name);
+          conflictingItems.add(folder.directoryName);
         }
       }
       if (conflictingItems.isNotEmpty) {
         return MigrationResult(
-          success: false,
           message: '目标目录已存在同名项目，未迁移: ${conflictingItems.join(", ")}',
         );
       }
 
-      if (managedDirectories.isNotEmpty) {
-        stagingDir = await newDir.createTemp('.iroru-');
-        for (final item in managedDirectories) {
-          final stagedDirectory = Directory(p.join(stagingDir.path, item.name));
-          await stagedDirectory.create(recursive: true);
-          fileCount += await _copyDirectoryContents(
-            item.source,
-            stagedDirectory,
-          );
-          workFolderCount++;
+      stagingDir = await newDir.createTemp('.iroru-');
+      for (final folder in DownloadFolder.values) {
+        final stagedDirectory = await folder.inRoot(stagingDir).create();
+        final source = managedDirectories[folder.directoryName];
+        if (source != null) {
+          fileCount += await _copyDirectoryContents(source, stagedDirectory);
         }
-
-        for (final item in managedDirectories) {
-          final stagedDirectory = Directory(p.join(stagingDir.path, item.name));
-          final destination = Directory(p.join(newDir.path, item.name));
-          if (await _pathExists(destination.path)) {
-            throw FileSystemException('目标目录已存在同名项目', destination.path);
-          }
-          await stagedDirectory.rename(destination.path);
-          committedTargets.add(destination);
+      }
+      for (final folder in DownloadFolder.values) {
+        final destination = folder.inRoot(newDir);
+        if (await _pathExists(destination.path)) {
+          throw FileSystemException('目标目录已存在同名项目', destination.path);
         }
+        await folder.inRoot(stagingDir).rename(destination.path);
+        committedTargets.add(destination);
       }
 
       if (!await savePath()) {
@@ -274,40 +251,17 @@ class DownloadPathService {
       }
       preferenceSaved = true;
 
-      for (final item in managedDirectories) {
+      for (final entry in managedDirectories.entries) {
         try {
-          await item.source.delete(recursive: true);
+          await entry.value.delete(recursive: true);
         } catch (e) {
-          _log.error('删除原文件夹失败: ${item.name}, 错误: $e', tag: 'DownloadPath');
+          _log.error('删除原文件夹失败: ${entry.key}, 错误: $e', tag: 'DownloadPath');
           errorCount++;
         }
       }
 
-      // 检查旧目录是否为空，只有为空时才删除
-      bool isOldDirEmpty = true;
-      try {
-        final remainingEntities = await oldDir.list().toList();
-        isOldDirEmpty = remainingEntities.isEmpty;
-
-        if (isOldDirEmpty) {
-          try {
-            await oldDir.delete(recursive: false);
-            _log.info('已删除空的旧目录', tag: 'DownloadPath');
-          } catch (e) {
-            _log.error('删除空目录失败: $e', tag: 'DownloadPath');
-            // 不影响迁移结果
-          }
-        } else {
-          _log.info(
-            '旧目录中还有 ${remainingEntities.length} 个项目，保留目录',
-            tag: 'DownloadPath',
-          );
-        }
-      } catch (e) {
-        _log.error('检查旧目录是否为空时出错: $e', tag: 'DownloadPath');
-      }
-
-      String resultMessage = '迁移完成: $workFolderCount 个作品文件夹, $fileCount 个文件';
+      String resultMessage =
+          '已迁移 ${managedDirectories.length} 个目录和 $fileCount 个文件';
       if (skippedCount > 0) {
         resultMessage += '\n跳过 $skippedCount 个非下载项目（已保留）';
         if (skippedItems.length <= 5) {
@@ -317,12 +271,8 @@ class DownloadPathService {
       if (errorCount > 0) {
         resultMessage += '\n$errorCount 个错误';
       }
-      if (!isOldDirEmpty) {
-        resultMessage += '\n原目录保留（包含其他文件）';
-      }
-
       return MigrationResult(
-        success: true,
+        root: newDir,
         message: resultMessage,
         fileCount: fileCount,
         errorCount: errorCount,
@@ -338,11 +288,7 @@ class DownloadPathService {
           );
         }
       }
-      return MigrationResult(
-        success: false,
-        message: '迁移失败: $e',
-        errorCount: errorCount,
-      );
+      return MigrationResult(message: '迁移失败: $e', errorCount: errorCount);
     } finally {
       if (stagingDir != null) {
         try {
@@ -442,11 +388,10 @@ class DownloadPathService {
 
   /// 检查平台是否支持自定义路径
   static bool isPlatformSupported() {
-    // iOS 在沙盒限制下不建议支持自定义路径
-    // 但可以通过文档选择器访问
     return Platform.isWindows ||
         Platform.isMacOS ||
         Platform.isAndroid ||
+        Platform.isIOS ||
         Platform.isLinux;
   }
 
@@ -467,13 +412,15 @@ class DownloadPathService {
 
 /// 迁移结果
 class MigrationResult {
-  final bool success;
+  final Directory? root;
   final String message;
   final int fileCount;
   final int errorCount;
 
+  bool get success => root != null;
+
   MigrationResult({
-    required this.success,
+    this.root,
     required this.message,
     this.fileCount = 0,
     this.errorCount = 0,

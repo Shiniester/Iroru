@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../providers/works_provider.dart' show LayoutType;
@@ -202,22 +201,6 @@ class ComicSettingsScreen extends ConsumerWidget {
                     builder: (_) => const ComicDownloadScreen(),
                   ),
                 ),
-              ),
-              SettingsNavigationTile(
-                icon: Icons.folder_outlined,
-                title: s.downloadPath,
-                subtitle: StorageService.getString('comic_download_directory'),
-                onTap: () async {
-                  final directory = await FilePicker.platform
-                      .getDirectoryPath();
-                  if (directory != null) {
-                    await StorageService.setString(
-                      'comic_download_directory',
-                      directory,
-                    );
-                    ref.read(comicSettingsRevisionProvider.notifier).state++;
-                  }
-                },
               ),
               SettingsNavigationTile(
                 icon: Icons.cleaning_services_outlined,

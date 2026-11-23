@@ -822,7 +822,7 @@ void main() {
           ..writeAsBytesSync(img.encodePng(img.Image(width: 8, height: 8)));
         addTearDown(() => directory.deleteSync(recursive: true));
         SharedPreferences.setMockInitialValues({
-          'custom_download_path': directory.path,
+          StorageService.customDownloadPathKey: directory.path,
         });
         await StorageService.initCritical(
           preferences: await SharedPreferences.getInstance(),
@@ -1042,7 +1042,7 @@ void main() {
         await directory.delete(recursive: true);
       });
       SharedPreferences.setMockInitialValues({
-        'custom_download_path': directory.path,
+        StorageService.customDownloadPathKey: directory.path,
       });
       await StorageService.initCritical(
         preferences: await SharedPreferences.getInstance(),

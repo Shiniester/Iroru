@@ -40,6 +40,7 @@ class _VideoSettingsScreenState extends ConsumerState<VideoSettingsScreen> {
   void initState() {
     super.initState();
     unawaited(_loadDownloadSize());
+    ref.read(videoClientProvider).restoreMirrorSelection().ignore();
   }
 
   Future<void> _loadDownloadSize() async {
@@ -123,12 +124,59 @@ class _VideoSettingsScreenState extends ConsumerState<VideoSettingsScreen> {
     }
   }
 
+  Widget _sourceSettings(
+    BuildContext context, {
+    required String name,
+    required bool isLoggedIn,
+    String? accountName,
+    required String? preferredMirrorHost,
+    required WidgetBuilder accountPage,
+    required WidgetBuilder mirrorPage,
+  }) {
+    final s = S.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 8),
+          child: Semantics(
+            header: true,
+            child: Text(name, style: Theme.of(context).textTheme.titleSmall),
+          ),
+        ),
+        SettingsSectionList(
+          children: [
+            SettingsNavigationTile(
+              icon: Icons.account_circle_outlined,
+              title: s.libraryAccount,
+              subtitle: isLoggedIn
+                  ? accountName ?? s.videoAccountSignedIn
+                  : s.videoAccountSignedOut,
+              onTap: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute<void>(builder: accountPage)),
+            ),
+            SettingsNavigationTile(
+              icon: Icons.speed,
+              title: s.videoSourceHost,
+              subtitle: preferredMirrorHost ?? s.videoMirrorAutomatic,
+              onTap: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute<void>(builder: mirrorPage)),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
     final downloads = ref.read(videoDownloadsProvider);
     final missav = ref.watch(videoClientProvider);
-    final jableAccount = ref.read(jableVideoClientProvider).account;
+    final jable = ref.watch(jableVideoClientProvider);
+    final jableAccount = jable.account;
     final history = ref.watch(unifiedSearchHistoryProvider);
     final historyCount = history.entries
         .where((entry) => entry.context.contentType == 'video')
@@ -178,50 +226,29 @@ class _VideoSettingsScreenState extends ConsumerState<VideoSettingsScreen> {
             s.videoAccountAndSources,
             style: Theme.of(context).textTheme.titleMedium,
           ),
-          const SizedBox(height: 8),
-          SettingsSectionList(
-            children: [
-              SettingsNavigationTile(
-                icon: Icons.account_circle_outlined,
-                title: s.videoSourceAccount,
-                subtitle: missav.isLoggedIn
-                    ? missav.accountName ?? s.videoAccountSignedIn
-                    : s.videoAccountSignedOut,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const VideoAccountScreen(),
-                  ),
-                ),
-              ),
-              SettingsNavigationTile(
-                icon: Icons.speed,
-                title: s.videoMirrorSettings,
-                subtitle: missav.usesAutomaticMirror
-                    ? s.videoMirrorAutomatic
-                    : missav.activeMirrorHost,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const MissavMirrorSettingsScreen(),
-                  ),
-                ),
-              ),
+          for (final source in videoSourceOptions)
+            if (source.key == 'jable')
               ListenableBuilder(
                 listenable: jableAccount,
-                builder: (context, _) => SettingsNavigationTile(
-                  icon: Icons.account_circle_outlined,
-                  title: s.videoJableAccount,
-                  subtitle: jableAccount.isLoggedIn
-                      ? s.videoAccountSignedIn
-                      : s.videoAccountSignedOut,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const JableAccountScreen(),
-                    ),
-                  ),
+                builder: (context, _) => _sourceSettings(
+                  context,
+                  name: source.name,
+                  isLoggedIn: jableAccount.isLoggedIn,
+                  preferredMirrorHost: jable.preferredMirrorHost,
+                  accountPage: (_) => const JableAccountScreen(),
+                  mirrorPage: (_) => const MissavMirrorSettingsScreen.jable(),
                 ),
+              )
+            else
+              _sourceSettings(
+                context,
+                name: source.name,
+                isLoggedIn: missav.isLoggedIn,
+                accountName: missav.accountName,
+                preferredMirrorHost: missav.preferredMirrorHost,
+                accountPage: (_) => const VideoAccountScreen(),
+                mirrorPage: (_) => const MissavMirrorSettingsScreen(),
               ),
-            ],
-          ),
           const SizedBox(height: 16),
           Text(
             s.downloadsAndStorage,

@@ -7,6 +7,7 @@ import '../utils/work_cover_prefetch.dart';
 import '../utils/collection_grid_layout.dart';
 import '../utils/scroll_optimization.dart';
 import '../widgets/history_work_card.dart';
+import '../widgets/local_history_card.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/tab_page_motion.dart';
 import '../providers/works_provider.dart' show LayoutType;
@@ -91,7 +92,7 @@ class _HistoryContent extends ConsumerWidget {
           final listCoverSize = layoutType == LayoutType.list
               ? collectionListCoverSizeForTitle(
                   context,
-                  titleStyle: historyWorkCardTitleStyle(context),
+                  titleStyle: localHistoryCardTitleStyle(context),
                 )
               : null;
           final listCoverCacheWidth = listCoverSize == null

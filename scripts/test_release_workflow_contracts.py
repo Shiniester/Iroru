@@ -11,7 +11,13 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 sys.path.insert(0, str(ROOT / "scripts/ci"))
-from android_release import VERSION_CODE_SPLIT_OFFSET, apk_basename
+from android_release import (
+    MAX_BETA_VERSION_CODE_SLOT,
+    STABLE_VERSION_CODE_SLOT,
+    VERSION_CODE_SPLIT_OFFSET,
+    apk_basename,
+    version_code_base,
+)
 from validate_release_source import required_source_files
 
 
@@ -38,13 +44,22 @@ assert "android_all_abis: false" in job(beta, "native-audio")
 
 for workflow in (build, android):
     android_job = job(workflow, "android")
-    assert 'base_code="${base_code:-1}"' in android_job
+    prepare_job = job(workflow, "prepare")
     assert "com.meteor.iroru" in workflow
     assert "com.meteor.kikoeruflutter" not in workflow
+    assert (
+        'python3 scripts/ci/android_release.py version-code --version "$version"'
+        in prepare_job
+    )
+    assert '--build-number="${{ needs.prepare.outputs.build_number }}"' in android_job
+    assert "Read Android base version code" not in android_job
     assert "python3 scripts/ci/android_release.py name" in android_job
     assert "python3 scripts/ci/android_release.py verify" in android_job
     assert "--signing-policy release" in android_job
-    assert '--base-version-code "$ANDROID_BASE_VERSION_CODE"' in android_job
+    assert (
+        '--base-version-code "${{ needs.prepare.outputs.build_number }}"'
+        in android_job
+    )
     assert "APK_NAME: ${{ steps.package.outputs.apk_name }}" in android_job
     assert "EXPECTED_CERT_SHA256" not in workflow
     assert 'apksigner" verify' not in workflow
@@ -55,22 +70,38 @@ for workflow in (build, android):
     )
 
 assert VERSION_CODE_SPLIT_OFFSET == 2000
+assert STABLE_VERSION_CODE_SLOT == 999
+assert MAX_BETA_VERSION_CODE_SLOT == 998
 assert apk_basename("381", "com.meteor.iroru") == (
     "Iroru-android-arm64-v8a_381_com.meteor.iroru.apk"
 )
+assert version_code_base("4.5.3") == (
+    ((4 * 100 + 5) * 1000 + 3) * 1000 + STABLE_VERSION_CODE_SLOT
+)
+assert version_code_base("4.5.3-beta.998") == version_code_base("4.5.3") - 1
+assert version_code_base("4.5.4") > version_code_base("4.5.3-beta.998")
 beta_job = job(beta, "android")
+assert "python3 scripts/ci/android_release.py version-code" in beta_job
 assert "python3 scripts/ci/android_release.py name" in beta_job
 assert "python3 scripts/ci/android_release.py verify" in beta_job
-assert "--signing-policy signed" in beta_job
+assert "--signing-policy release" in beta_job
+assert '--signing-configured "$SIGNING_CONFIGURED"' in beta_job
 assert "--forbid-debuggable" in beta_job
 assert '--base-version-code "$EXPECTED_BUILD_NUMBER"' in beta_job
 assert "APK_NAME: ${{ steps.package.outputs.apk_name }}" in beta_job
-assert "com.meteor.iroru.beta" in beta
+assert "--package-id com.meteor.iroru" in beta_job
+assert "com.meteor.iroru.beta" not in beta
 assert "com.meteor.kikoeruflutter" not in beta
-assert "_com.meteor.iroru.beta.apk" not in beta
+assert "Configure Separate Beta Application" not in beta
+assert 'android:label="Iroru Beta"' not in beta
 assert "EXPECTED_CERT_SHA256" not in beta
 assert 'apksigner" verify' not in beta
 assert "length == 1 and all" in beta
+assert (
+    "does not import data from the previous standalone Iroru Beta app"
+    in beta
+)
+assert "The previous app and its data remain on the device" in beta
 assert (
     "APK_NAME: ${{ needs.android.outputs.apk_name }}"
     in job(beta, "release")
@@ -98,6 +129,9 @@ assert 'VALUE "ProductName", "Iroru"' in (
 ).read_text(encoding="utf-8")
 assert 'applicationId = "com.meteor.iroru"' in (
     ROOT / "android/app/build.gradle.kts"
+).read_text(encoding="utf-8")
+assert 'android:label="Iroru"' in (
+    ROOT / "android/app/src/main/AndroidManifest.xml"
 ).read_text(encoding="utf-8")
 assert 'set(APPLICATION_ID "com.meteor.iroru")' in (
     ROOT / "linux/CMakeLists.txt"
@@ -217,6 +251,13 @@ assert "needs: prepare" in job(build, "native-audio-android")
 assert "needs: prepare" in job(build, "native-audio-windows")
 assert "needs: native-audio" in job(beta, "android")
 assert "scripts/ci/android_release.py" in required_source_files("android")
+assert "def version_code_base(" in required_source_files("android")[
+    "scripts/ci/android_release.py"
+]
+assert "--latest-stable" in required_source_files("android")[
+    "scripts/ci/android_release.py"
+]
+assert 'python3 "$gate" android --root .' in job(beta, "android")
 
 
 def make_source_fixture(destination: Path, profile: str) -> None:

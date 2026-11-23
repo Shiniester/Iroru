@@ -33,6 +33,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       suffix: ${{ steps.version.outputs.suffix }}
+      build_number: ${{ steps.version.outputs.build_number }}
       commit_sha: ${{ steps.resolve_commit.outputs.commit_sha }}
     steps:
       - name: Validate selected release commit
@@ -96,6 +97,7 @@ jobs:
 
           tag="v${version}"
           suffix="${version//./}"
+          build_number="$(python3 scripts/ci/android_release.py version-code --version "$version")"
 
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "::error::Release $tag already exists. Choose a new version."
@@ -110,6 +112,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "suffix=$suffix" >> "$GITHUB_OUTPUT"
+          echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
           echo "Building Android release $tag with filename suffix $suffix"
 
   native-audio:
@@ -203,24 +206,13 @@ jobs:
       - name: Get Dependencies
         run: flutter pub get
 
-      - name: Read Android base version code
-        run: |
-          set -euo pipefail
-          flutter build apk --config-only --no-pub
-          base_code="$(sed -n 's/^flutter\.versionCode=//p' android/local.properties | tail -n 1)"
-          base_code="${base_code:-1}"
-          if [[ ! "$base_code" =~ ^[0-9]+$ ]]; then
-            echo '::error::Flutter did not write a valid base versionCode to android/local.properties.'
-            exit 1
-          fi
-          echo "ANDROID_BASE_VERSION_CODE=$base_code" >> "$GITHUB_ENV"
-
       - name: Build Android APKs
         id: package
         run: |
           set -euo pipefail
           mkdir -p dist
-          flutter build apk --release --target-platform android-arm64 --split-per-abi
+          flutter build apk --release --target-platform android-arm64 --split-per-abi \
+            --build-number="${{ needs.prepare.outputs.build_number }}"
           apk_name="$(python3 scripts/ci/android_release.py name \
             --version "${{ needs.prepare.outputs.suffix }}" \
             --package-id com.meteor.iroru)"
@@ -239,7 +231,7 @@ jobs:
             --apk "dist/$APK_NAME" \
             --package-id com.meteor.iroru \
             --expected-version "$EXPECTED_VERSION" \
-            --base-version-code "$ANDROID_BASE_VERSION_CODE" \
+            --base-version-code "${{ needs.prepare.outputs.build_number }}" \
             --signing-policy release \
             --signing-configured "$SIGNING_CONFIGURED"
 
@@ -271,7 +263,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.prepare.outputs.tag }}
           APK_NAME: ${{ needs.android.outputs.apk_name }}
-          RELEASE_NOTES: ${{ inputs.release_notes }}
+          RELEASE_NOTES: |-
+            ${{ inputs.release_notes }}
+
+            旧下载目录中的音声和视频仍保存在原处。如需在新版离线播放，请重新下载。
+            如果旧版 Android 应用找不到新版 Beta，请从 GitHub Releases 手动安装 Beta APK。
           RELEASE_COMMIT: ${{ needs.prepare.outputs.commit_sha }}
         run: |
           set -euo pipefail

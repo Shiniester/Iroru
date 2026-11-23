@@ -1008,6 +1008,7 @@ typedef PlaybackLyricFileTreeLoader =
 final playbackLyricFileTreeLoaderProvider =
     Provider<PlaybackLyricFileTreeLoader>((ref) {
       final apiService = ref.watch(kikoeruApiServiceProvider);
+      ref.watch(subtitleLibraryRefreshTriggerProvider);
       // The player may restore before AuthNotifier finishes loading persisted
       // credentials. Recreate the loader when the API session becomes ready so a
       // transient startup race does not permanently skip online subtitles.
@@ -1022,14 +1023,18 @@ final playbackLyricFileTreeLoaderProvider =
         final workId = track.workId;
         if (workId == null) return const [];
 
-        final contextKey = track.subtitleWorkDirPath == null
+        final storedWorkDirPath = track.subtitleWorkDirPath;
+        final offlineWorkDirPath = (await DownloadService.instance
+                .resolveOfflineWorkDirectory(workId, storedWorkDirPath))
+            ?.path ??
+            storedWorkDirPath;
+        final contextKey = offlineWorkDirPath == null
             ? 'online:$workId'
-            : 'offline:$workId:${path.normalize(track.subtitleWorkDirPath!)}';
+            : 'offline:$workId:${path.normalize(offlineWorkDirPath)}';
         final pending = inFlight[contextKey];
         if (pending != null) return pending;
 
         final load = () async {
-          final offlineWorkDirPath = track.subtitleWorkDirPath;
           if (offlineWorkDirPath != null && offlineWorkDirPath.isNotEmpty) {
             return _loadOfflineLyricFileTree(
               workId: workId,

@@ -505,7 +505,7 @@ class SJa extends S {
   String get downloadPath => 'ダウンロードパス';
 
   @override
-  String get downloadPathSubtitle => 'ダウンロードファイルの保存先をカスタマイズ';
+  String get downloadPathSubtitle => '音声、漫画、動画のダウンロード先を設定';
 
   @override
   String get maxConcurrentDownloads => '最大同時ダウンロード数';
@@ -589,13 +589,6 @@ class SJa extends S {
   String get noBetaRelease => 'No beta release is available yet.';
 
   @override
-  String get updateChannelVersionAvailable => 'Selected channel version';
-
-  @override
-  String get crossChannelUpdateNotice =>
-      'Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.';
-
-  @override
   String get author => '作者';
 
   @override
@@ -627,7 +620,7 @@ class SJa extends S {
   String get view => '表示';
 
   @override
-  String get alreadyLatestVersion => '最新バージョンです';
+  String get noNewerVersion => 'このチャンネルに新しいバージョンはありません';
 
   @override
   String get checkUpdateFailed => 'アップデートの確認に失敗しました。ネットワーク接続を確認してください';
@@ -3378,7 +3371,7 @@ class SJa extends S {
 
   @override
   String activeDownloadsWarning(int count) {
-    return '$count 件のダウンロードが進行中です。パスを切り替える前に完了またはキャンセルしてください';
+    return '$count 件のダウンロードを処理中です。一時停止するか、完了してから保存先を変更してください。';
   }
 
   @override
@@ -3390,7 +3383,7 @@ class SJa extends S {
   String get confirmMigrateFiles => 'ファイル移行の確認';
 
   @override
-  String get migrateFilesToNewDir => '既存のダウンロードファイルを新しいディレクトリに移行します：';
+  String get migrateFilesToNewDir => '既存のダウンロードと字幕ライブラリを次のフォルダーに移動します。';
 
   @override
   String get migrationMayTakeTime => 'この操作はファイルの数とサイズによって時間がかかる場合があります。';
@@ -3402,8 +3395,7 @@ class SJa extends S {
   String get restoreDefaultPath => 'デフォルトパスに戻す';
 
   @override
-  String get restoreDefaultPathConfirm =>
-      'ダウンロードパスをデフォルトの場所に戻し、すべてのファイルを移行します。\n\n続行しますか？';
+  String get restoreDefaultPathConfirm => '既定の保存先に戻すと、既存のダウンロードと字幕ライブラリも移動します。';
 
   @override
   String get defaultPathRestored => 'デフォルトパスに復元しました';
@@ -3435,11 +3427,14 @@ class SJa extends S {
   String get setCustomPath => 'カスタムパスを設定';
 
   @override
+  String get saveDownloadsInFilesApp => 'ダウンロードを「ファイル」に保存';
+
+  @override
   String get usageInstructions => '使用方法';
 
   @override
   String get downloadPathUsageDesc =>
-      '• パスをカスタマイズすると、既存のファイルは自動的に新しい場所に移行されます\n• 移行中はアプリを閉じないでください\n• 十分な空き容量のあるディレクトリを選択してください\n• デフォルトパスに戻すと、ファイルも自動的に戻されます';
+      '音声、漫画、動画は保存先の中で別々のフォルダーに入ります。保存先の変更や既定の設定への復元に伴い、既存のダウンロードと字幕ライブラリも移動します。移動先には十分な空き容量が必要です。';
 
   @override
   String get llmTranslationSettings => 'LLM翻訳設定';
@@ -4180,6 +4175,12 @@ class SJa extends S {
   String get libraryHistory => '履歴';
 
   @override
+  String get localHistory => 'ローカル履歴';
+
+  @override
+  String get noLocalHistory => 'ローカル履歴はありません';
+
+  @override
   String get libraryFavorites => 'お気に入り';
 
   @override
@@ -4310,9 +4311,6 @@ class SJa extends S {
   String get videoAccountEmail => 'メールアドレス';
 
   @override
-  String get videoAccountHost => 'ログイン回線';
-
-  @override
   String get videoAccountBrowserLogin => 'ウェブでログイン';
 
   @override
@@ -4322,6 +4320,13 @@ class SJa extends S {
   String get videoJableLoginRequired => 'Jable にログインすると、お気に入りの動画を表示・管理できます。';
 
   @override
+  String get videoJableMirrorSettings => 'Jable 回線';
+
+  @override
+  String get videoJableMirrorDescription =>
+      '手動で選んだ回線は閲覧、検索、再生に適用されます。ログイン中に自動選択を使うと、公式回線に接続します。';
+
+  @override
   String get videoMirrorSettings => 'MissAV 回線';
 
   @override
@@ -4329,7 +4334,10 @@ class SJa extends S {
       'すべての回線を表示します。利用できない回線は選択できません。選択した回線を一覧、検索、再生に使用します。';
 
   @override
-  String get videoMirrorAutomatic => '最速の回線を自動選択';
+  String get videoSourceHost => '回線';
+
+  @override
+  String get videoMirrorAutomatic => '回線を自動選択';
 
   @override
   String get videoMirrorUseFastest => '最速を使用';
@@ -4350,7 +4358,7 @@ class SJa extends S {
   String get videoMirrorSelect => '使用';
 
   @override
-  String get videoMirrorInUse => '使用中';
+  String get videoMirrorSelected => '選択済み';
 
   @override
   String videoMirrorCurrent(String host) {
@@ -4362,6 +4370,14 @@ class SJa extends S {
 
   @override
   String get videoLoginComplete => '完了';
+
+  @override
+  String get videoLoginConfirmationFailed =>
+      'お気に入りページでログインを確認できませんでした。ウェブサイトでログインしていることを確認し、もう一度「完了」を選択してください。';
+
+  @override
+  String get videoLoginHandoffFailed =>
+      'ウェブサイトでのログインは確認できました。アプリにセッションを引き継げませんでした。「完了」を選択して再試行してください。';
 
   @override
   String get videoJableSignedIn => 'Jable にログインしています';

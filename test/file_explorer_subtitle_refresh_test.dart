@@ -95,7 +95,10 @@ void main() {
       workDir.createSync(recursive: true);
       File(p.join(workDir.path, 'track.mp3')).writeAsBytesSync(const []);
       final preferences = await SharedPreferences.getInstance();
-      await preferences.setString('custom_download_path', directory.path);
+      await preferences.setString(
+        StorageService.customDownloadPathKey,
+        directory.path,
+      );
       await StorageService.initCritical(preferences: preferences);
       final libraryDir = await tester.runAsync(
         SubtitleLibraryService.getSubtitleLibraryDirectory,

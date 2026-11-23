@@ -481,7 +481,7 @@ void main() {
     }
 
     SharedPreferences.setMockInitialValues({
-      'custom_download_path': directory.path,
+      StorageService.customDownloadPathKey: directory.path,
       'audio_format_preference': [
         'wav',
         'mp3',

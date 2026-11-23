@@ -110,14 +110,60 @@ class AndroidReleaseTests(unittest.TestCase):
             android_release.apk_basename("381", "com.meteor.iroru"),
         )
         self.assertEqual(
-            "Iroru-android-arm64-v8a_4.5.3-beta.1_com.meteor.iroru.beta.apk",
+            "Iroru-android-arm64-v8a_4.5.3-beta.1_com.meteor.iroru.apk",
             android_release.apk_basename(
                 "4.5.3-beta.1",
-                "com.meteor.iroru.beta",
+                "com.meteor.iroru",
             ),
         )
         with self.assertRaises(android_release.VerificationError):
             android_release.apk_basename("../381", "com.meteor.iroru")
+
+    def test_version_code_slots_keep_stable_above_beta(self):
+        stable = android_release.version_code_base("4.5.3")
+        self.assertEqual(
+            ((4 * 100 + 5) * 1000 + 3) * 1000
+            + android_release.STABLE_VERSION_CODE_SLOT,
+            stable,
+        )
+        self.assertEqual(
+            stable - android_release.MAX_BETA_VERSION_CODE_SLOT,
+            android_release.version_code_base("4.5.3-beta.1"),
+        )
+        self.assertEqual(
+            stable - 1,
+            android_release.version_code_base("4.5.3-beta.998"),
+        )
+        self.assertGreater(
+            android_release.version_code_base("4.5.4"),
+            stable,
+        )
+        for version in (
+            "4.5.3-beta.0",
+            "4.5.3-beta.999",
+            "4.100.0",
+            "4.5.1000",
+            "21.0.0",
+        ):
+            with self.subTest(version=version):
+                with self.assertRaises(android_release.VerificationError):
+                    android_release.version_code_base(version)
+
+    def test_manual_beta_uses_next_patch_after_latest_stable(self):
+        self.assertGreater(
+            android_release.version_code_base(
+                "4.5.4-beta.1",
+                latest_stable="4.5.3",
+            ),
+            android_release.version_code_base("4.5.3"),
+        )
+        for version in ("4.5.3-beta.1", "4.5.4", "4.6.0-beta.1"):
+            with self.subTest(version=version):
+                with self.assertRaises(android_release.VerificationError):
+                    android_release.version_code_base(
+                        version,
+                        latest_stable="4.5.3",
+                    )
 
     def test_release_policy_checks_metadata_and_certificate(self):
         apk = self.make_apk()
@@ -133,19 +179,17 @@ class AndroidReleaseTests(unittest.TestCase):
         self.assertFalse(result.debug_fallback)
         self.assertIn("--print-certs", runner.calls[-1])
 
-    def test_beta_policy_verifies_signature_without_pinning_certificate(self):
-        apk = self.make_apk()
-        runner = FakeAndroidTools(self.badging(), certificate="00" * 32)
-
-        result = self.verify(
-            apk,
-            runner,
-            signing_policy="signed",
-            signing_configured=False,
-        )
-
-        self.assertIsNone(result.certificate_sha256)
-        self.assertNotIn("--print-certs", runner.calls[-1])
+    def test_beta_policy_rejects_a_different_certificate(self):
+        with self.assertRaisesRegex(
+            android_release.VerificationError,
+            "signing certificate",
+        ):
+            self.verify(
+                self.make_apk(),
+                FakeAndroidTools(self.badging(), certificate="00" * 32),
+                signing_policy="release",
+                signing_configured=True,
+            )
 
     def test_optional_signing_preserves_debug_fallback(self):
         apk = self.make_apk()

@@ -74,6 +74,17 @@ class WorkVideoPlaybackSource {
   final String? localPath;
 }
 
+Map<String, Object?> _workVideoHistoryDetails(
+  WorkVideoPlaybackSource source,
+) => {
+  'title': source.fileName,
+  'sourceKey': 'work',
+  'fileIdentity': source.fileIdentity,
+  if (source.folderPath.isNotEmpty) 'folderPath': source.folderPath,
+  if (source.localPath?.isNotEmpty ?? false)
+    'localPath': source.localPath!,
+};
+
 typedef WorkVideoSiblingResolver =
     Future<WorkVideoPlaybackSource?> Function(
       BuildContext context,
@@ -99,6 +110,7 @@ class WorkVideoPlaybackScreen extends ConsumerStatefulWidget {
     this.resolveSibling,
     this.sessionFactory,
     this.platform,
+    this.appTabIndex = appAudioTabIndex,
   });
 
   final String videoId;
@@ -111,6 +123,7 @@ class WorkVideoPlaybackScreen extends ConsumerStatefulWidget {
   final WorkVideoSiblingResolver? resolveSibling;
   final VideoPlaybackSessionFactory? sessionFactory;
   final VideoPlayerPlatform? platform;
+  final int appTabIndex;
 
   @override
   ConsumerState<WorkVideoPlaybackScreen> createState() =>
@@ -253,6 +266,7 @@ class _WorkVideoPlaybackScreenState
       videoId: _current.videoId,
       library: _library,
       title: _current.fileName,
+      historyDetails: _workVideoHistoryDetails(_current),
       autoPlayOnStart: true,
       streams: _current.streams,
       localPath: _current.localPath,
@@ -260,7 +274,7 @@ class _WorkVideoPlaybackScreenState
       initialVolume: initialVolume,
       sessionFactory: widget.sessionFactory,
       platform: widget.platform,
-      appTabIndex: appAudioTabIndex,
+      appTabIndex: widget.appTabIndex,
       allowAutomaticFullscreen: false,
       savePositionOnSourceChange: true,
       onFullscreenChanged: _setFullscreen,

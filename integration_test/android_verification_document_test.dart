@@ -6,11 +6,66 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import 'package:iroru/src/videos/missav_client.dart';
 import 'package:iroru/src/videos/missav_verification.dart';
+
+// The mobile source menu uses a named dropdown and a modified Alpine event.
+const _mobileMenu = '''
+<nav x-data="{showDropdown:null,user:null}">
+  <a href="#" @click.prevent="showDropdown = showDropdown === 'mobile' ? null : 'mobile'">Menu</a>
+  <div x-show="showDropdown === 'mobile'" style="display:none">
+    <div GUEST_GUARD><a href="/logout">Sign out</a></div>
+  </div>
+</nav>
+''';
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
+
+  for (final (state, guard) in [
+    ('signed in', ''),
+    ('guest', 'x-show="user" style="display:none"'),
+    ('awaiting initialization', 'x-cloak x-show="user"'),
+  ]) {
+    testWidgets(
+      'Android checks a collapsed mobile Favorites menu ($state)',
+      (tester) async {
+        final browser = WebViewController();
+        await browser.setJavaScriptMode(JavaScriptMode.unrestricted);
+        final loaded = Completer<void>();
+        await browser.setNavigationDelegate(
+          NavigationDelegate(
+            onPageFinished: (_) {
+              if (!loaded.isCompleted) loaded.complete();
+            },
+          ),
+        );
+        await tester.pumpWidget(
+          MaterialApp(home: WebViewWidget(controller: browser)),
+        );
+        final uri = Uri.parse('https://missav.ai/cn/saved');
+        final markup = await navigateMissavDocument(
+          uri,
+          Completer<void>().future,
+          navigate: (_) async {
+            await browser.loadHtmlString(
+              _mobileMenu.replaceFirst('GUEST_GUARD', guard),
+              baseUrl: uri.toString(),
+            );
+            await loaded.future.timeout(const Duration(seconds: 15));
+          },
+          read: browser.runJavaScriptReturningResult,
+          stop: () => browser.runJavaScript('window.stop();'),
+        );
+        expect(
+          MissavClient.readFavoritesAccountFromMarkup(markup, uri) != null,
+          state == 'signed in',
+        );
+      },
+      skip: !Platform.isAndroid,
+    );
+  }
 
   testWidgets(
     'Android reads a verified document through the real WebView bridge',

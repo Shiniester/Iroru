@@ -190,7 +190,7 @@ class _TestAudioController extends AudioPlayerController {
 void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({
-      'custom_download_path': Directory.systemTemp.path,
+      StorageService.customDownloadPathKey: Directory.systemTemp.path,
     });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),

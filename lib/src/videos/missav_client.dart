@@ -6,17 +6,21 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/log_service.dart';
 import '../services/proxy_config.dart';
 import '../services/remote_asset_cache.dart';
 import 'missav_browser_adapter.dart';
 import 'missav_mirrors.dart';
+import 'video_mirror_selection.dart';
 import 'video_models.dart';
 import 'video_source_client.dart';
+import 'video_source_loading.dart';
 
 typedef _ContentPage = ({
   Document document,
@@ -65,6 +69,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   }
 
   static const origin = 'https://missav.ai';
+  static const accountCheckUrl = '$origin/en/saved';
   static final _sourceDomains = {
     'missav.ai',
     'missav.ws',
@@ -129,7 +134,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   };
 
   final FlutterSecureStorage _secureStorage;
-  final Future<void> Function(MissavClient client, int expectedGeneration)?
+  final Future<void> Function(
+    MissavClient client,
+    int expectedGeneration,
+    CancelToken cancelToken,
+    void Function(String stage) onStage,
+  )?
   restoreSavedSession;
   final Dio _dio;
   final Dio _metadataDio;
@@ -144,29 +154,33 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       _mediaVerification;
   bool _useBrowserForContent = false;
   int _sessionGeneration = 0;
+  int _contentGeneration = 0;
   CancelToken _sessionCancelToken = CancelToken();
+  CancelToken? _accountRestoreToken;
   final List<CancelToken> _browseCancelTokens = [];
   Future<void> _pendingSessionWrite = Future.value();
   Future<void>? _initializing;
-  Future<bool>? _accountRestore;
+  final _loading = VideoSourceLoading();
   SharedPreferences? _contentPreferences;
   bool _initialized = false;
   _MissavCookies _cookies = const _MissavCookies();
-  String? _sessionHost;
+  bool _browserAccountUnconfirmed = false;
+  String? _restoredUserAgent;
   bool _confirmedGuest = false;
   String _userAgent = _defaultUserAgent;
   String _baseUrl = origin;
   bool _contentHostReady = false;
-  String? _preferredMirror;
-  String? _cachedContentHost;
-  String? _probedContentHost;
+  final _mirrorSelection = VideoMirrorSelection(
+    missavMirrorForBaseUrl,
+    missavLastGoodHostKey,
+  );
+  String? get _preferredMirror => _mirrorSelection.preferred;
   String? get _automaticProbeHost =>
-      _preferredMirror == null && !_useBrowserForContent
-      ? _probedContentHost
-      : null;
+      _useBrowserForContent ? null : _mirrorSelection.automaticProbe;
+  String? get _accountContentHost =>
+      _mirrorSelection.accountContentHost(origin, signedIn: isLoggedIn);
   Timer? _mirrorProbeTimer;
   CancelToken? _mirrorProbeToken;
-  bool _mirrorProbeFinished = false;
   String? _accountName;
   String _locale = 'cn';
   String _homeUrl = '$origin/cn';
@@ -182,14 +196,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   @override
   String get sourceKey => 'missav';
   int get sessionGeneration => _sessionGeneration;
+  int get contentGeneration => _contentGeneration;
   String? get accountName => _accountName;
   String get activeMirrorHost => Uri.parse(_baseUrl).host;
   bool get usesAutomaticMirror => _preferredMirror == null;
-  static const accountHosts = missavOfficialBaseUrls;
-  String _accountBaseUrl = accountHosts.first;
-  String get accountHostUrl => _accountBaseUrl;
-  String get _activeAccountBaseUrl =>
-      _sessionHost ?? (_browserAdapter != null ? origin : _accountBaseUrl);
+  String? get preferredMirrorHost {
+    final baseUrl = _preferredMirror;
+    return baseUrl == null ? null : Uri.parse(baseUrl).host;
+  }
+
   @override
   String get homeUrl => _homeUrl;
 
@@ -238,6 +253,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     HttpClientAdapter adapter, {
     FutureOr<Uri> Function(Uri)? mediaRoute,
     Future<void> Function()? resetMedia,
+    bool forAccountRestore = false,
+    String? restoredUserAgent,
   }) {
     if (_disposed) return;
     if (identical(adapter, _nativeAdapter)) {
@@ -251,17 +268,46 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       return;
     }
 
+    if (!forAccountRestore) _advanceSessionGeneration();
+    _attachBrowserTransport(
+      _dio.clone(httpClientAdapter: adapter),
+      mediaRoute: mediaRoute,
+      resetMedia: resetMedia,
+      forAccountRestore: forAccountRestore,
+      restoredUserAgent: restoredUserAgent,
+    );
+    notifyListeners();
+  }
+
+  void _attachBrowserTransport(
+    Dio browserDio, {
+    required FutureOr<Uri> Function(Uri)? mediaRoute,
+    required Future<void> Function()? resetMedia,
+    required bool forAccountRestore,
+    String? restoredUserAgent,
+  }) {
     final previousBrowserDio = _browserDio;
-    _advanceSessionGeneration();
-    _browserDio = _dio.clone(httpClientAdapter: adapter);
+    final adapter = browserDio.httpClientAdapter;
+    final sourceOrigin = adapter is MissavBrowserAdapter
+        ? adapter.origin
+        : origin;
+    _browserDio = browserDio;
     _mediaRoute = mediaRoute;
     _resetMedia = resetMedia;
     _mediaVerification = null;
-    _useBrowserForContent = true;
-    _baseUrl = origin;
-    _homeUrl = '$origin$_localePrefix';
+    _browserAccountUnconfirmed = forAccountRestore;
+    _restoredUserAgent = restoredUserAgent;
+    if (forAccountRestore) {
+      if (_useBrowserForContent) {
+        _useBrowserForContent = false;
+        _resetContentHost();
+      }
+    } else {
+      _useBrowserForContent = true;
+      _baseUrl = sourceOrigin;
+      _homeUrl = '$sourceOrigin$_localePrefix';
+    }
     previousBrowserDio?.close(force: true);
-    notifyListeners();
   }
 
   void restoreNativeTransport({HttpClientAdapter? expectedAdapter}) {
@@ -270,9 +316,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
             !identical(expectedAdapter, _browserAdapter))) {
       return;
     }
-    _advanceSessionGeneration();
+    final unconfirmed = _browserAccountUnconfirmed;
+    if (!unconfirmed) _advanceSessionGeneration();
     final browserDio = _browserDio;
     _browserDio = null;
+    _browserAccountUnconfirmed = false;
+    _restoredUserAgent = null;
     _useBrowserForContent = false;
     _contentHostReady = false;
     _mediaRoute = null;
@@ -298,9 +347,11 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final browser = _browserAdapter;
     final page = Uri.tryParse(video.pageUrl);
     if (route == null ||
+        _browserAccountUnconfirmed ||
         page == null ||
         page.origin != origin ||
-        browser is MissavBrowserAdapter && browser.isClosed) {
+        browser is MissavBrowserAdapter &&
+            (browser.isClosed || browser.origin != origin)) {
       return stream;
     }
     final generation = _sessionGeneration;
@@ -331,32 +382,16 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final mirror = missavMirrorForBaseUrl(baseUrl);
     _advanceSessionGeneration();
     _useBrowserForContent = false;
-    _preferredMirror = mirror?.baseUrl;
-    _contentHostReady = true;
-    if (mirror != null) {
-      _baseUrl = mirror.baseUrl;
-      _homeUrl = '${mirror.baseUrl}$_localePrefix';
-    } else {
-      _baseUrl = _cachedContentHost ?? _contentHosts.firstOrNull ?? origin;
-      _homeUrl = '$_baseUrl$_localePrefix';
-    }
+    _mirrorSelection.select(mirror);
+    _loading.reset(restoreOnBrowse: hasRestorableSession && !isLoggedIn);
+    _resetContentHost();
     notifyListeners();
   }
 
-  void resumeContentBrowsing() => selectMirror(_preferredMirror);
-
-  Future<void> selectAccountHost(String baseUrl) async {
-    if (_disposed || !accountHosts.contains(baseUrl)) return;
-    if (_accountBaseUrl != baseUrl) {
-      _accountBaseUrl = baseUrl;
-      notifyListeners();
-    }
-    try {
-      final preferences = await SharedPreferences.getInstance();
-      await preferences.setString(missavAccountBaseUrlKey, baseUrl);
-    } catch (_) {
-      // Keep the in-memory choice when preferences are unavailable.
-    }
+  Future<void> saveMirrorSelection(String? baseUrl) async {
+    if (_disposed) return;
+    selectMirror(baseUrl);
+    await _persistContentHost(missavMirrorBaseUrlKey, _preferredMirror);
   }
 
   @override
@@ -373,9 +408,16 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
     if (_useBrowserForContent) return;
     if (_contentHostReady) return;
+    _resetContentHost();
+  }
+
+  Future<void> _prepareContentAccess() =>
+      _loading.prepareContent(_prepareOnlineAccess, _tryRestoreAccount);
+
+  void _resetContentHost() {
     _baseUrl =
-        _preferredMirror ??
-        _cachedContentHost ??
+        _accountContentHost ??
+        _mirrorSelection.initial ??
         _contentHosts.firstOrNull ??
         origin;
     _homeUrl = '$_baseUrl$_localePrefix';
@@ -385,9 +427,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   bool get _canProbeMirrors =>
       _initialized &&
       !_disposed &&
-      !_mirrorProbeFinished &&
+      !_mirrorSelection.probeFinished &&
       !_isLoggedIn &&
-      (!hasRestorableSession || _confirmedGuest) &&
       !_useBrowserForContent &&
       _preferredMirror == null;
 
@@ -407,10 +448,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   }
 
   Future<void> _probeContentHosts() async {
-    final mirrors = {
-      if (_cachedContentHost case final cached?) cached,
-      ..._contentHosts,
-    }.map(missavMirrorForBaseUrl).whereType<MissavMirror>().take(3).toList();
+    final mirrors = _mirrorSelection.probeCandidates(_contentHosts);
     if (mirrors.isEmpty) return;
     final token = _mirrorProbeToken = CancelToken();
     try {
@@ -419,12 +457,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         timeout: _contentHostTimeout,
       ).probeAll(mirrors, cancelToken: token, concurrency: 1);
       if (!identical(_mirrorProbeToken, token) || !_canProbeMirrors) return;
-      _mirrorProbeFinished = true;
-      _probedContentHost = results
-          .where((result) => result.isAvailable)
-          .firstOrNull
-          ?.mirror
-          .baseUrl;
+      _mirrorSelection.acceptProbeResults(results);
     } catch (_) {
       return;
     } finally {
@@ -434,7 +467,9 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   Future<void> _persistContentHost(String key, String? baseUrl) async {
     try {
-      await _contentPreferences?.setString(key, baseUrl ?? '');
+      final preferences =
+          _contentPreferences ?? await SharedPreferences.getInstance();
+      await preferences.setString(key, baseUrl ?? '');
     } catch (_) {
       // A preference write failure must not fail the page load.
     }
@@ -456,55 +491,54 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
+  Future<void> restoreMirrorSelection() async {
+    final generation = _sessionGeneration;
+    final preferences = _contentPreferences =
+        await SharedPreferences.getInstance();
+    if (generation != _sessionGeneration || _disposed) return;
+    final savedMirror = preferences.getString(missavMirrorBaseUrlKey);
+    final mirror = missavMirrorForBaseUrl(savedMirror);
+    final previousMirror = _preferredMirror;
+    final previousBaseUrl = _baseUrl;
+    _mirrorSelection.restore(preferences, mirror);
+    if (_mirrorSelection.initial case final base? when !_contentHostReady) {
+      _baseUrl = base;
+      _homeUrl = '$base$_localePrefix';
+    }
+    if (_preferredMirror != previousMirror || _baseUrl != previousBaseUrl) {
+      notifyListeners();
+    }
+    if (savedMirror != null && savedMirror.isNotEmpty && mirror == null) {
+      await preferences.setString(missavMirrorBaseUrlKey, '');
+    }
+  }
+
   Future<void> _loadSession() async {
     final generation = _sessionGeneration;
-    String? savedAccountHost;
     try {
       try {
-        final preferences = _contentPreferences =
-            await SharedPreferences.getInstance();
-        final savedMirror = preferences.getString(missavMirrorBaseUrlKey);
-        final mirror = missavMirrorForBaseUrl(savedMirror);
-        final cachedRaw = preferences.getString(missavLastGoodHostKey);
-        final cachedHost = missavMirrorForBaseUrl(cachedRaw);
-        if (generation == _sessionGeneration && !_disposed) {
-          _preferredMirror ??= mirror?.baseUrl;
-          _cachedContentHost ??= cachedHost?.baseUrl;
-          final accountHost = preferences.getString(missavAccountBaseUrlKey);
-          if (accountHosts.contains(accountHost)) {
-            savedAccountHost = accountHost;
-            _accountBaseUrl = accountHost!;
-          }
-          if (!_contentHostReady) {
-            final base = _preferredMirror ?? _cachedContentHost;
-            if (base != null) {
-              _baseUrl = base;
-              _homeUrl = '$base$_localePrefix';
-            }
-          }
-        }
-        if (savedMirror != null && savedMirror.isNotEmpty && mirror == null) {
-          await preferences.setString(missavMirrorBaseUrlKey, '');
-        }
-        if (cachedRaw != null && cachedRaw.isNotEmpty && cachedHost == null) {
-          await preferences.setString(missavLastGoodHostKey, '');
-        }
+        await restoreMirrorSelection();
       } catch (_) {
         // A missing preference store leaves automatic mirror selection on.
       }
       final record = await _secureStorage.read(key: _sessionRecordKey);
       final session = _decodeStoredSession(record);
-      final cookies =
-          session?.cookies ??
-          _MissavCookies.fromHeader(await _secureStorage.read(key: _cookieKey));
+      final cookies = session?.cookies ?? const _MissavCookies();
       if (generation == _sessionGeneration && !_disposed) {
         _cookies = cookies;
-        _sessionHost = cookies.header == null
-            ? null
-            : session?.host ?? savedAccountHost ?? origin;
-        _userAgent = session?.userAgent ?? _defaultUserAgent;
+        _userAgent = cookies.header == null
+            ? _defaultUserAgent
+            : session?.userAgent ?? _defaultUserAgent;
+        _loading.reset(restoreOnBrowse: cookies.header != null);
         _initialized = true;
       }
+    } catch (error) {
+      if (generation == _sessionGeneration && !_disposed) {
+        LogService.instance.error(
+          'MissAV restore failed: stage=readSession reason=${_restoreFailureReason(error)}',
+        );
+      }
+      rethrow;
     } finally {
       _initializing = null;
     }
@@ -517,7 +551,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     void Function(VideoCatalogPage page)? onParsed,
   }) async {
     if (cancelToken?.cancelError case final error?) throw error;
-    await _prepareOnlineAccess();
+    final source = _localizedSourceUri(url, remap: false);
+    if (_accountPageUri(source) != null) {
+      await _prepareOnlineAccess();
+      if (hasRestorableSession ? !await restoreAccount() : _confirmedGuest) {
+        throw MissavAuthenticationException(sourceUrl: source.toString());
+      }
+    } else {
+      await _prepareContentAccess();
+    }
     final requestCancelToken = cancelToken ?? CancelToken();
     _browseCancelTokens.add(requestCancelToken);
     try {
@@ -594,12 +636,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
     final generation = _sessionGeneration;
     final locale = _locale;
-    final uri = Uri.parse('$_activeAccountBaseUrl$_localePrefix');
+    final uri = Uri.parse('$origin$_localePrefix');
     final (document: document, uri: pageUri) = await _loadDocument(
       uri,
       generation,
       cancelToken: cancelToken,
       isContentPage: true,
+      accountCheck: true,
     );
     _checkGeneration(generation, uri);
     if (_locale != locale) {
@@ -609,7 +652,9 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       );
     }
     final sourceUser = _readAccountFromPage(document) ?? browserUser;
-    if (sourceUser != null) _updateAccountFromSource(sourceUser);
+    if (sourceUser != null) {
+      await _confirmAccount(sourceUser, uri, generation, cancelToken);
+    }
     if (pageUri.origin == _baseUrl) _updateHomeUrl(document, pageUri);
   }
 
@@ -617,31 +662,142 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     if (!recheck && isLoggedIn) return true;
     await _prepareOnlineAccess();
     if (!recheck && isLoggedIn) return true;
-    if (_accountRestore case final pending?) return pending;
+    return _loading.checkAccount(_tryRestoreAccount);
+  }
+
+  Future<bool> _tryRestoreAccount() async {
     if (!hasRestorableSession) {
       if (isLoggedIn) await _clearSession(_advanceSessionGeneration());
       return false;
     }
-    final pending = _restoreAccount(_sessionGeneration);
-    _accountRestore = pending;
+    final generation = _sessionGeneration;
+    final cancelToken = _accountRestoreToken = CancelToken();
+    final uri = Uri.parse(origin);
+    var restoringBrowser = _browserAdapter;
+    var stage = restoringBrowser == null
+        ? 'nativeFavorites'
+        : 'browserFavorites';
+    final elapsed = Stopwatch()..start();
+    var stageStartedMs = 0;
+    void setStage(String next) {
+      stage = next;
+      stageStartedMs = elapsed.elapsedMilliseconds;
+    }
+
+    Future<bool> restore() async {
+      try {
+        return await _restoreAccount(generation, cancelToken);
+      } on MissavException catch (error) {
+        final restorer = restoreSavedSession;
+        if ((error is! MissavVerificationRequiredException &&
+                error is! _UnconfirmedFavorites) ||
+            restoringBrowser != null ||
+            restorer == null) {
+          rethrow;
+        }
+        _checkGeneration(generation, uri);
+        _checkCancelled(cancelToken, uri);
+        setStage('browserSetup');
+        await restorer(this, generation, cancelToken, setStage);
+        _checkGeneration(generation, uri);
+        _checkCancelled(cancelToken, uri);
+        restoringBrowser = _browserAdapter;
+        if (restoringBrowser == null) {
+          throw StateError('MissAV background browser was not attached.');
+        }
+        setStage('browserFavorites');
+        return _restoreAccount(generation, cancelToken);
+      }
+    }
+
+    const timeout = Duration(seconds: 30);
     try {
-      return await pending;
+      final restored = await restore().timeout(
+        timeout,
+        onTimeout: () {
+          cancelToken.cancel('MissAV account restoration timed out.');
+          throw TimeoutException(
+            'MissAV account restoration timed out.',
+            timeout,
+          );
+        },
+      );
+      if (!restored) {
+        LogService.instance.warning(
+          'MissAV restore failed: stage=$stage reason=accountRejected',
+        );
+      }
+      return restored;
+    } catch (error) {
+      if (generation == _sessionGeneration &&
+          !_disposed &&
+          (!cancelToken.isCancelled || error is TimeoutException)) {
+        LogService.instance.error(
+          'MissAV restore failed: stage=$stage reason=${_restoreFailureReason(error)} '
+          'stageElapsedMs=${elapsed.elapsedMilliseconds - stageStartedMs} elapsedMs=${elapsed.elapsedMilliseconds}',
+        );
+        if (_browserAccountUnconfirmed && restoringBrowser != null) {
+          restoreNativeTransport(expectedAdapter: restoringBrowser);
+        }
+      }
+      rethrow;
     } finally {
-      if (identical(_accountRestore, pending)) _accountRestore = null;
+      if (identical(_accountRestoreToken, cancelToken)) {
+        _accountRestoreToken = null;
+      }
     }
   }
 
-  Future<bool> _restoreAccount(int generation) async {
-    final uri = Uri.parse('$_activeAccountBaseUrl/en/saved');
+  static String _restoreFailureReason(Object error) => switch (error) {
+    TimeoutException() => 'timeout',
+    PlatformException(:final code) => 'platform/$code',
+    DioException(:final type) => type.name,
+    MissavException(cause: DioException(:final type)) => type.name,
+    _UnconfirmedFavorites() => 'could not confirm account',
+    MissavVerificationRequiredException() => 'verification required',
+    MissavAuthenticationException() => 'account rejected',
+    MissavAccessDeniedException() => 'HTTP 403',
+    MissavRateLimitException() => 'HTTP 429',
+    MissavException(:final message)
+        when RegExp(r'^MissAV returned HTTP \d{3}\.$').hasMatch(message) ||
+            const {
+              'MissAV did not return the favorites page.',
+              'MissAV browser did not return a source document.',
+              'MissAV redirected too many times.',
+              'MissAV redirected the content page to another line.',
+            }.contains(message) =>
+      message,
+    StateError(:final message)
+        when const {
+          'Application overlay unavailable',
+          'WebView runtime unavailable',
+          'Source browser unavailable',
+          'Source browser session unavailable',
+          'MissAV could not be loaded.',
+          'MissAV navigation was blocked.',
+          'MissAV browser connection was closed.',
+          'MissAV background browser was not attached.',
+          'MissAV browser proxy was replaced.',
+          'MissAV verification requires the system proxy.',
+        }.contains(message) =>
+      message,
+    _ => error.runtimeType.toString(),
+  };
+
+  Future<bool> _restoreAccount(int generation, CancelToken cancelToken) async {
+    final uri = Uri.parse(accountCheckUrl);
     try {
       final (:document, uri: pageUri) = await _loadDocument(
         uri,
         generation,
+        cancelToken: cancelToken,
         isContentPage: true,
+        accountCheck: true,
       );
-      final sourceUser = _readAccountFromPage(document);
-      if (pageUri.origin == uri.origin && sourceUser != null) {
-        _updateAccountFromSource(sourceUser);
+      final sourceUser = _readFavoritesAccount(document);
+      final onFavorites = isFavoritesPage(pageUri);
+      if (onFavorites && sourceUser != null) {
+        await _confirmAccount(sourceUser, uri, generation, cancelToken);
         return true;
       }
       if (pageUri.origin == uri.origin &&
@@ -652,21 +808,46 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
                       .any((control) => control.text.trim() == 'Login')))) {
         throw MissavAuthenticationException(sourceUrl: uri.toString());
       }
-      if (isLoggedIn) return true;
-      throw MissavException(
-        'MissAV could not confirm the saved account session.',
-        sourceUrl: uri.toString(),
-      );
+      throw _UnconfirmedFavorites(uri);
     } on MissavAuthenticationException {
       _checkGeneration(generation, uri);
-      if (_browserAdapter == null) {
-        _advanceSessionGeneration();
-      } else {
+      _checkCancelled(cancelToken, uri);
+      if (_browserAccountUnconfirmed && _cookies.header != null) {
+        restoreNativeTransport();
+        try {
+          return await _restoreAccount(generation, cancelToken);
+        } on MissavVerificationRequiredException {
+          throw _UnconfirmedFavorites(uri);
+        }
+      }
+      if (_browserAdapter != null) {
         restoreNativeTransport();
       }
       await _clearSession(_sessionGeneration);
       return false;
     }
+  }
+
+  Future<void> _confirmAccount(
+    Map<String, dynamic> user,
+    Uri uri,
+    int generation, [
+    CancelToken? cancelToken,
+  ]) async {
+    final browser = _browserAdapter;
+    if (_browserAccountUnconfirmed && browser is MissavBrowserAdapter) {
+      await _saveBrowserCookies(
+        browser,
+        uri,
+        generation,
+        force: true,
+        cancelToken: cancelToken,
+        userAgent: _restoredUserAgent,
+      );
+      _checkGeneration(generation, uri);
+    }
+    _checkCancelled(cancelToken, uri);
+    _updateAccountFromSource(user);
   }
 
   Future<VideoCatalogPage> _browse(
@@ -764,7 +945,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     CancelToken? cancelToken,
   }) async {
     if (cancelToken?.cancelError case final error?) throw error;
-    await _prepareOnlineAccess();
+    await _prepareContentAccess();
     final generation = _sessionGeneration;
     final locale = _locale;
     var uri = _localizedSourceUri(homeUrl, remap: false);
@@ -1360,7 +1541,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     List<VideoLink> filters, {
     bool Function()? isCurrent,
   }) async {
-    await _prepareOnlineAccess();
+    await _prepareContentAccess();
     final generation = _sessionGeneration;
     final locale = _locale;
     final keyword = query.trim();
@@ -1430,7 +1611,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     CancelToken? cancelToken,
   }) async {
     cancelBackgroundMirrorProbe();
-    await _prepareOnlineAccess();
+    await _prepareContentAccess();
     final generation = _sessionGeneration;
     final locale = _locale;
     final contentToken = cancelToken ?? CancelToken();
@@ -1552,16 +1733,25 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final sourceId = initialDetails.sourceId;
     Object? accountError;
     StackTrace? accountTrace;
-    final accountBase = _activeAccountBaseUrl;
     if (sourceId != null &&
         includeAccountState &&
         (_officialHosts.contains(uri.host) ||
             _isLoggedIn ||
             (hasRestorableSession && !_confirmedGuest))) {
       final viewUri = Uri.parse(
-        '$accountBase/api/items/${Uri.encodeComponent(sourceId)}/view',
+        '$origin/api/items/${Uri.encodeComponent(sourceId)}/view',
       );
       try {
+        if (_loading.pendingAccountCheck case final accountCheck?) {
+          final requestToken = cancelToken ?? _sessionCancelToken;
+          final confirmed = await Future.any([
+            accountCheck,
+            requestToken.whenCancel.then<bool>((error) => throw error),
+          ]);
+          if (!confirmed) {
+            throw MissavAuthenticationException(sourceUrl: viewUri.toString());
+          }
+        }
         final viewResponse = await _request(
           viewUri,
           generation: generation,
@@ -1615,53 +1805,11 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   Future<void> login({required String email, required String password}) async {
     await _prepareOnlineAccess();
-    if (_browserAdapter != null) {
-      await _loginAt(origin, email: email, password: password);
-      return;
-    }
-    final previous = _accountBaseUrl;
-    final hosts = [previous, ...accountHosts.where((host) => host != previous)];
-    MissavException? lastError;
-    for (final host in hosts) {
-      try {
-        await _loginAt(host, email: email, password: password);
-        await selectAccountHost(host);
-        return;
-      } on MissavAuthenticationException {
-        rethrow;
-      } on MissavException catch (error) {
-        if (!_canRetryLogin(error)) rethrow;
-        lastError = error;
-      }
-    }
-    throw lastError ?? const MissavException('MissAV login failed.');
-  }
-
-  static bool _canRetryLogin(MissavException error) {
-    if (error is MissavAuthenticationException ||
-        error is MissavVerificationRequiredException ||
-        error is MissavAccessDeniedException ||
-        error is MissavRateLimitException) {
-      return false;
-    }
-    if (error.message.contains('account changed')) return false;
-    final cause = error.cause;
-    return cause is! DioException || cause.type != DioExceptionType.cancel;
-  }
-
-  Future<void> _loginAt(
-    String base, {
-    required String email,
-    required String password,
-  }) async {
     final generation = _advanceSessionGeneration();
     _confirmedGuest = false;
-    final uri = Uri.parse('$base/en/api/login');
-    final pageUri = Uri.parse('$base/en');
-    final login = _MissavLoginCookies(
-      base,
-      _sessionHost == base ? _cookies : const _MissavCookies(),
-    );
+    final uri = Uri.parse('$origin/en/api/login');
+    final pageUri = Uri.parse('$origin/en');
+    final login = _MissavLoginCookies(_cookies);
     if (_resetMedia case final resetMedia?) {
       await resetMedia();
       _checkGeneration(generation, uri);
@@ -1728,9 +1876,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       }
       user ??= readAccountFromMarkup(text, uri);
       if (user == null) {
-        final homeUri = Uri.parse('$base/en');
         final homeResponse = await _request(
-          homeUri,
+          pageUri,
           generation: generation,
           direct: true,
           login: login,
@@ -1738,7 +1885,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         final homeText = homeResponse.data is String
             ? homeResponse.data as String
             : '';
-        user = readAccountFromMarkup(homeText, homeUri);
+        user = readAccountFromMarkup(homeText, pageUri);
       }
       if (user == null) {
         throw MissavException(
@@ -1764,21 +1911,17 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
             generation,
             cookies: login.cookies,
             userAgent: _userAgent,
-            host: base,
           );
         }
         _checkGeneration(generation, uri);
         _cookies = login.cookies;
-        _sessionHost = base;
       });
       _checkGeneration(generation, uri);
       _accountName = _accountNameFrom(user) ?? email;
+      _useBrowserForContent = false;
       _setAccountState(loggedIn: true, notify: false);
-      if (browser != null) {
-        resumeContentBrowsing();
-      } else {
-        notifyListeners();
-      }
+      _resetContentHost();
+      notifyListeners();
     } on MissavException {
       rethrow;
     } on DioException catch (error) {
@@ -1820,7 +1963,6 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final accountChanged = _isLoggedIn || _accountName != null;
     final cookies = _MissavCookies.fromHeader(cookieHeader);
     _cookies = cookies;
-    _sessionHost = origin;
     _confirmedGuest = false;
     _userAgent = userAgent;
     _accountName = null;
@@ -1828,12 +1970,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     if (accountChanged && !_disposed) notifyListeners();
 
     await _writeSession(generation, () async {
-      await _persistSession(
-        generation,
-        cookies: cookies,
-        userAgent: userAgent,
-        host: origin,
-      );
+      await _persistSession(generation, cookies: cookies, userAgent: userAgent);
     });
     if (generation != _sessionGeneration || _disposed) {
       throw const MissavException(
@@ -1842,9 +1979,83 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
+  Future<void> commitBrowserLogin(
+    MissavBrowserAdapter adapter, {
+    required String cookieHeader,
+    required String userAgent,
+    required Map<String, dynamic> user,
+    required int expectedGeneration,
+    required void Function() ensureCurrent,
+    required FutureOr<Uri> Function(Uri) mediaRoute,
+    required Future<void> Function() resetMedia,
+  }) async {
+    _validateHeaderValue(cookieHeader, 'cookieHeader');
+    _validateHeaderValue(userAgent, 'userAgent');
+    final uri = Uri.parse(origin);
+    final cookies = _MissavCookies.fromHeader(cookieHeader);
+    final cookie = cookies.header;
+    if (cookie == null) {
+      throw StateError('MissAV browser session has no cookies.');
+    }
+    final accountName = _accountNameFrom(user);
+    var committed = false;
+    await _writeSession(expectedGeneration, () async {
+      ensureCurrent();
+      final browserDio = _dio.clone(httpClientAdapter: adapter);
+      final previousCookies = _cookies;
+      final previousUserAgent = _userAgent;
+      var savedRecord = false;
+      try {
+        await _secureStorage.write(key: _cookieKey, value: cookie);
+        ensureCurrent();
+        await _writeSessionRecord(cookies, cookie, userAgent);
+        savedRecord = true;
+        ensureCurrent();
+      } catch (_) {
+        final previousCookie = previousCookies.header;
+        if (savedRecord) {
+          if (previousCookie == null) {
+            await _secureStorage.delete(key: _sessionRecordKey);
+          } else {
+            await _writeSessionRecord(
+              previousCookies,
+              previousCookie,
+              previousUserAgent,
+            );
+          }
+        }
+        if (previousCookie == null) {
+          await _secureStorage.delete(key: _cookieKey);
+        } else {
+          await _secureStorage.write(key: _cookieKey, value: previousCookie);
+        }
+        rethrow;
+      }
+      _advanceSessionGeneration();
+      _attachBrowserTransport(
+        browserDio,
+        mediaRoute: mediaRoute,
+        resetMedia: resetMedia,
+        forAccountRestore: true,
+      );
+      _cookies = cookies;
+      _userAgent = userAgent;
+      _accountName = accountName;
+      _setAccountState(loggedIn: true, notify: false);
+      committed = true;
+      notifyListeners();
+    });
+    if (!committed) _checkGeneration(expectedGeneration, uri);
+  }
+
+  Future<void> discardVerifiedSession({required int expectedGeneration}) async {
+    if (_disposed || expectedGeneration != _sessionGeneration) return;
+    final generation = _advanceSessionGeneration();
+    await _clearSession(generation);
+  }
+
   Future<void> setVideoFavorite(VideoDetails details, bool favorite) async {
     await _prepareOnlineAccess();
-    final base = _activeAccountBaseUrl;
     final sourceId = details.sourceId;
     if (sourceId == null || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(sourceId)) {
       throw MissavUnsupportedException(
@@ -1853,14 +2064,14 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       );
     }
     await _request(
-      Uri.parse('$base/api/items/${Uri.encodeComponent(sourceId)}/save'),
+      Uri.parse('$origin/api/items/${Uri.encodeComponent(sourceId)}/save'),
       method: favorite ? 'POST' : 'DELETE',
     );
   }
 
   Future<List<VideoLink>> playlistsFor(VideoItem item) async {
     await _prepareOnlineAccess();
-    final base = _activeAccountBaseUrl;
+    const base = origin;
     _sourceUri(item.pageUrl);
     final uri = Uri.parse(
       '$base/api/playlists/${Uri.encodeComponent(item.id)}',
@@ -1896,7 +2107,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   Future<void> setActorFavorite(VideoLink actor, bool favorite) async {
     await _prepareOnlineAccess();
-    final base = _activeAccountBaseUrl;
+    const base = origin;
     final generation = _sessionGeneration;
     final actorUri = _localizedSourceUri(actor.url);
     final (document: document, uri: _) = await _loadDocument(
@@ -1954,7 +2165,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     required bool added,
   }) async {
     await _prepareOnlineAccess();
-    final base = _activeAccountBaseUrl;
+    const base = origin;
     final key = playlist.sourceKey;
     if (key == null || key.isEmpty) {
       throw MissavUnsupportedException(
@@ -1971,10 +2182,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   Future<void> clearWatchHistory() async {
     await _prepareOnlineAccess();
-    await _request(
-      Uri.parse('$_activeAccountBaseUrl/api/history'),
-      method: 'DELETE',
-    );
+    await _request(Uri.parse('$origin/api/history'), method: 'DELETE');
   }
 
   Future<({Document document, Uri uri})> _loadDocument(
@@ -1983,14 +2191,19 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     CancelToken? cancelToken,
     bool isContentPage = false,
     bool allowNotFound = false,
+    bool accountCheck = false,
   }) async {
     var uri = target;
     _checkGeneration(generation, uri);
-    final adapter = uri.origin == origin ? _browserAdapter : null;
+    final browser = _browserAdapter;
+    final useBrowser =
+        browser is MissavBrowserAdapter &&
+        uri.origin == browser.origin &&
+        (!_browserAccountUnconfirmed || accountCheck);
     final String body;
-    if (adapter is MissavBrowserAdapter) {
+    if (useBrowser) {
       try {
-        body = await adapter.loadDocument(
+        body = await browser.loadDocument(
           uri,
           cancelToken: cancelToken ?? _sessionCancelToken,
         );
@@ -2001,6 +2214,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         throw MissavException(
           'MissAV browser navigation failed (${error.type.name}).',
           sourceUrl: uri.toString(),
+          cause: error,
         );
       }
     } else {
@@ -2036,8 +2250,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
             : _responseFailure(status, uri);
       }
     }
-    if (adapter is MissavBrowserAdapter && uri.origin == _sessionHost) {
-      await _saveBrowserCookies(adapter, uri, generation);
+    if (useBrowser && uri.origin == origin && !_browserAccountUnconfirmed) {
+      await _saveBrowserCookies(
+        browser,
+        uri,
+        generation,
+        cancelToken: cancelToken,
+      );
       _checkGeneration(generation, uri);
       if (cancelToken?.cancelError case final error?) throw error;
     }
@@ -2097,9 +2316,9 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         headers['Referer'] = '${requestUri.origin}/';
         headers['Accept-Language'] = 'en-US,en;q=0.9';
         headers['Cache-Control'] = 'no-cache';
-        final cookie = login != null
-            ? (requestUri.origin == login.host ? login.cookies.header : null)
-            : (requestUri.origin == _sessionHost ? _cookies.header : null);
+        final cookie = requestUri.origin == origin
+            ? (login?.cookies ?? _cookies).header
+            : null;
         if (cookie != null && cookie.isNotEmpty) {
           headers['Cookie'] = cookie;
           final xsrfToken = _cookieValue(cookie, 'XSRF-TOKEN');
@@ -2111,7 +2330,16 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
       late final Response<dynamic> response;
       try {
-        final dio = requestUri.origin == origin ? _browserDio ?? _dio : _dio;
+        final browserAdapter = _browserAdapter;
+        final browserOrigin = browserAdapter is MissavBrowserAdapter
+            ? browserAdapter.origin
+            : origin;
+        final dio =
+            browserAdapter != null &&
+                requestUri.origin == browserOrigin &&
+                (!_browserAccountUnconfirmed || isApi || login != null)
+            ? _browserDio ?? _dio
+            : _dio;
         response = await dio.request<dynamic>(
           requestUri.toString(),
           data: requestData,
@@ -2186,6 +2414,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         response,
         requestUri,
         requestGeneration,
+        requestCancelToken,
         login: login,
       );
       final browser = _browserAdapter;
@@ -2193,9 +2422,10 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
           isApi &&
           status >= 200 &&
           status < 300 &&
+          browser is MissavBrowserAdapter &&
+          requestUri.origin == browser.origin &&
           requestUri.origin == origin &&
-          requestUri.origin == _sessionHost &&
-          browser is MissavBrowserAdapter) {
+          !_browserAccountUnconfirmed) {
         await _saveBrowserCookies(browser, requestUri, requestGeneration);
       }
       _checkGeneration(requestGeneration, requestUri);
@@ -2208,7 +2438,9 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
             sourceUrl: redirectedUri.toString(),
           );
         }
-        final accountRequestHost = login?.host ?? (isApi ? uri.origin : null);
+        final accountRequestHost = login != null
+            ? origin
+            : (isApi ? uri.origin : null);
         if (accountRequestHost != null &&
             redirectedUri.origin != accountRequestHost) {
           throw MissavException(
@@ -2236,7 +2468,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         continue;
       }
       if (status == HttpStatus.unauthorized) {
-        if (login == null && requestUri.origin == _activeAccountBaseUrl) {
+        if (login == null && requestUri.origin == origin) {
           _updateAccountFromSource(null);
         }
         throw MissavAuthenticationException(sourceUrl: requestUri.toString());
@@ -2289,11 +2521,13 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   Future<void> _saveResponseCookies(
     Response<dynamic> response,
     Uri uri,
-    int generation, {
+    int generation,
+    CancelToken cancelToken, {
     _MissavLoginCookies? login,
   }) async {
-    final accountHost = login?.host ?? _activeAccountBaseUrl;
-    if (uri.origin != accountHost || generation != _sessionGeneration) {
+    if (uri.origin != origin ||
+        generation != _sessionGeneration ||
+        (_browserAccountUnconfirmed && login == null)) {
       return;
     }
     final values = response.headers['set-cookie'];
@@ -2304,20 +2538,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
 
     await _writeSession(generation, () async {
-      if (accountHost != _activeAccountBaseUrl) return;
-      final current = _sessionHost == accountHost
-          ? _cookies
-          : const _MissavCookies();
-      final updated = current.withResponse(values);
+      if (cancelToken.isCancelled) return;
+      final updated = _cookies.withResponse(values);
       await _persistSession(
         generation,
         cookies: updated,
         userAgent: _userAgent,
-        host: accountHost,
       );
       if (generation == _sessionGeneration) {
         _cookies = updated;
-        _sessionHost = accountHost;
         if (updated.header == null) _userAgent = _defaultUserAgent;
       }
     });
@@ -2326,33 +2555,46 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   Future<void> _saveBrowserCookies(
     MissavBrowserAdapter browser,
     Uri uri,
-    int generation,
-  ) async {
+    int generation, {
+    bool force = false,
+    CancelToken? cancelToken,
+    String? userAgent,
+  }) async {
     final read = browser.readCookieHeader;
     if (read == null) return;
     await _writeSession(generation, () async {
-      if (uri.origin != _sessionHost) return;
+      if (uri.origin != origin || cancelToken?.isCancelled == true) return;
       final String header;
       try {
-        header = await read();
+        header = await Future.any([
+          read(),
+          if (cancelToken != null)
+            cancelToken.whenCancel.then<String>((error) => throw error),
+        ]);
         _validateHeaderValue(header, 'cookieHeader');
       } catch (_) {
         return;
       }
-      if (generation != _sessionGeneration || header == _cookies.header) return;
+      if (generation != _sessionGeneration ||
+          cancelToken?.isCancelled == true ||
+          !identical(browser, _browserAdapter) ||
+          (!force && header == _cookies.header)) {
+        return;
+      }
       final updated = _cookies.withBrowserHeader(header);
       try {
         await _persistSession(
           generation,
           cookies: updated,
-          userAgent: _userAgent,
-          host: uri.origin,
+          userAgent: userAgent ?? _userAgent,
         );
       } catch (_) {
         debugPrint('MissAV could not persist browser cookies.');
         return;
       }
-      if (generation == _sessionGeneration) _cookies = updated;
+      if (generation == _sessionGeneration) {
+        _cookies = updated;
+      }
     });
   }
 
@@ -2360,7 +2602,6 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     int generation, {
     required _MissavCookies cookies,
     required String userAgent,
-    required String host,
   }) async {
     final cookie = cookies.header;
     if (cookie == null) {
@@ -2371,18 +2612,24 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       return;
     }
 
-    await _secureStorage.write(
-      key: _sessionRecordKey,
-      value: jsonEncode({
-        'cookie': cookie,
-        'userAgent': userAgent,
-        'host': host,
-        if (cookies.expirations.isNotEmpty) 'expires': cookies.expirations,
-      }),
-    );
+    await _writeSessionRecord(cookies, cookie, userAgent);
     if (generation != _sessionGeneration) return;
     await _secureStorage.write(key: _cookieKey, value: cookie);
   }
+
+  Future<void> _writeSessionRecord(
+    _MissavCookies cookies,
+    String cookie,
+    String userAgent,
+  ) => _secureStorage.write(
+    key: _sessionRecordKey,
+    value: jsonEncode({
+      'cookie': cookie,
+      'userAgent': userAgent,
+      'host': origin,
+      if (cookies.expirations.isNotEmpty) 'expires': cookies.expirations,
+    }),
+  );
 
   Future<void> _writeSession(
     int generation,
@@ -2403,7 +2650,6 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     if (generation != _sessionGeneration) return;
     final accountChanged = _isLoggedIn || _accountName != null;
     _cookies = const _MissavCookies();
-    _sessionHost = null;
     _confirmedGuest = true;
     _userAgent = _defaultUserAgent;
     _accountName = null;
@@ -2415,24 +2661,23 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     });
   }
 
-  static ({_MissavCookies cookies, String userAgent, String? host})?
-  _decodeStoredSession(String? value) {
+  static ({_MissavCookies cookies, String userAgent})? _decodeStoredSession(
+    String? value,
+  ) {
     if (value == null) return null;
     try {
       final decoded = jsonDecode(value);
       if (decoded is Map &&
+          decoded['host'] == origin &&
           decoded['cookie'] is String &&
           decoded['userAgent'] is String) {
         final cookie = decoded['cookie'] as String;
         final userAgent = decoded['userAgent'] as String;
         _validateHeaderValue(cookie, 'cookie');
         _validateHeaderValue(userAgent, 'userAgent');
-        final host = decoded['host'];
-        if (host != null && !accountHosts.contains(host)) return null;
         return (
           cookies: _MissavCookies.fromHeader(cookie, decoded['expires']),
           userAgent: userAgent,
-          host: host as String?,
         );
       }
     } on FormatException {
@@ -2462,16 +2707,29 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   void _setAccountState({required bool loggedIn, bool notify = true}) {
     if (loggedIn) {
+      _acceptRestoredBrowser();
       _confirmedGuest = false;
       cancelBackgroundMirrorProbe();
     }
     if (_isLoggedIn == loggedIn) return;
     _isLoggedIn = loggedIn;
+    if (!_useBrowserForContent && usesAutomaticMirror) {
+      final previousHost = _baseUrl;
+      _resetContentHost();
+      if (_baseUrl != previousHost) _contentGeneration++;
+    }
     if (notify && !_disposed) notifyListeners();
   }
 
+  void _acceptRestoredBrowser() {
+    _browserAccountUnconfirmed = false;
+    if (_restoredUserAgent case final userAgent?) _userAgent = userAgent;
+    _restoredUserAgent = null;
+  }
+
   int _advanceSessionGeneration() {
-    _accountRestore = null;
+    _loading.reset();
+    _accountRestoreToken?.cancel('MissAV account changed.');
     cancelBackgroundMirrorProbe();
     _recommendationUserId = null;
     _recommendationScenario = null;
@@ -2557,6 +2815,22 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     'pt',
   };
 
+  static bool isFavoritesPage(Uri uri) {
+    if (!uri.hasAuthority ||
+        uri.scheme != 'https' ||
+        uri.origin != origin ||
+        uri.userInfo.isNotEmpty) {
+      return false;
+    }
+    final route = uri.pathSegments
+        .where((part) => part.isNotEmpty)
+        .skipWhile((part) => RegExp(r'^dm\d+$').hasMatch(part))
+        .toList();
+    return route.lastOrNull == 'saved' &&
+        (route.length == 1 ||
+            route.length == 2 && _sourceLanguages.contains(route.first));
+  }
+
   Uri? _accountPageUri(Uri uri) {
     final segments = uri.pathSegments;
     final path = RegExp(r'^dm\d+$').hasMatch(segments.firstOrNull ?? '')
@@ -2564,10 +2838,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         : segments;
     final route = path.skipWhile(_sourceLanguages.contains).firstOrNull;
     if (!const {'saved', 'playlists', 'history'}.contains(route)) return null;
-    return uri.replace(
-      host: Uri.parse(_activeAccountBaseUrl).host,
-      pathSegments: path,
-    );
+    return uri.replace(host: Uri.parse(origin).host, pathSegments: path);
   }
 
   String get _localePrefix => _locale == 'zh' ? '' : '/$_locale';
@@ -2710,10 +2981,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
   }
 
   void _updateAccountFromPage(Document document, Uri uri) {
-    if (!_officialHosts.contains(uri.host) ||
-        (_sessionHost != null && uri.origin != _activeAccountBaseUrl)) {
-      return;
-    }
+    if (uri.origin != origin) return;
     final sourceUser = _readAccountFromPage(document);
     // Public user:null markup needs runtime state or /view to confirm sign-in.
     if (sourceUser != null) {
@@ -2721,8 +2989,28 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
-  static Map<String, dynamic>? readAccountFromMarkup(String source, Uri uri) =>
-      _readAccountFromPage(_parsePage(source, uri));
+  static Map<String, dynamic>? readAccountFromMarkup(String source, Uri uri) {
+    final document = _parsePage(source, uri);
+    if (document.querySelector('#kiko-missav-response-status') != null) {
+      return null;
+    }
+    return _readAccountFromPage(document);
+  }
+
+  static Map<String, dynamic>? readFavoritesAccountFromMarkup(
+    String source,
+    Uri uri,
+  ) => _readFavoritesAccount(_parsePage(source, uri));
+
+  static Map<String, dynamic>? _readFavoritesAccount(Document document) {
+    if (document.querySelector('#kiko-missav-response-status') != null) {
+      return null;
+    }
+    return _readAccountFromPage(document) ??
+        (document.querySelector('#kiko-missav-signed-in')?.text == 'true'
+            ? <String, dynamic>{}
+            : null);
+  }
 
   static Map<String, dynamic>? _readAccountFromPage(Document document) {
     final runtimeUser = document.querySelector('#kiko-missav-runtime-user');
@@ -3508,9 +3796,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 }
 
 class _MissavLoginCookies {
-  _MissavLoginCookies(this.host, this.cookies);
+  _MissavLoginCookies(this.cookies);
 
-  final String host;
   _MissavCookies cookies;
 }
 
@@ -3581,6 +3868,14 @@ class _MissavCookies {
   }
 }
 
+class _UnconfirmedFavorites extends MissavException {
+  _UnconfirmedFavorites(Uri uri)
+    : super(
+        'MissAV could not confirm the saved account session.',
+        sourceUrl: uri.toString(),
+      );
+}
+
 class _ContentHostFailure extends MissavException {
   const _ContentHostFailure(super.message, {required super.sourceUrl});
 }
@@ -3627,6 +3922,7 @@ class _ContentLineLoader {
   }
 
   Future<_ContentPage> _load() async {
+    final contentGeneration = _client.contentGeneration;
     MissavVerificationRequiredException? officialChallenge;
     StackTrace? officialChallengeTrace;
     MissavException? lastError;
@@ -3685,6 +3981,7 @@ class _ContentLineLoader {
     final hosts = _candidateHosts().toList();
     var next = 0;
     _AcceptedContentLine? accepted;
+    _AcceptedContentLine? metadataOnly;
     if (details &&
         !accountPage &&
         !_client.isLoggedIn &&
@@ -3699,13 +3996,27 @@ class _ContentLineLoader {
       accepted = await _tryFirstMirrors(hosts[0], hosts[1], tryLine);
       next = 2;
     }
-    while (accepted == null && next < hosts.length && !_attempts.expired) {
-      accepted = await tryLine(hosts[next++]);
+    while (next < hosts.length && !_attempts.expired) {
+      if (accepted != null) {
+        if (!details || accepted.page.streams.isNotEmpty) break;
+        metadataOnly ??= accepted;
+      }
+      try {
+        accepted = await tryLine(hosts[next++]);
+      } on MissavRateLimitException {
+        if (metadataOnly == null) rethrow;
+        accepted = null;
+      }
+    }
+    if (accepted == null || (details && accepted.page.streams.isEmpty)) {
+      accepted = metadataOnly ?? accepted;
     }
     if (accepted != null) {
       final (:baseUrl, :page) = accepted;
       _client._checkContentRequest(page.uri, generation, locale, cancelToken);
-      if (!accountPage) {
+      if (!accountPage &&
+          (!details || page.streams.isNotEmpty) &&
+          _client.contentGeneration == contentGeneration) {
         _rememberAcceptedLine(baseUrl, page.document, page.uri);
       }
       return page;
@@ -3787,22 +4098,27 @@ class _ContentLineLoader {
     if (accountPage) return [_sourceUri.origin];
     if (details) {
       return {
+        if (_client._accountContentHost case final account?) account,
         if (_client._automaticProbeHost case final probed?) probed,
         if (MissavClient._isMirrorHost(_sourceUri.host)) _sourceUri.origin,
         ..._contentHosts(),
         _sourceUri.origin,
-        _client._activeAccountBaseUrl,
+        MissavClient.origin,
       };
     }
     return _contentHosts();
   }
 
   Iterable<String> _contentHosts() {
-    if (_client._useBrowserForContent) return const [MissavClient.origin];
+    if (_client._useBrowserForContent) {
+      final browser = _client._browserAdapter;
+      return [
+        browser is MissavBrowserAdapter ? browser.origin : MissavClient.origin,
+      ];
+    }
     return {
-      if (_client._preferredMirror case final mirror?) mirror,
-      if (_client._automaticProbeHost case final probed?) probed,
-      if (_client._cachedContentHost case final cached?) cached,
+      if (_client._accountContentHost case final account?) account,
+      ..._client._mirrorSelection.prioritized,
       if (_client._contentHosts.isEmpty)
         _client._remapSource(_sourceUri, baseUrl: MissavClient.origin).origin,
       for (final baseUrl in _client._contentHosts)
@@ -3846,11 +4162,7 @@ class _ContentLineLoader {
       _client._homeUrl = '$baseUrl${_client._localePrefix}';
     }
     _client._updateHomeUrl(document, uri);
-    if (missavMirrorForBaseUrl(baseUrl) != null &&
-        _client._cachedContentHost != baseUrl) {
-      _client._cachedContentHost = baseUrl;
-      unawaited(_client._persistContentHost(missavLastGoodHostKey, baseUrl));
-    }
+    _client._mirrorSelection.remember(baseUrl);
   }
 
   static bool _isContentHostFailure(MissavException error) {
@@ -3860,30 +4172,14 @@ class _ContentLineLoader {
       return true;
     }
     final cause = error.cause;
-    if (cause is! DioException) return false;
-    return switch (cause.type) {
-      DioExceptionType.connectionTimeout ||
-      DioExceptionType.sendTimeout ||
-      DioExceptionType.receiveTimeout ||
-      DioExceptionType.connectionError ||
-      DioExceptionType.badCertificate => true,
-      DioExceptionType.unknown => cause.error is IOException,
-      _ => false,
-    };
+    return cause is DioException && isVideoMirrorConnectionFailure(cause);
   }
 
   void _clearHostFailure(String baseUrl, {required bool challenged}) {
-    if (_client._probedContentHost == baseUrl) {
-      _client._probedContentHost = null;
-    }
-    final clearCache = _client._cachedContentHost == baseUrl;
+    final clearCache = _client._mirrorSelection.forget(baseUrl);
     final clearPreference = challenged && _client._preferredMirror == baseUrl;
-    if (clearCache) _client._cachedContentHost = null;
-    if (clearPreference) _client._preferredMirror = null;
-    if (clearCache) {
-      unawaited(_client._persistContentHost(missavLastGoodHostKey, null));
-    }
     if (clearPreference) {
+      _client._mirrorSelection.select(null);
       unawaited(_client._persistContentHost(missavMirrorBaseUrlKey, null));
     }
     if (clearCache || clearPreference) _client._notifyContentHostChanged();

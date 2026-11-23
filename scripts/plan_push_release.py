@@ -8,6 +8,7 @@ import subprocess
 import sys
 import uuid
 
+from ci.android_release import VerificationError, version_code_base
 from ci.build_test_scope import is_document
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +63,10 @@ def next_version(base, branch, bump, existing):
         version = prefix + str(max(numbers, default=0) + 1)
     if version in existing or "v" + version in existing:
         raise ValueError(f"Release/tag already exists for {version}; resolve it manually.")
+    try:
+        version_code_base(version)
+    except VerificationError as error:
+        raise ValueError(f"Cannot publish {version}: {error}") from error
     return version
 
 

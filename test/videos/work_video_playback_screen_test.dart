@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide LocalHistoryEntry;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -24,6 +24,7 @@ import 'package:iroru/src/services/audio_player_service.dart';
 import 'package:iroru/src/services/downloaded_file_state_scanner.dart';
 import 'package:iroru/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
+import 'package:iroru/src/services/local_history_database.dart';
 import 'package:iroru/src/services/storage_service.dart';
 import 'package:iroru/src/utils/audio_source_headers.dart';
 import 'package:iroru/src/utils/file_tree_utils.dart';
@@ -40,6 +41,8 @@ import 'package:iroru/src/widgets/file_explorer_widget.dart';
 import 'package:iroru/src/widgets/mini_player.dart';
 import 'package:iroru/src/widgets/offline_file_explorer_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'local_history_database_fake.dart';
 
 const _audioTrack = AudioTrack(
   id: 'background-audio',
@@ -81,7 +84,11 @@ class _EmptyDownloadRepository extends Fake implements DownloadTaskRepository {
 }
 
 class _GatedVideoLibrary extends VideoLibrary {
-  _GatedVideoLibrary({required super.preferences});
+  _GatedVideoLibrary({required SharedPreferences preferences})
+    : super(
+        preferences: preferences,
+        historyDatabase: FakeLocalHistoryDatabase(),
+      );
 
   final _ready = Completer<void>();
 
@@ -815,6 +822,7 @@ void main() {
 
       final library = VideoLibrary(
         preferences: await SharedPreferences.getInstance(),
+        historyDatabase: FakeLocalHistoryDatabase(),
       );
       await library.initialize();
       final session = _PlaybackSession();
@@ -844,6 +852,7 @@ void main() {
               fileName: 'clip.mp4',
               folderPath: '',
               localPath: localPath,
+              appTabIndex: appVideoTabIndex,
               siblingVideos: const [
                 (file: {'type': 'video', 'title': 'clip.mp4'}, parentPath: ''),
               ],
@@ -864,6 +873,10 @@ void main() {
       expect(session.playCount, 1);
       expect(find.text('Root'), findsOneWidget);
       final player = find.byType(VideoPlaybackPanel);
+      expect(
+        tester.widget<VideoPlaybackPanel>(player).appTabIndex,
+        appVideoTabIndex,
+      );
       expect(tester.getSize(player).width, greaterThanOrEqualTo(320));
       final currentItem = find.byKey(
         const ValueKey('work-video-playlist-clip.mp4'),
@@ -936,7 +949,11 @@ void main() {
         (_) async => null,
       );
       final preferences = await SharedPreferences.getInstance();
-      final library = VideoLibrary(preferences: preferences);
+      final historyDatabase = FakeLocalHistoryDatabase();
+      final library = VideoLibrary(
+        preferences: preferences,
+        historyDatabase: historyDatabase,
+      );
       await library.initialize();
       final localizations = await S.delegate.load(const Locale('en'));
       const firstPosition = Duration(seconds: 9);
@@ -1073,6 +1090,18 @@ void main() {
       expect(session.streamPositions.last, const Duration(seconds: 30));
       await tester.pump(const Duration(seconds: 5));
       expect(library.positionFor('A'), const Duration(seconds: 30));
+      expect(
+        historyDatabase
+            .entry(LocalHistoryType.video, 'A')
+            ?.details['title'],
+        'A.mp4',
+      );
+      expect(
+        historyDatabase
+            .entry(LocalHistoryType.video, 'B')
+            ?.details['title'],
+        'B.mp4',
+      );
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
@@ -1117,7 +1146,10 @@ void main() {
         (_) async => null,
       );
       final preferences = await SharedPreferences.getInstance();
-      final library = VideoLibrary(preferences: preferences);
+      final library = VideoLibrary(
+        preferences: preferences,
+        historyDatabase: FakeLocalHistoryDatabase(),
+      );
       await library.initialize();
       final session = _PlaybackSession();
       final platform = VideoPlayerPlatform(
@@ -1284,6 +1316,7 @@ void main() {
         );
         final library = VideoLibrary(
           preferences: await SharedPreferences.getInstance(),
+          historyDatabase: FakeLocalHistoryDatabase(),
         );
         await library.initialize();
         final session = _PlaybackSession();
@@ -1401,7 +1434,7 @@ void main() {
           'kikoflu-offline-video-',
         );
         addTearDown(() => directory.deleteSync(recursive: true));
-        final workDirectory = Directory(p.join(directory.path, '42'));
+        final workDirectory = Directory(p.join(directory.path, 'audio', '42'));
         final videoFile = File(p.join(workDirectory.path, 'Disc 1', 'clip.mp4'))
           ..parent.createSync(recursive: true)
           ..writeAsBytesSync(const [0]);
@@ -1413,7 +1446,7 @@ void main() {
               ..parent.createSync(recursive: true)
               ..writeAsBytesSync(const [0]);
         SharedPreferences.setMockInitialValues({
-          'custom_download_path': directory.path,
+          StorageService.customDownloadPathKey: directory.path,
         });
         final preferences = await SharedPreferences.getInstance();
         await StorageService.initCritical(preferences: preferences);
@@ -1568,7 +1601,10 @@ void main() {
             ),
           );
         }
-        final positions = VideoLibrary(preferences: preferences);
+        final positions = VideoLibrary(
+          preferences: preferences,
+          historyDatabase: FakeLocalHistoryDatabase(),
+        );
         addTearDown(positions.dispose);
         const savedPosition = Duration(seconds: 42);
         await positions.savePosition(playbackPage.videoId, savedPosition);

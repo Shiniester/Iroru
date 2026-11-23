@@ -4,54 +4,86 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
-import 'package:flutter/foundation.dart' show ChangeNotifier;
+import 'package:flutter/foundation.dart'
+    show ChangeNotifier, ValueListenable, ValueNotifier;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/proxy_config.dart';
+import 'jable_mirrors.dart';
 import 'missav_browser_adapter.dart';
+import 'video_mirror_selection.dart';
 import 'video_models.dart';
 import 'video_source_client.dart';
+import 'video_source_loading.dart';
 
 part 'jable_account.dart';
 
 class JableClient implements VideoSourceClient {
   JableClient({
     Dio? dio,
+    Dio? mirrorDio,
+    SharedPreferences? mirrorPreferences,
+    FlutterSecureStorage? secureStorage,
+    Future<void> Function(JableClient client, int expectedGeneration)?
+    restoreSavedSession,
+  }) : this._(
+         mirrorDio,
+         false,
+         dio: dio,
+         providedMirrorPreferences: mirrorPreferences,
+         secureStorage: secureStorage,
+         restoreSavedSession: restoreSavedSession,
+       );
+
+  JableClient.withMirror({
+    Future<void> Function(JableClient client, int expectedGeneration)?
+    restoreSavedSession,
+  }) : this._(_createDio(), true, restoreSavedSession: restoreSavedSession);
+
+  JableClient._(
+    this._mirrorDio,
+    this._ownsMirrorDio, {
+    Dio? dio,
+    this._providedMirrorPreferences,
     FlutterSecureStorage? secureStorage,
     this.restoreSavedSession,
   }) : _ownsDio = dio == null,
-       _dio =
-           dio ??
-           Dio(
-             BaseOptions(
-               connectTimeout: const Duration(seconds: 10),
-               receiveTimeout: const Duration(seconds: 20),
-               sendTimeout: const Duration(seconds: 10),
-             ),
-           ),
+       _dio = dio ?? _createDio(),
        _secureStorage = secureStorage ?? const FlutterSecureStorage() {
-    if (dio == null) {
-      _dio.httpClientAdapter = IOHttpClientAdapter(
-        createHttpClient: () =>
-            HttpClient()..findProxy = ProxyConfig.findProxyFor,
-      );
-    }
     _nativeAdapter = _dio.httpClientAdapter;
+    if (_restoresMirrorSelection) _mirrorPreferences.ignore();
   }
 
   static const origin = 'https://jable.tv';
+  static const _officialHost = 'jable.tv';
   static const _sessionKey = 'iroru.jable_verified_session';
   static const _defaultUserAgent = 'Mozilla/5.0';
+
+  static Dio _createDio() =>
+      Dio(
+          BaseOptions(
+            connectTimeout: const Duration(seconds: 10),
+            receiveTimeout: const Duration(seconds: 20),
+            sendTimeout: const Duration(seconds: 10),
+          ),
+        )
+        ..httpClientAdapter = IOHttpClientAdapter(
+          createHttpClient: () =>
+              HttpClient()..findProxy = ProxyConfig.findProxyFor,
+        );
 
   late final JableAccount account = JableAccount._(this);
 
   final Dio _dio;
+  final Dio? _mirrorDio;
   final FlutterSecureStorage _secureStorage;
   final Future<void> Function(JableClient client, int expectedGeneration)?
   restoreSavedSession;
   final bool _ownsDio;
+  final bool _ownsMirrorDio;
   String? _cookie;
   String _userAgent = _defaultUserAgent;
   String? _locale;
@@ -63,13 +95,75 @@ class JableClient implements VideoSourceClient {
   int _generation = 0;
   bool _initialized = false;
   bool _disposed = false;
+  final _loading = VideoSourceLoading();
   Future<void>? _initializing;
   Future<void> _sessionWriteTail = Future<void>.value();
+  final _mirrorSelection = VideoMirrorSelection(
+    jableMirrorForBaseUrl,
+    jableLastGoodHostKey,
+  );
+  final _lastSuccessfulContentHost = ValueNotifier<String?>(null);
+  Timer? _mirrorProbeTimer;
+  CancelToken? _mirrorProbeToken;
+  final SharedPreferences? _providedMirrorPreferences;
+  bool get _restoresMirrorSelection =>
+      _ownsMirrorDio || _providedMirrorPreferences != null;
+  late final Future<SharedPreferences> _mirrorPreferences =
+      _loadMirrorPreferences();
+
+  Future<SharedPreferences> _loadMirrorPreferences() async {
+    final preferences =
+        _providedMirrorPreferences ?? await SharedPreferences.getInstance();
+    if (_restoresMirrorSelection && !_disposed) {
+      final previous = _mirrorSelection.initial;
+      _mirrorSelection.restore(
+        preferences,
+        jableMirrorForBaseUrl(preferences.getString(jableMirrorBaseUrlKey)),
+      );
+      if (_mirrorSelection.initial != previous) account._changed();
+    }
+    return preferences;
+  }
+
+  bool get usesAutomaticMirror => _mirrorSelection.preferred == null;
+
+  String? get preferredMirrorHost {
+    final baseUrl = _mirrorSelection.preferred;
+    return baseUrl == null ? null : Uri.parse(baseUrl).host;
+  }
+
+  ValueListenable<String?> get lastSuccessfulContentHost =>
+      _lastSuccessfulContentHost;
+
+  void _rememberContentHost(Uri uri) {
+    _mirrorSelection.remember(uri.origin);
+    _lastSuccessfulContentHost.value = uri.host;
+  }
+
+  String get activeMirrorHost => Uri.parse(
+    _mirrorDio == null
+        ? origin
+        : _mirrorSelection.accountContentHost(
+                origin,
+                signedIn: account.isLoggedIn,
+              ) ??
+              _mirrorSelection.prioritized.firstOrNull ??
+              jableMirrors.first.baseUrl,
+  ).host;
+
+  Future<void> selectMirror(String? baseUrl) async {
+    final preferences = await _mirrorPreferences;
+    if (_disposed) return;
+    final mirror = jableMirrorForBaseUrl(baseUrl);
+    if (_mirrorSelection.select(mirror)) account._contentChanged();
+    await preferences.setString(jableMirrorBaseUrlKey, mirror?.baseUrl ?? '');
+  }
 
   @override
   String get sourceKey => 'jable';
 
   int get sessionGeneration => _generation;
+  int get contentGeneration => account.contentGeneration;
 
   @override
   String get homeUrl => origin;
@@ -111,6 +205,7 @@ class JableClient implements VideoSourceClient {
 
   Future<void> _loadSession() async {
     final generation = _generation;
+    if (_restoresMirrorSelection) await _mirrorPreferences;
     final saved = await _secureStorage.read(key: _sessionKey);
     if (_disposed || generation != _generation) return;
     if (saved != null) {
@@ -121,12 +216,64 @@ class JableClient implements VideoSourceClient {
             decoded['userAgent'] is String) {
           _cookie = (decoded['cookie'] as String).trim();
           _userAgent = (decoded['userAgent'] as String).trim();
+          _loading.reset(
+            restoreOnBrowse: _mirrorDio != null && _cookie!.isNotEmpty,
+          );
         }
       } on FormatException {
         // Ignore a malformed source session and let the user verify again.
       }
     }
     _initialized = true;
+  }
+
+  Future<void> _prepareContentAccess() =>
+      _loading.prepareContent(initialize, account._checkLogin);
+
+  void _scheduleMirrorProbe() {
+    if (_disposed ||
+        _mirrorDio == null ||
+        !usesAutomaticMirror ||
+        account.isLoggedIn ||
+        _mirrorSelection.probeFinished ||
+        _mirrorProbeTimer != null ||
+        _mirrorProbeToken != null) {
+      return;
+    }
+    _mirrorProbeTimer = Timer(const Duration(seconds: 1), () {
+      _mirrorProbeTimer = null;
+      if (!_disposed && usesAutomaticMirror && !account.isLoggedIn) {
+        _probeMirrors().ignore();
+      }
+    });
+  }
+
+  Future<void> _probeMirrors() async {
+    final token = _mirrorProbeToken = CancelToken();
+    try {
+      final results =
+          await createJableMirrorProber(
+            dio: _mirrorDio,
+            timeout: const Duration(seconds: 4),
+          ).probeAll(
+            _mirrorSelection.probeCandidates(
+              jableMirrors.map((mirror) => mirror.baseUrl),
+            ),
+            cancelToken: token,
+            concurrency: 1,
+          );
+      if (_disposed ||
+          token.isCancelled ||
+          !usesAutomaticMirror ||
+          account.isLoggedIn) {
+        return;
+      }
+      final previousHost = activeMirrorHost;
+      _mirrorSelection.acceptProbeResults(results);
+      if (activeMirrorHost != previousHost) account._changed();
+    } finally {
+      _mirrorProbeToken = null;
+    }
   }
 
   Future<void> _prepareOnlineAccess() async {
@@ -250,6 +397,53 @@ class JableClient implements VideoSourceClient {
     }
   }
 
+  Future<void> commitBrowserSession(
+    MissavBrowserAdapter browser, {
+    required String cookieHeader,
+    required String userAgent,
+    required bool loginConfirmed,
+    required int expectedGeneration,
+    required int connectionGeneration,
+    required void Function() ensureCurrent,
+    required void Function(int generation) onCommitted,
+  }) async {
+    final cookie = cookieHeader.trim();
+    final agent = userAgent.trim();
+    if (cookie.isEmpty || agent.isEmpty) {
+      throw StateError('Jable browser session is unavailable.');
+    }
+    await _queueSessionWrite(() async {
+      ensureCurrent();
+      final previous = await _secureStorage.read(key: _sessionKey);
+      ensureCurrent();
+      await _secureStorage.write(
+        key: _sessionKey,
+        value: jsonEncode({'cookie': cookie, 'userAgent': agent}),
+      );
+      try {
+        ensureCurrent();
+      } catch (_) {
+        if (previous == null) {
+          await _secureStorage.delete(key: _sessionKey);
+        } else {
+          await _secureStorage.write(key: _sessionKey, value: previous);
+        }
+        rethrow;
+      }
+      _cookie = cookie;
+      _userAgent = agent;
+      useVerifiedBrowserTransport(
+        browser,
+        expectedGeneration: expectedGeneration,
+        connectionGeneration: connectionGeneration,
+      );
+      onCommitted(expectedGeneration + 1);
+      _advanceSessionGeneration(
+        signedIn: loginConfirmed || account.isLoggedIn,
+      );
+    });
+  }
+
   Future<void> clearSession({int? expectedGeneration}) async {
     if (expectedGeneration != null && expectedGeneration != _generation) return;
     restoreNativeTransport();
@@ -260,21 +454,38 @@ class JableClient implements VideoSourceClient {
     if (!_disposed && generation != _generation) return;
   }
 
-  Future<void> checkBrowserAccess() async {
-    await _prepareOnlineAccess();
+  Future<void> checkBrowserAccess({MissavBrowserAdapter? candidate}) async {
+    if (candidate == null) await _prepareOnlineAccess();
     final uri = _sourceUri(Uri.parse(homeUrl));
     final generation = _generation;
     final locale = _locale;
-    await _loadDocument(uri);
+    if (candidate == null) {
+      await _loadDocument(uri);
+    } else {
+      await _loadBrowserDocumentPage(candidate, uri);
+    }
     _ensureRequestCurrent(generation, locale, uri, null);
   }
 
-  int _advanceSessionGeneration() {
+  Future<void> confirmBrowserLogin(MissavBrowserAdapter candidate) async {
+    final (document, page) = await _loadBrowserDocumentPage(
+      candidate,
+      Uri.parse(JableAccount.favoritesUrl),
+    );
+    if (!account._loginStatus(document, page)) {
+      throw const JableLoginRequiredException(
+        sourceUrl: JableAccount.favoritesUrl,
+      );
+    }
+  }
+
+  int _advanceSessionGeneration({bool signedIn = false}) {
+    _loading.reset();
     final previous = _sessionCancelToken;
     final generation = ++_generation;
-    account._sessionChanged();
     _sessionCancelToken = CancelToken();
     if (!previous.isCancelled) previous.cancel('Jable session changed');
+    account._sessionChanged(signedIn: signedIn);
     return generation;
   }
 
@@ -291,18 +502,33 @@ class JableClient implements VideoSourceClient {
     void Function(VideoCatalogPage page)? onParsed,
     bool Function()? isCurrent,
   }) async {
-    final uri = _sourceUri(Uri.parse(url));
-    await _prepareOnlineAccess();
-    if (JableAccount.isFavoritesUri(uri) && !account._hasSession) {
+    final requested = _sourceUri(Uri.parse(url), allowMirror: true);
+    final official = requested.replace(host: _officialHost);
+    final favorites = JableAccount.isFavoritesUri(official);
+    if (favorites) {
+      await _prepareOnlineAccess();
+    } else {
+      await _prepareContentAccess();
+      _scheduleMirrorProbe();
+    }
+    if (favorites && !account._hasSession) {
       throw const JableLoginRequiredException(
         sourceUrl: JableAccount.favoritesUrl,
       );
     }
     final generation = _generation;
+    final content = favorites ? null : contentGeneration;
     final locale = _locale;
-    final document = await _loadDocument(uri, cancelToken: cancelToken);
-    _ensureRequestCurrent(generation, locale, uri, cancelToken);
-    final parsedPage = JableAccount.isFavoritesUri(uri)
+    final (document, uri) = favorites
+        ? await _loadDocumentPage(official, cancelToken: cancelToken)
+        : await _loadContentPage(
+            requested,
+            content!,
+            cancelToken: cancelToken,
+            isCurrent: isCurrent,
+          );
+    _ensureRequestCurrent(generation, locale, uri, cancelToken, content);
+    final parsedPage = favorites
         ? account._parseFavoritesPage(document, uri)
         : VideoCatalogPage(
             title: _pageTitle(document, uri),
@@ -318,8 +544,9 @@ class JableClient implements VideoSourceClient {
           );
     if (isCurrent?.call() == false) return parsedPage;
     if (cancelToken?.cancelError case final error?) throw error;
+    if (!favorites) _rememberContentHost(uri);
     onParsed?.call(parsedPage);
-    _ensureRequestCurrent(generation, locale, uri, cancelToken);
+    _ensureRequestCurrent(generation, locale, uri, cancelToken, content);
     if (isCurrent?.call() == false) return parsedPage;
     return parsedPage;
   }
@@ -371,8 +598,9 @@ class JableClient implements VideoSourceClient {
     List<VideoLink> filters, {
     bool Function()? isCurrent,
   }) async {
-    await _prepareOnlineAccess();
+    await _prepareContentAccess();
     final generation = _generation;
+    final content = contentGeneration;
     final locale = _locale;
     final keyword = query.trim();
     final urls = <String>{
@@ -382,6 +610,7 @@ class JableClient implements VideoSourceClient {
     bool isCurrentNow() =>
         !_disposed &&
         generation == _generation &&
+        content == contentGeneration &&
         locale == _locale &&
         (isCurrent?.call() ?? true);
 
@@ -398,13 +627,70 @@ class JableClient implements VideoSourceClient {
     FutureOr<void> Function(VideoDetails)? onReady,
     bool includeAccountState = true,
   }) async {
-    final uri = _sourceUri(Uri.parse(item.pageUrl));
-    await _prepareOnlineAccess();
+    await _prepareContentAccess();
     final generation = _generation;
     final locale = _locale;
-    final document = await _loadDocument(uri);
-    _ensureRequestCurrent(generation, locale, uri, null);
-    final marker = includeAccountState
+    final content = contentGeneration;
+    final details = await _details(
+      item,
+      includeAccountState: includeAccountState,
+      content: content,
+      allowOfficialFallback: usesAutomaticMirror,
+    );
+    final uri = Uri.parse(details.video.pageUrl);
+    _ensureRequestCurrent(generation, locale, uri, null, content);
+    await onReady?.call(details);
+    _ensureRequestCurrent(generation, locale, uri, null, content);
+    if (!includeAccountState ||
+        uri.host == _officialHost ||
+        !account.isLoggedIn) {
+      return details;
+    }
+    final marker = await account.favoriteStateForVideo(details);
+    _ensureRequestCurrent(generation, locale, uri, null, content);
+    if (marker == null || !account.isLoggedIn) return details;
+    return VideoDetails(
+      video: details.video,
+      description: details.description,
+      metadata: details.metadata,
+      related: details.related,
+      streams: details.streams,
+      sourceId: marker.id,
+      isFavorite: marker.selected,
+    );
+  }
+
+  Future<VideoDetails> detailsForDownload(
+    VideoItem item, {
+    bool useOriginalHost = true,
+  }) async {
+    if (!useOriginalHost) await _prepareContentAccess();
+    return _details(
+      item,
+      includeAccountState: false,
+      content: useOriginalHost ? null : contentGeneration,
+      allowOfficialFallback: !useOriginalHost,
+    );
+  }
+
+  Future<VideoDetails> _details(
+    VideoItem item, {
+    required bool includeAccountState,
+    int? content,
+    bool allowOfficialFallback = false,
+  }) async {
+    final requested = _sourceUri(Uri.parse(item.pageUrl), allowMirror: true);
+    await initialize();
+    final generation = _generation;
+    final locale = _locale;
+    final (document, uri) = await _loadContentPage(
+      requested,
+      content,
+      details: true,
+      allowOfficialFallback: allowOfficialFallback,
+    );
+    _ensureRequestCurrent(generation, locale, uri, null, content);
+    final marker = includeAccountState && uri.host == _officialHost
         ? account._favoriteControl(document)
         : null;
     final video = _parseVideoMetadata(document, uri, item);
@@ -420,11 +706,12 @@ class JableClient implements VideoSourceClient {
         sourceUrl: uri.toString(),
       );
     }
+    if (content != null) _rememberContentHost(uri);
     final related = _parseVideos(
       document,
       uri,
     ).where((video) => video.id != item.id).toList(growable: false);
-    final details = VideoDetails(
+    return VideoDetails(
       video: video,
       description: _metaContent(document, 'description') ?? '',
       related: related,
@@ -439,9 +726,6 @@ class JableClient implements VideoSourceClient {
         ),
       ],
     );
-    await onReady?.call(details);
-    _ensureRequestCurrent(generation, locale, uri, null);
-    return details;
   }
 
   VideoItem _parseVideoMetadata(Document document, Uri uri, VideoItem item) {
@@ -506,10 +790,12 @@ class JableClient implements VideoSourceClient {
     int generation,
     String? locale,
     Uri uri,
-    CancelToken? cancelToken,
-  ) {
+    CancelToken? cancelToken, [
+    int? content,
+  ]) {
     if (cancelToken?.cancelError case final error?) throw error;
     _ensureGeneration(generation, uri);
+    _ensureContentCurrent(content, uri);
     if (_locale != locale) {
       throw VideoSourceException(
         'Jable language changed during the request.',
@@ -519,42 +805,159 @@ class JableClient implements VideoSourceClient {
     }
   }
 
-  Future<Document> _loadDocument(Uri uri, {CancelToken? cancelToken}) async {
-    final generation = _generation;
-    final documentUri = _documentUri(uri);
-    final browser = _browserAdapter;
-    if (browser is MissavBrowserAdapter) {
-      final String body;
+  void _ensureContentCurrent(int? content, Uri uri) {
+    if (content != null && content != contentGeneration) {
+      throw VideoSourceException(
+        'Jable content line changed during the request.',
+        sourceKey: sourceKey,
+        sourceUrl: uri.toString(),
+      );
+    }
+  }
+
+  Future<(Document, Uri)> _loadContentPage(
+    Uri requested,
+    int? content, {
+    CancelToken? cancelToken,
+    bool Function()? isCurrent,
+    bool details = false,
+    bool allowOfficialFallback = true,
+  }) async {
+    _ensureContentCurrent(content, requested);
+    final targetHost = content == null ? requested.host : activeMirrorHost;
+    if (targetHost != _officialHost) {
+      if (_mirrorDio == null) {
+        throw VideoSourceException(
+          'Jable mirror is unavailable.',
+          sourceKey: sourceKey,
+          sourceUrl: requested.toString(),
+        );
+      }
+      final mirror = requested.replace(
+        host: targetHost,
+        path: _segments(requested).isEmpty ? '/new-release/' : null,
+      );
+      final generation = _generation;
+      final locale = _locale;
+      void forgetFailedMirror() {
+        if (content == null ||
+            content != contentGeneration ||
+            generation != _generation ||
+            locale != _locale ||
+            cancelToken?.isCancelled == true ||
+            isCurrent?.call() == false) {
+          return;
+        }
+        final previousHost = activeMirrorHost;
+        _mirrorSelection.forget(mirror.origin);
+        if (activeMirrorHost != previousHost) account._changed();
+      }
+
       try {
-        body = await browser.loadDocument(
-          documentUri,
-          cancelToken: cancelToken ?? _sessionCancelToken,
+        final (document, uri) = await _loadDocumentPage(
+          mirror,
+          cancelToken: cancelToken,
+        );
+        final valid = details
+            ? _videoId(uri.toString()) == _videoId(mirror.toString()) &&
+                  _parseHlsUrl(document, uri) != null
+            : isJableMirrorCatalog(document);
+        if (valid) return (document, uri);
+        if (!details || _looksLikeChallenge(document.outerHtml)) {
+          forgetFailedMirror();
+        }
+        throw VideoSourceException(
+          'Jable mirror returned an invalid page.',
+          sourceKey: sourceKey,
+          sourceUrl: uri.toString(),
         );
       } on DioException catch (error) {
-        _ensureGeneration(generation, documentUri);
-        if (error.error is VideoSourceException) throw error.error!;
-        if (error.type == DioExceptionType.cancel) rethrow;
-        throw VideoSourceException(
-          'Jable browser navigation failed (${error.type.name}).',
-          sourceKey: sourceKey,
-          sourceUrl: documentUri.toString(),
-          cause: error,
-        );
+        if (isVideoMirrorConnectionFailure(error)) forgetFailedMirror();
+        if (!allowOfficialFallback || CancelToken.isCancel(error)) rethrow;
+      } on VideoSourceException catch (error) {
+        if (error is _JableMirrorFailure) forgetFailedMirror();
+        if (!allowOfficialFallback) rethrow;
       }
+    }
+    final official = requested.replace(host: _officialHost);
+    _ensureContentCurrent(content, official);
+    if (cancelToken?.cancelError case final error?) throw error;
+    if (!details) await _prepareOnlineAccess();
+    _ensureContentCurrent(content, official);
+    final (document, uri) = await _loadDocumentPage(
+      official,
+      cancelToken: cancelToken,
+    );
+    if (content != null &&
+        content == contentGeneration &&
+        account.isLoggedIn &&
+        (account._isLoginUrl(uri) ||
+            (details &&
+                document.querySelector('.video-info .info-header') == null &&
+                document.querySelector('form input[type="password"]') != null &&
+                _parseHlsUrl(document, uri) == null))) {
+      account._setLoggedIn(false);
+    }
+    return (document, uri);
+  }
+
+  Future<Document> _loadDocument(Uri uri, {CancelToken? cancelToken}) async {
+    final (document, _) = await _loadDocumentPage(
+      uri,
+      cancelToken: cancelToken,
+    );
+    return document;
+  }
+
+  Future<(Document, Uri)> _loadBrowserDocumentPage(
+    MissavBrowserAdapter browser,
+    Uri uri, {
+    CancelToken? cancelToken,
+  }) async {
+    final generation = _generation;
+    final documentUri = _documentUri(uri);
+    final (String, Uri) page;
+    try {
+      page = await browser.loadDocumentPage(
+        documentUri,
+        cancelToken: cancelToken ?? _sessionCancelToken,
+      );
+    } on DioException catch (error) {
       _ensureGeneration(generation, documentUri);
-      final document = html_parser.parse(body);
-      if (_looksLikeChallenge(body)) {
-        throw JableVerificationRequiredException(
-          sourceUrl: documentUri.toString(),
-        );
-      }
-      return document;
+      if (error.error is VideoSourceException) throw error.error!;
+      if (error.type == DioExceptionType.cancel) rethrow;
+      throw VideoSourceException(
+        'Jable browser navigation failed (${error.type.name}).',
+        sourceKey: sourceKey,
+        sourceUrl: documentUri.toString(),
+        cause: error,
+      );
+    }
+    _ensureGeneration(generation, documentUri);
+    final (body, finalUri) = page;
+    if (_looksLikeChallenge(body)) {
+      throw JableVerificationRequiredException(
+        sourceUrl: documentUri.toString(),
+      );
+    }
+    return (html_parser.parse(body), finalUri == documentUri ? uri : finalUri);
+  }
+
+  Future<(Document, Uri)> _loadDocumentPage(
+    Uri uri, {
+    CancelToken? cancelToken,
+  }) async {
+    final isMirror = uri.host != _officialHost;
+    final browser = isMirror ? null : _browserAdapter;
+    if (browser is MissavBrowserAdapter) {
+      return _loadBrowserDocumentPage(browser, uri, cancelToken: cancelToken);
     }
 
-    var current = documentUri;
+    final dio = isMirror ? _mirrorDio! : _dio;
+    var current = uri;
     for (var redirects = 0; redirects <= 5; redirects++) {
-      final response = await _dio.getUri<String>(
-        current,
+      final response = await dio.getUri<String>(
+        _documentUri(current),
         cancelToken: cancelToken ?? _sessionCancelToken,
         options: Options(
           responseType: ResponseType.plain,
@@ -562,24 +965,35 @@ class JableClient implements VideoSourceClient {
           validateStatus: (_) => true,
           headers: {
             'Accept': 'text/html,application/xhtml+xml',
-            'User-Agent': _userAgent,
-            if (_cookie?.isNotEmpty == true && current.host == 'jable.tv')
-              'Cookie': _cookie,
+            'User-Agent': isMirror ? _defaultUserAgent : _userAgent,
+            if (!isMirror && _cookie?.isNotEmpty == true) 'Cookie': _cookie,
           },
         ),
       );
       final status = response.statusCode ?? 0;
       final body = response.data ?? '';
-      if (status == HttpStatus.forbidden || _looksLikeChallenge(body)) {
+      if (!isMirror &&
+          (status == HttpStatus.forbidden || _looksLikeChallenge(body))) {
         throw JableVerificationRequiredException(sourceUrl: current.toString());
       }
       if (status >= 300 && status < 400) {
         final location = response.headers.value(HttpHeaders.locationHeader);
         if (location == null) break;
-        current = _sourceUri(current.resolve(location));
+        final next = _sourceUri(
+          _documentUri(current).resolve(location),
+          allowMirror: isMirror,
+        );
+        if (next.host != uri.host) break;
+        current = next;
         continue;
       }
       if (status < 200 || status >= 300) {
+        if (isMirror && (status == HttpStatus.forbidden || status >= 500)) {
+          throw _JableMirrorFailure(
+            'Jable returned HTTP $status.',
+            sourceUrl: current.toString(),
+          );
+        }
         throw VideoSourceException(
           'Jable returned HTTP $status.',
           sourceKey: sourceKey,
@@ -587,13 +1001,19 @@ class JableClient implements VideoSourceClient {
         );
       }
       if (body.trim().isEmpty) {
+        if (isMirror) {
+          throw _JableMirrorFailure(
+            'Jable returned an empty page.',
+            sourceUrl: current.toString(),
+          );
+        }
         throw VideoSourceException(
           'Jable returned an empty page.',
           sourceKey: sourceKey,
           sourceUrl: current.toString(),
         );
       }
-      return html_parser.parse(body);
+      return (html_parser.parse(body), current);
     }
     throw VideoSourceException(
       'Jable redirected to an unsupported page.',
@@ -976,7 +1396,7 @@ class JableClient implements VideoSourceClient {
   }
 
   String _filterCatalogUrl(String value) {
-    final uri = _sourceUri(Uri.parse(value));
+    final uri = _sourceUri(Uri.parse(value), allowMirror: true);
     final parameters = Map<String, String>.of(uri.queryParameters)
       ..remove('page')
       ..remove('from');
@@ -1165,7 +1585,7 @@ class JableClient implements VideoSourceClient {
   }
 
   bool _sameCatalog(Document document, Uri base, Uri target) {
-    if (target.scheme != 'https' || target.host.toLowerCase() != 'jable.tv') {
+    if (target.scheme != 'https' || target.host != base.host) {
       return false;
     }
     final root = _catalogPathSegments(document, base);
@@ -1200,9 +1620,11 @@ class JableClient implements VideoSourceClient {
     return int.tryParse(segments.last);
   }
 
-  Uri _sourceUri(Uri uri) {
+  Uri _sourceUri(Uri uri, {bool allowMirror = false}) {
     if (uri.scheme != 'https' ||
-        uri.host.toLowerCase() != 'jable.tv' ||
+        (uri.host != _officialHost &&
+            (!allowMirror ||
+                !jableMirrors.any((mirror) => mirror.host == uri.host))) ||
         uri.port != 443 ||
         uri.userInfo.isNotEmpty) {
       throw VideoSourceException(
@@ -1220,7 +1642,7 @@ class JableClient implements VideoSourceClient {
     if (uri == null) return null;
     final resolved = base.resolveUri(uri);
     if (resolved.scheme != 'https' ||
-        resolved.host.toLowerCase() != 'jable.tv' ||
+        resolved.host != base.host ||
         resolved.port != 443 ||
         resolved.userInfo.isNotEmpty) {
       return null;
@@ -1251,12 +1673,21 @@ class JableClient implements VideoSourceClient {
 
   void dispose() {
     if (_disposed) return;
+    _mirrorProbeTimer?.cancel();
+    _mirrorProbeToken?.cancel();
     _advanceSessionGeneration();
     account.dispose();
+    _lastSuccessfulContentHost.dispose();
     restoreNativeTransport();
     _disposed = true;
     if (_ownsDio) _dio.close(force: true);
+    if (_ownsMirrorDio) _mirrorDio?.close(force: true);
   }
+}
+
+class _JableMirrorFailure extends VideoSourceException {
+  const _JableMirrorFailure(super.message, {super.sourceUrl})
+    : super(sourceKey: 'jable');
 }
 
 extension on String? {

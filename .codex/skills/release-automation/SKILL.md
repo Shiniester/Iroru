@@ -49,7 +49,7 @@ When reporting an accepted push-triggered run or dispatch, state that the workfl
 - When the resolved remote branch is `main`, use **Build and Release** (`build.yml`) for a stable release on all supported platforms, including PATCH updates. Select its version using the comparison below.
 - Other branches default to Android Beta releases using **Build Android Beta and Pre-release** (`build_android_beta.yml`). An explicitly requested channel or platform overrides these defaults; explicit Beta requests also use this workflow.
 - Before choosing or validating a Beta version, query the latest published stable release and list existing tags and releases for its next PATCH base, including drafts. Apply the Beta rule in [Commit-based version selection](../../../docs/agents/push-release.md#commit-based-version-selection) and report any mismatch before dispatching.
-- Beta releases publish the Android arm64-v8a APK as a GitHub **Pre-release**, with `latest=false`. Verify the separate application ID and display name against `build_android_beta.yml`.
+- Beta releases publish the Android arm64-v8a APK as a GitHub **Pre-release**, with `latest=false`. Follow the shared package, signing, and rollout rules in [Publication and queue](../../../docs/agents/push-release.md#publication-and-queue).
 - Use **Build Android and Release** (`build_android.yml`) for an Android-only stable patch release only when the user explicitly requests that stable release.
 
 ## Stable version selection from main

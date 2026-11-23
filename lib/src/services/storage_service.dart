@@ -10,7 +10,7 @@ import '../performance/performance_recorder.dart';
 import 'log_service.dart';
 
 class StorageService {
-  static const customDownloadPathKey = 'custom_download_path';
+  static const customDownloadPathKey = 'shared_download_root';
 
   static late Box _userBox;
   static late SharedPreferences _prefs;

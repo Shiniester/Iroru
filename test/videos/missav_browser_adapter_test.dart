@@ -72,6 +72,28 @@ void main() {
     },
   );
 
+  test('uses only the MissAV account origin', () async {
+    final browser = _Browser();
+    browser.onRequest = (request) => browser.reply(request, body: 'account');
+
+    final result = await browser.adapter.fetch(
+      _options(path: 'https://missav.ai/cn'),
+      null,
+      null,
+    );
+
+    expect(await utf8.decodeStream(result.stream), 'account');
+    expect(browser.script, contains("location.origin !== 'https://missav.ai'"));
+    for (final host in ['missav.ws', 'missav.live']) {
+      await expectLater(
+        browser.adapter.fetch(_options(path: 'https://$host/cn'), null, null),
+        throwsA(isA<MissavUnsupportedException>()),
+      );
+    }
+    browser.adapter.close();
+    await browser.adapter.whenClosed;
+  });
+
   test(
     'ignores messages from another origin or another browser session',
     () async {
@@ -557,10 +579,11 @@ void main() {
 }
 
 RequestOptions _options({
+  String path = 'https://missav.ai/cn',
   String method = 'GET',
   Map<String, dynamic>? headers,
 }) => RequestOptions(
-  path: 'https://missav.ai/cn',
+  path: path,
   method: method,
   headers: headers,
   receiveTimeout: const Duration(seconds: 2),
@@ -584,7 +607,7 @@ class _Browser {
       },
       currentUrl: () async {
         if (!urlRequested.isCompleted) urlRequested.complete();
-        return await urlGate?.future ?? 'https://missav.ai/cn';
+        return await urlGate?.future ?? '$sourceOrigin/cn';
       },
       navigateDocument: (uri, cancelled) async {
         navigations.add(uri.toString());
@@ -605,6 +628,7 @@ class _Browser {
   }
 
   late final MissavBrowserAdapter adapter;
+  static const sourceOrigin = 'https://missav.ai';
   final requestSent = Completer<void>();
   final urlRequested = Completer<void>();
   final navigationStarted = Completer<void>();
@@ -622,18 +646,18 @@ class _Browser {
   void reply(
     Map<String, dynamic> request, {
     String body = 'ok',
-    String origin = 'https://missav.ai',
-    String payloadOrigin = 'https://missav.ai',
-    String url = 'https://missav.ai/cn',
+    String? origin,
+    String? payloadOrigin,
+    String? url,
   }) {
     adapter.receiveMessage({
       'id': request['id'],
       'nonce': request['nonce'],
-      'origin': payloadOrigin,
+      'origin': payloadOrigin ?? sourceOrigin,
       'status': 200,
-      'url': url,
+      'url': url ?? '$sourceOrigin/cn',
       'headers': <String, String>{},
       'body': body,
-    }, origin: origin);
+    }, origin: origin ?? sourceOrigin);
   }
 }

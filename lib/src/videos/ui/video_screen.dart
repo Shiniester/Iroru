@@ -34,6 +34,7 @@ import 'video_catalog_sort.dart';
 import 'video_collection_view.dart';
 import 'video_details_screen.dart';
 import 'video_downloads_screen.dart';
+import 'video_local_history_screen.dart';
 import 'video_search_screen.dart';
 
 typedef _VideoPageCacheKey = ({
@@ -188,7 +189,7 @@ class VideoScreen extends ConsumerStatefulWidget {
           return page;
         },
         accountClient: accountCollection ? missav : null,
-        jableAccount: collectionKey == 'favorites' ? jable?.account : null,
+        jableAccount: jable?.account,
         verifyAccess: (searchContext, verification) async {
           if (!sourceIsCurrent()) return false;
           final verified = jable != null
@@ -269,6 +270,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   bool _accountWasLoggedIn = false;
   bool _jableAccountWasLoggedIn = false;
   int _jableAccountRevision = 0;
+  int _jableContentGeneration = 0;
   String? _accountName;
   String? _loadingUrl;
   String? _pendingAccountReloadUrl;
@@ -316,6 +318,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _jableAccount = _jableClient.account;
     _jableAccountWasLoggedIn = _jableAccount.isLoggedIn;
     _jableAccountRevision = _jableAccount.revision;
+    _jableContentGeneration = _jableClient.contentGeneration;
     _jableAccount.addListener(_onJableAccountChanged);
     _library = ref.read(videoLibraryProvider);
     _downloads = ref.read(videoDownloadsProvider);
@@ -643,14 +646,25 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   void _onJableAccountChanged() {
     final isLoggedIn = _jableAccount.isLoggedIn;
     final revision = _jableAccount.revision;
+    final contentGeneration = _jableClient.contentGeneration;
+    final generationChanged = contentGeneration != _jableContentGeneration;
     final loginChanged = isLoggedIn != _jableAccountWasLoggedIn;
-    if (isLoggedIn == _jableAccountWasLoggedIn &&
+    if (!generationChanged &&
+        isLoggedIn == _jableAccountWasLoggedIn &&
         revision == _jableAccountRevision) {
       return;
     }
     _jableAccountWasLoggedIn = isLoggedIn;
     _jableAccountRevision = revision;
-    if (_sourceKey != 'jable' || !_isJableFavoritesActive) return;
+    _jableContentGeneration = contentGeneration;
+    if (_sourceKey != 'jable') return;
+    if (generationChanged) _discardCachedJablePages();
+    if (!_isJableFavoritesActive) {
+      if (generationChanged) {
+        _reloadJableDirectoryAfterGenerationChange();
+      }
+      return;
+    }
     if (!mounted) return;
 
     // Session import must keep the pending verification retry current.
@@ -663,7 +677,6 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       });
       return;
     }
-
     const url = JableAccount.favoritesUrl;
     if (!isLoggedIn) {
       _request++;
@@ -691,7 +704,6 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         _isJableFavoritesUrl(_loadingUrl!)) {
       return;
     }
-
     _request++;
     _loadingUrl = null;
     _discardCachedJableFavorites();
@@ -717,6 +729,46 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     unawaited(_loadUrl(url, collectionKey: 'favorites'));
   }
 
+  void _reloadJableDirectoryAfterGenerationChange() {
+    if (!mounted) return;
+    final url =
+        _loadingUrl ??
+        _pendingAccountReloadUrl ??
+        _page?.url ??
+        widget.initialUrl ??
+        _defaultCatalogUrl;
+    if (_verifyingAccess) {
+      _pendingAccountReloadUrl = url;
+      return;
+    }
+    final collectionKey = _activeCollectionKey;
+    _request++;
+    _loadingUrl = null;
+    final cancelToken = _activeBrowseCancelToken;
+    if (cancelToken != null && !cancelToken.isCancelled) {
+      cancelToken.cancel('Jable session changed.');
+    }
+    _activeBrowseCancelToken = null;
+    _discardStaging();
+    setState(() {
+      _page = null;
+      _localPage = 1;
+      _error = null;
+      _errorSourceUrl = null;
+      _verificationError = null;
+      _retryRequest = () => _loadUrl(url, collectionKey: collectionKey);
+      _loading = false;
+      _publishedFailedPageUrl = null;
+      _publishedFailedCovers.clear();
+    });
+    if (!_dependenciesReady || !widget.active || _route?.isCurrent == false) {
+      _pendingAccountReloadUrl = url;
+      return;
+    }
+    _pendingAccountReloadUrl = null;
+    unawaited(_loadUrl(url, collectionKey: collectionKey));
+  }
+
   bool get _isJableFavoritesActive {
     if (_sourceKey != 'jable') return false;
     if (_activeCollectionKey == 'favorites') return true;
@@ -731,6 +783,10 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   void _discardCachedJableFavorites() {
     _pageCache.removeWhere((key, _) => _isJableFavoritesUrl(key.url));
+  }
+
+  void _discardCachedJablePages() {
+    _pageCache.removeWhere((key, _) => key.sourceKey == 'jable');
   }
 
   void _onRouteStatusChanged(AnimationStatus _) {
@@ -771,7 +827,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     sourceKey: _sourceKey,
     url: url,
     locale: _sourceLocaleTag ?? Localizations.localeOf(context).toLanguageTag(),
-    sessionGeneration: _sourceKey == 'missav' ? _client.sessionGeneration : 0,
+    sessionGeneration: switch (_sourceKey) {
+      'missav' => _client.sessionGeneration,
+      'jable' => _jableClient.contentGeneration,
+      _ => 0,
+    },
     isLoggedIn: _sourceKey == 'missav' && _client.isLoggedIn,
     accountName: _sourceKey == 'missav' ? _client.accountName : null,
   );
@@ -1685,6 +1745,14 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     );
   }
 
+  Future<void> _openLocalHistory() {
+    _pausePlaylistCoverAccess();
+    return pushBottomDockRoute(
+      context,
+      builder: (_) => const VideoLocalHistoryScreen(),
+    );
+  }
+
   Future<void> _openDetails(VideoItem video) async {
     _client.cancelBackgroundMirrorProbe();
     _pausePlaylistCoverAccess();
@@ -2490,6 +2558,12 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
             icon: Icons.download_outlined,
             title: s.videoDownloads,
             onTap: _openDownloads,
+          ),
+          LibraryDrawerTile(
+            key: const ValueKey('video-local-history'),
+            icon: Icons.history,
+            title: s.localHistory,
+            onTap: _openLocalHistory,
           ),
         ],
       ),

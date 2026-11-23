@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:open_filex/open_filex.dart';
@@ -31,8 +32,14 @@ class UpdateService {
   static const String _stableGithubApiUrl = '$_releasesGithubApiUrl/latest';
   static const String _releasePageUrl =
       'https://github.com/$_releaseRepository/releases/latest';
-  static const String _stableAndroidPackageName = 'com.meteor.iroru';
-  static const String _betaPackageName = '$_stableAndroidPackageName.beta';
+  static const String _androidPackageName = 'com.meteor.iroru';
+  static const List<String> _downloadMirrors = [
+    'https://ghfast.top/',
+    'https://gh-proxy.com/',
+    'https://ghproxy.net/',
+  ];
+  static const Duration _defaultDownloadTimeout = Duration(seconds: 60);
+  static final RegExp _betaVersion = RegExp(r'^\d+\.\d+\.\d+-beta\.\d+$');
 
   static const String _keyUpdateChannel = 'update_channel';
   static const String _keyLastCheckedVersion = 'last_checked_version';
@@ -42,6 +49,7 @@ class UpdateService {
   static const String _keyLastDownloadUrl = 'last_download_url';
   static const String _keyLastAssetName = 'last_asset_name';
   static const String _keyLastAssetSize = 'last_asset_size';
+  static const String _keyLastAssetDigest = 'last_asset_digest';
   static const String _keyLastReleaseUrl = 'last_release_url';
 
   int _channelRevision = 0;
@@ -56,6 +64,7 @@ class UpdateService {
   final ProcessStarter _processStarter;
   final Future<Directory> Function() _getTempDirectory;
   final Abi? _androidAbi;
+  final Duration _downloadTimeout;
 
   UpdateService({
     Dio? dio,
@@ -63,22 +72,26 @@ class UpdateService {
     ProcessStarter? processStarter,
     Future<Directory> Function()? getTempDirectory,
     Abi? androidAbi,
+    Duration? downloadTimeout,
   }) : _dio = dio ?? Dio(),
        _openFile = openFile ?? OpenFilex.open,
        _processStarter = processStarter ?? Process.start,
        _getTempDirectory = getTempDirectory ?? getTemporaryDirectory,
        _androidAbi =
-           androidAbi ?? (!kIsWeb && Platform.isAndroid ? Abi.current() : null);
+           androidAbi ?? (!kIsWeb && Platform.isAndroid ? Abi.current() : null),
+       _downloadTimeout = downloadTimeout ?? _defaultDownloadTimeout;
 
-  Future<UpdateChannel> getUpdateChannel({String? packageName}) async {
+  Future<UpdateChannel> getUpdateChannel({String? currentVersion}) async {
     final prefs = await SharedPreferences.getInstance();
     final savedChannel = prefs.getString(_keyUpdateChannel);
     for (final channel in UpdateChannel.values) {
       if (savedChannel == channel.name) return channel;
     }
 
-    packageName ??= (await PackageInfo.fromPlatform()).packageName;
-    return _installedChannel(packageName);
+    currentVersion ??= (await PackageInfo.fromPlatform()).version;
+    return _betaVersion.hasMatch(currentVersion)
+        ? UpdateChannel.beta
+        : UpdateChannel.stable;
   }
 
   Future<void> setUpdateChannel(UpdateChannel channel) {
@@ -113,22 +126,21 @@ class UpdateService {
   }) async {
     final checkRevision = ++_checkRevision;
     final channelRevision = _channelRevision;
-    final packageInfo = await PackageInfo.fromPlatform();
-    final currentVersion = packageInfo.version;
-    final installedChannel = _installedChannel(packageInfo.packageName);
+    final currentVersion = (await PackageInfo.fromPlatform()).version;
     final prefs = await SharedPreferences.getInstance();
     final selectedChannel =
-        channel ?? await getUpdateChannel(packageName: packageInfo.packageName);
+        channel ?? await getUpdateChannel(currentVersion: currentVersion);
     if (!_isCurrentCheck(checkRevision, channelRevision)) return null;
-    final isCrossChannel = selectedChannel != installedChannel;
-    final versionKey = _cacheKey(_keyLastCheckedVersion, selectedChannel);
     final checkedAtKey = _cacheKey(_keyLastCheckTime, selectedChannel);
     final now = DateTime.now().millisecondsSinceEpoch;
+    final lastCheckedVersion = _cachedVersion(prefs, selectedChannel);
 
-    if (!force && now - (prefs.getInt(checkedAtKey) ?? 0) < 3600000) {
-      final lastCheckedVersion = prefs.getString(versionKey);
-      if (lastCheckedVersion == null || lastCheckedVersion.isEmpty) return null;
-      if (lastCheckedVersion == currentVersion && !isCrossChannel) return null;
+    if (!force &&
+        lastCheckedVersion != null &&
+        now - (prefs.getInt(checkedAtKey) ?? 0) < 3600000) {
+      if (lastCheckedVersion.isEmpty || lastCheckedVersion == currentVersion) {
+        return null;
+      }
 
       return UpdateInfo(
         latestVersion: lastCheckedVersion,
@@ -136,9 +148,7 @@ class UpdateService {
         releaseUrl:
             prefs.getString(_cacheKey(_keyLastReleaseUrl, selectedChannel)) ??
             _releasePageUrl,
-        hasNewVersion:
-            isCrossChannel ||
-            _compareVersions(currentVersion, lastCheckedVersion) < 0,
+        hasNewVersion: _compareVersions(currentVersion, lastCheckedVersion) < 0,
         releaseNotes: prefs.getString(
           _cacheKey(_keyLastReleaseNotes, selectedChannel),
         ),
@@ -149,7 +159,9 @@ class UpdateService {
           _cacheKey(_keyLastAssetName, selectedChannel),
         ),
         assetSize: prefs.getInt(_cacheKey(_keyLastAssetSize, selectedChannel)),
-        isCrossChannel: isCrossChannel,
+        assetDigest: prefs.getString(
+          _cacheKey(_keyLastAssetDigest, selectedChannel),
+        ),
       );
     }
 
@@ -171,10 +183,11 @@ class UpdateService {
 
     final releaseNotes = data['body'] as String?;
     final releaseUrl = data['html_url'] as String? ?? _releasePageUrl;
-    final matchedAsset = _findReleaseAsset(data, selectedChannel);
+    final matchedAsset = _findReleaseAsset(data);
     final downloadUrl = matchedAsset?['browser_download_url'] as String?;
     final assetName = matchedAsset?['name'] as String?;
     final assetSize = matchedAsset?['size'] as int?;
+    final assetDigest = matchedAsset?['digest'] as String?;
 
     await _cacheIfCurrent(
       checkRevision,
@@ -188,6 +201,7 @@ class UpdateService {
         downloadUrl: downloadUrl,
         assetName: assetName,
         assetSize: assetSize,
+        assetDigest: assetDigest,
       ),
     );
     if (!_isCurrentCheck(checkRevision, channelRevision)) return null;
@@ -196,13 +210,12 @@ class UpdateService {
       latestVersion: latestVersion,
       currentVersion: currentVersion,
       releaseUrl: releaseUrl,
-      hasNewVersion:
-          isCrossChannel || _compareVersions(currentVersion, latestVersion) < 0,
+      hasNewVersion: _compareVersions(currentVersion, latestVersion) < 0,
       releaseNotes: releaseNotes,
       downloadUrl: downloadUrl,
       assetName: assetName,
       assetSize: assetSize,
-      isCrossChannel: isCrossChannel,
+      assetDigest: assetDigest,
     );
   }
 
@@ -220,13 +233,15 @@ class UpdateService {
       }
       final data = response.data as Map<String, dynamic>;
       if (data['draft'] == true || data['prerelease'] == true) return null;
-      if (_androidAbi != null && _findReleaseAsset(data, channel) == null) {
+      if (_androidAbi != null && _findReleaseAsset(data) == null) {
         return null;
       }
       return data;
     }
 
     var page = 1;
+    Map<String, dynamic>? newestRelease;
+    String newestTag = '';
     while (true) {
       final response = await _dio.get(
         _releasesGithubApiUrl,
@@ -240,32 +255,29 @@ class UpdateService {
       for (final release in releases.whereType<Map<String, dynamic>>()) {
         if (release['draft'] == true || release['prerelease'] != true) continue;
         final tag = _normalizeVersion(release['tag_name'] as String? ?? '');
-        if (RegExp(r'^\d+\.\d+\.\d+-beta\.\d+$').hasMatch(tag) &&
-            (_androidAbi == null ||
-                _findReleaseAsset(release, channel) != null)) {
-          return release;
+        if (!_betaVersion.hasMatch(tag) ||
+            (_androidAbi != null && _findReleaseAsset(release) == null)) {
+          continue;
+        }
+        if (newestRelease == null || _compareVersions(newestTag, tag) < 0) {
+          newestRelease = release;
+          newestTag = tag;
         }
       }
-      if (releases.length < 100) return null;
+      if (releases.length < 100) break;
       page++;
     }
+    return newestRelease;
   }
 
-  Map<String, dynamic>? _findReleaseAsset(
-    Map<String, dynamic> release,
-    UpdateChannel channel,
-  ) {
+  Map<String, dynamic>? _findReleaseAsset(Map<String, dynamic> release) {
     final assets = release['assets'] as List<dynamic>? ?? [];
     final androidAbi = _androidAbi;
     if (androidAbi == null) return findPlatformAsset(assets);
 
-    final packageName = channel == UpdateChannel.beta
-        ? _betaPackageName
-        : _stableAndroidPackageName;
-    final candidates = assets.whereType<Map<String, dynamic>>().where((asset) {
-      final name = asset['name'] as String?;
-      return name != null && name.endsWith('_$packageName.apk');
-    });
+    final candidates = assets.whereType<Map<String, dynamic>>().where(
+      (asset) => _isAndroidUpdateAsset(asset['name'] as String?),
+    );
     return findPlatformAsset(
       candidates.toList(),
       targetPlatform: 'android',
@@ -278,13 +290,22 @@ class UpdateService {
       .replaceFirst(RegExp(r'\(.*\)'), '')
       .trim();
 
-  UpdateChannel _installedChannel(String packageName) =>
-      packageName == _betaPackageName
-      ? UpdateChannel.beta
-      : UpdateChannel.stable;
+  bool _isAndroidUpdateAsset(String? name) =>
+      _androidAbi == Abi.androidArm64 &&
+      name != null &&
+      name.endsWith('_$_androidPackageName.apk');
 
   String _cacheKey(String key, UpdateChannel channel) =>
       '${key}_${channel.name}';
+
+  String? _cachedVersion(SharedPreferences prefs, UpdateChannel channel) {
+    final version = prefs.getString(_cacheKey(_keyLastCheckedVersion, channel));
+    if (version == null || version.isEmpty || _androidAbi == null) {
+      return version;
+    }
+    final assetName = prefs.getString(_cacheKey(_keyLastAssetName, channel));
+    return _isAndroidUpdateAsset(assetName) ? version : null;
+  }
 
   bool _isCurrentCheck(int checkRevision, int channelRevision) =>
       checkRevision == _checkRevision && channelRevision == _channelRevision;
@@ -318,6 +339,7 @@ class UpdateService {
     required String? downloadUrl,
     required String? assetName,
     required int? assetSize,
+    required String? assetDigest,
   }) async {
     final assetSizeKey = _cacheKey(_keyLastAssetSize, channel);
     // Update all in-memory fields before yielding to a channel change.
@@ -350,6 +372,11 @@ class UpdateService {
         _cacheKey(_keyLastAssetName, channel),
         assetName,
       ),
+      _setOptionalString(
+        prefs,
+        _cacheKey(_keyLastAssetDigest, channel),
+        assetDigest,
+      ),
       assetSize == null
           ? prefs.remove(assetSizeKey)
           : prefs.setInt(assetSizeKey, assetSize),
@@ -372,6 +399,7 @@ class UpdateService {
         _keyLastDownloadUrl,
         _keyLastAssetName,
         _keyLastAssetSize,
+        _keyLastAssetDigest,
       ])
         prefs.remove(_cacheKey(key, channel)),
     ]);
@@ -450,9 +478,16 @@ class UpdateService {
   }
 
   /// Download the update package to the local updates directory.
+  ///
+  /// Tries the official download URL first, then each built-in mirror in
+  /// order, attempting every address once. A cancelled download stops the
+  /// chain without falling back. When GitHub supplied a SHA-256 digest, every
+  /// candidate must match it. Without a valid digest, only the official URL is
+  /// tried.
   Future<File> downloadUpdate({
     required String downloadUrl,
     required String fileName,
+    String? assetDigest,
     void Function(int received, int total)? onProgress,
     CancelToken? cancelToken,
     Directory? targetDirectory,
@@ -464,33 +499,154 @@ class UpdateService {
       await saveDir.create(recursive: true);
     }
 
-    final savePath = p.join(saveDir.path, fileName);
-    final tempPath = '$savePath.part';
-    final tempFile = File(tempPath);
-    if (await tempFile.exists()) {
-      await tempFile.delete();
-    }
-
-    await _dio.download(
+    final expectedDigest = _parseSha256Digest(assetDigest);
+    final candidates = <String>[
       downloadUrl,
-      tempPath,
-      cancelToken: cancelToken,
-      onReceiveProgress: onProgress,
-    );
+      if (expectedDigest != null)
+        for (final mirror in _downloadMirrors) _mirrorUrl(downloadUrl, mirror),
+    ];
+    final downloadDirectory = await saveDir.createTemp('.${fileName}_');
+    final finalPath = p.join(downloadDirectory.path, fileName);
 
-    final downloadedPart = File(tempPath);
-    if (!await downloadedPart.exists() || await downloadedPart.length() == 0) {
-      throw FileSystemException(
-        'Downloaded file is empty or missing',
+    Exception? lastError;
+    var completed = false;
+    try {
+      for (var i = 0; i < candidates.length; i++) {
+        final tempFile = File(p.join(downloadDirectory.path, '$i.part'));
+
+        try {
+          await _downloadAttempt(
+            candidates[i],
+            tempFile.path,
+            cancelToken: cancelToken,
+            onProgress: onProgress,
+          );
+          _throwIfCancelled(cancelToken);
+        } on DioException catch (e) {
+          if (e.type == DioExceptionType.cancel &&
+              cancelToken?.isCancelled == true) {
+            rethrow;
+          }
+          lastError = e;
+          continue;
+        } on Exception catch (e) {
+          lastError = e;
+          continue;
+        }
+
+        if (!await tempFile.exists() || await tempFile.length() == 0) {
+          if (await tempFile.exists()) {
+            await tempFile.delete();
+          }
+          lastError = FileSystemException(
+            'Downloaded file is empty or missing',
+            tempFile.path,
+          );
+          continue;
+        }
+
+        if (expectedDigest != null &&
+            !await _hasMatchingDigest(tempFile, expectedDigest)) {
+          _throwIfCancelled(cancelToken);
+          await tempFile.delete();
+          lastError = const FormatException(
+            'Update does not match the GitHub SHA-256 digest',
+          );
+          continue;
+        }
+
+        _throwIfCancelled(cancelToken);
+        final result = await tempFile.rename(finalPath);
+        _throwIfCancelled(cancelToken);
+        completed = true;
+        return result;
+      }
+    } finally {
+      if (!completed && await downloadDirectory.exists()) {
+        await downloadDirectory.delete(recursive: true);
+      }
+    }
+
+    throw lastError ?? Exception('Update download failed');
+  }
+
+  /// Runs one download attempt and aborts it when no bytes arrive for
+  /// [_downloadTimeout]. Dio's receive timeout only covers the response
+  /// headers, so the body needs this stall guard. A stall cancels the
+  /// underlying connection so the next attempt starts from a clean file.
+  Future<void> _downloadAttempt(
+    String url,
+    String tempPath, {
+    required CancelToken? cancelToken,
+    required void Function(int received, int total)? onProgress,
+  }) async {
+    final attemptToken = CancelToken();
+    if (cancelToken != null) {
+      if (cancelToken.isCancelled) throw cancelToken.cancelError!;
+      cancelToken.whenCancel.then((error) {
+        if (!attemptToken.isCancelled) attemptToken.cancel(error.error);
+      });
+    }
+
+    Timer? stallTimer;
+    var stalled = false;
+    void resetStallTimer() {
+      stallTimer?.cancel();
+      stallTimer = Timer(_downloadTimeout, () {
+        stalled = true;
+        if (!attemptToken.isCancelled) {
+          attemptToken.cancel('Update download stalled');
+        }
+      });
+    }
+
+    resetStallTimer();
+    try {
+      await _dio.download(
+        url,
         tempPath,
+        cancelToken: attemptToken,
+        options: Options(
+          receiveTimeout: _downloadTimeout,
+          sendTimeout: _downloadTimeout,
+        ),
+        onReceiveProgress: (received, total) {
+          resetStallTimer();
+          onProgress?.call(received, total);
+        },
       );
+    } on DioException catch (e) {
+      if (cancelToken?.isCancelled == true) rethrow;
+      if (stalled && e.type == DioExceptionType.cancel) {
+        throw TimeoutException(
+          'Update download stalled',
+          _downloadTimeout,
+        );
+      }
+      rethrow;
+    } finally {
+      stallTimer?.cancel();
     }
+  }
 
-    final targetFile = File(savePath);
-    if (await targetFile.exists()) {
-      await targetFile.delete();
+  String _mirrorUrl(String downloadUrl, String mirror) => '$mirror$downloadUrl';
+
+  String? _parseSha256Digest(String? digest) {
+    final match = RegExp(
+      r'^sha256:([0-9a-fA-F]{64})$',
+    ).firstMatch(digest ?? '');
+    return match?.group(1)?.toLowerCase();
+  }
+
+  void _throwIfCancelled(CancelToken? cancelToken) {
+    if (cancelToken?.isCancelled ?? false) {
+      throw cancelToken!.cancelError!;
     }
-    return downloadedPart.rename(savePath);
+  }
+
+  Future<bool> _hasMatchingDigest(File file, String expectedDigest) async {
+    final actualDigest = (await sha256.bind(file.openRead()).single).toString();
+    return actualDigest == expectedDigest;
   }
 
   /// Launch or install the downloaded update package.
@@ -534,13 +690,10 @@ class UpdateService {
   Future<bool> shouldShowRedDot({UpdateChannel? channel}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = (await PackageInfo.fromPlatform()).version;
       final selectedChannel =
-          channel ??
-          await getUpdateChannel(packageName: packageInfo.packageName);
-      final lastCheckedVersion = prefs.getString(
-        _cacheKey(_keyLastCheckedVersion, selectedChannel),
-      );
+          channel ?? await getUpdateChannel(currentVersion: currentVersion);
+      final lastCheckedVersion = _cachedVersion(prefs, selectedChannel);
       final lastNotifiedVersion = prefs.getString(
         _cacheKey(_keyLastNotifiedVersion, selectedChannel),
       );
@@ -549,13 +702,7 @@ class UpdateService {
         return false;
       }
 
-      final currentVersion = packageInfo.version;
-      final isCrossChannel =
-          selectedChannel != _installedChannel(packageInfo.packageName);
-
-      // Show red dot if there's a new version and it hasn't been notified
-      return (isCrossChannel ||
-              _compareVersions(currentVersion, lastCheckedVersion) < 0) &&
+      return _compareVersions(currentVersion, lastCheckedVersion) < 0 &&
           lastCheckedVersion != lastNotifiedVersion;
     } catch (e) {
       return false;
@@ -566,14 +713,9 @@ class UpdateService {
   Future<void> markAsNotified({UpdateChannel? channel}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final packageInfo = await PackageInfo.fromPlatform();
-      final selectedChannel =
-          channel ??
-          await getUpdateChannel(packageName: packageInfo.packageName);
-      final lastCheckedVersion = prefs.getString(
-        _cacheKey(_keyLastCheckedVersion, selectedChannel),
-      );
-      if (lastCheckedVersion != null) {
+      final selectedChannel = channel ?? await getUpdateChannel();
+      final lastCheckedVersion = _cachedVersion(prefs, selectedChannel);
+      if (lastCheckedVersion != null && lastCheckedVersion.isNotEmpty) {
         await prefs.setString(
           _cacheKey(_keyLastNotifiedVersion, selectedChannel),
           lastCheckedVersion,
@@ -658,6 +800,7 @@ class UpdateService {
           _keyLastDownloadUrl,
           _keyLastAssetName,
           _keyLastAssetSize,
+          _keyLastAssetDigest,
           _keyLastReleaseUrl,
         ]) {
           await prefs.remove(_cacheKey(key, channel));
@@ -671,6 +814,7 @@ class UpdateService {
         _keyLastDownloadUrl,
         _keyLastAssetName,
         _keyLastAssetSize,
+        _keyLastAssetDigest,
       ]) {
         await prefs.remove(key);
       }
@@ -690,7 +834,7 @@ class UpdateInfo {
   final String? downloadUrl;
   final String? assetName;
   final int? assetSize;
-  final bool isCrossChannel;
+  final String? assetDigest;
 
   const UpdateInfo({
     required this.latestVersion,
@@ -701,7 +845,7 @@ class UpdateInfo {
     this.downloadUrl,
     this.assetName,
     this.assetSize,
-    this.isCrossChannel = false,
+    this.assetDigest,
   });
 
   @override

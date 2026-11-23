@@ -18,6 +18,7 @@ import '../utils/process_environment.dart';
 import '../utils/snackbar_util.dart';
 import 'jable_client.dart';
 import 'missav_browser_adapter.dart';
+import 'video_login_phase.dart';
 import 'video_models.dart';
 
 const _androidBrowser = MethodChannel(
@@ -29,38 +30,19 @@ JableClient? _activeJableBrowserClient;
 int? _activeJableAndroidProxyGeneration;
 var _jableBrowserConnectionGeneration = 0;
 
-@visibleForTesting
-class JableBrowserConnectionLifetime {
-  JableBrowserConnectionLifetime(this._client);
-
-  final JableClient _client;
+class _JableBrowserConnectionLifetime {
   final Completer<void> _cancelled = Completer<void>();
-  int? _importedGeneration;
   bool _handedOff = false;
 
   Future<void> get cancelSignal => _cancelled.future;
   bool get isCancelled => _cancelled.isCompleted;
   bool get isHandedOff => _handedOff;
 
-  void sessionImported(int generation) => _importedGeneration = generation;
+  void handoff() => _handedOff = true;
 
-  Future<void> discardImportedSession() async {
-    final generation = _importedGeneration;
-    _importedGeneration = null;
-    if (generation != null) {
-      await _client.clearSession(expectedGeneration: generation);
-    }
-  }
-
-  void handoff() {
-    _importedGeneration = null;
-    _handedOff = true;
-  }
-
-  Future<void> cancel() async {
+  void cancel() {
     if (_handedOff || _cancelled.isCompleted) return;
     _cancelled.complete();
-    await discardImportedSession();
   }
 }
 
@@ -193,7 +175,14 @@ Future<void> _connectJableBrowserSession(
   JableClient client, {
   required int expectedGeneration,
   required int? androidProxyGeneration,
-  JableBrowserConnectionLifetime? cancelSignal,
+  ({
+    String cookies,
+    String userAgent,
+    bool requireLogin,
+    _JableBrowserConnectionLifetime lifetime,
+    void Function(VideoLoginPhase) onPhase,
+  })?
+  verification,
 }) async {
   if (!Platform.isWindows &&
       !Platform.isAndroid &&
@@ -201,7 +190,10 @@ Future<void> _connectJableBrowserSession(
     throw StateError('Jable verification requires the system proxy.');
   }
   final connectionGeneration = ++_jableBrowserConnectionGeneration;
+  var sessionGeneration = expectedGeneration;
+  final lifetime = verification?.lifetime;
   var proxyGeneration = androidProxyGeneration;
+  var ownsProxy = verification == null;
   Webview? desktop;
   WebViewController? mobile;
   OverlayEntry? mobileEntry;
@@ -210,11 +202,17 @@ Future<void> _connectJableBrowserSession(
 
   void ensureCurrent() {
     if (_jableBrowserConnectionGeneration != connectionGeneration ||
-        cancelSignal?.isCancelled == true ||
-        client.sessionGeneration != expectedGeneration) {
+        lifetime?.isCancelled == true ||
+        adapter?.isClosed == true ||
+        client.sessionGeneration != sessionGeneration) {
       throw StateError('Jable browser connection was cancelled.');
     }
   }
+
+  Future<void> navigationCancellation(Future<void> cancelled) =>
+      lifetime == null || lifetime.isHandedOff
+      ? cancelled
+      : Future.any([cancelled, lifetime.cancelSignal]);
 
   final previous = _activeJableBrowser;
   if (previous != null) {
@@ -262,7 +260,7 @@ Future<void> _connectJableBrowserSession(
       await _navigateJableDesktopDocument(
         browser,
         Uri.parse(client.homeUrl),
-        cancelSignal?.cancelSignal ?? Completer<void>().future,
+        lifetime?.cancelSignal ?? Completer<void>().future,
         ensureActive: ensureCurrent,
       );
 
@@ -275,14 +273,14 @@ Future<void> _connectJableBrowserSession(
         navigateDocument: (uri, cancelled) => _navigateJableDesktopDocument(
           browser,
           uri,
-          cancelled,
+          navigationCancellation(cancelled),
           ensureActive: ensureCurrent,
         ),
         disposeBrowser: () async {
           disposing = true;
           await _disposeJableDesktopBrowser(browser);
           _clearJableBrowserOwner(browserAdapter);
-          if (Platform.isAndroid && proxyGeneration != null) {
+          if (ownsProxy && Platform.isAndroid && proxyGeneration != null) {
             await _releaseAndroidProxy(proxyGeneration);
           }
         },
@@ -321,7 +319,7 @@ Future<void> _connectJableBrowserSession(
       await _navigateJableMobileDocument(
         controller,
         Uri.parse(client.homeUrl),
-        cancelSignal?.cancelSignal ?? Completer<void>().future,
+        lifetime?.cancelSignal ?? Completer<void>().future,
         ensureActive: ensureCurrent,
       );
 
@@ -332,7 +330,7 @@ Future<void> _connectJableBrowserSession(
         navigateDocument: (uri, cancelled) => _navigateJableMobileDocument(
           controller,
           uri,
-          cancelled,
+          navigationCancellation(cancelled),
           ensureActive: ensureCurrent,
         ),
         disposeBrowser: () async {
@@ -343,7 +341,7 @@ Future<void> _connectJableBrowserSession(
             channelName: MissavBrowserAdapter.jableChannelName,
           );
           _clearJableBrowserOwner(browserAdapter);
-          if (Platform.isAndroid && proxyGeneration != null) {
+          if (ownsProxy && Platform.isAndroid && proxyGeneration != null) {
             await _releaseAndroidProxy(proxyGeneration);
           }
         },
@@ -358,24 +356,54 @@ Future<void> _connectJableBrowserSession(
 
     final connectedAdapter = adapter;
     ensureCurrent();
-    client.useVerifiedBrowserTransport(
-      connectedAdapter,
-      expectedGeneration: expectedGeneration,
-      connectionGeneration: connectionGeneration,
-    );
-    _activeJableBrowser = connectedAdapter;
-    _activeJableBrowserClient = client;
-    _activeJableAndroidProxyGeneration = proxyGeneration;
 
-    await client.checkBrowserAccess();
-    ensureCurrent();
+    void publishBrowser() {
+      _activeJableBrowser = connectedAdapter;
+      _activeJableBrowserClient = client;
+      _activeJableAndroidProxyGeneration = proxyGeneration;
+      ownsProxy = true;
+    }
+
+    if (verification == null) {
+      client.useVerifiedBrowserTransport(
+        connectedAdapter,
+        expectedGeneration: expectedGeneration,
+        connectionGeneration: connectionGeneration,
+      );
+      publishBrowser();
+      await client.checkBrowserAccess();
+      ensureCurrent();
+    } else {
+      await client.checkBrowserAccess(candidate: connectedAdapter);
+      ensureCurrent();
+      if (verification.requireLogin) {
+        verification.onPhase(VideoLoginPhase.favoritesConfirmation);
+        await client.confirmBrowserLogin(connectedAdapter);
+        ensureCurrent();
+      }
+      verification.onPhase(VideoLoginPhase.sessionSave);
+      await client.commitBrowserSession(
+        connectedAdapter,
+        cookieHeader: verification.cookies,
+        userAgent: verification.userAgent,
+        loginConfirmed: verification.requireLogin,
+        expectedGeneration: expectedGeneration,
+        connectionGeneration: connectionGeneration,
+        ensureCurrent: ensureCurrent,
+        onCommitted: (generation) {
+          sessionGeneration = generation;
+          publishBrowser();
+          verification.lifetime.handoff();
+        },
+      );
+    }
   } catch (_) {
     final active = adapter;
     if (_jableBrowserConnectionGeneration == connectionGeneration &&
         active != null) {
       client.restoreNativeTransportIfCurrent(
         expectedAdapter: active,
-        expectedGeneration: expectedGeneration,
+        expectedGeneration: sessionGeneration,
         connectionGeneration: connectionGeneration,
       );
     }
@@ -393,7 +421,7 @@ Future<void> _connectJableBrowserSession(
         channelName: MissavBrowserAdapter.jableChannelName,
       );
     }
-    if (Platform.isAndroid && proxyGeneration != null) {
+    if (ownsProxy && Platform.isAndroid && proxyGeneration != null) {
       await _releaseAndroidProxy(proxyGeneration);
     }
     rethrow;
@@ -414,7 +442,7 @@ Future<Webview> _createJableDesktopBrowser({required bool hidden}) async =>
       ),
     );
 
-Future<String> _navigateJableDesktopDocument(
+Future<(String, Uri)> _navigateJableDesktopDocument(
   Webview browser,
   Uri uri,
   Future<void> cancelled, {
@@ -471,14 +499,14 @@ Future<String> _navigateJableDesktopDocument(
       );
     }
     ensureActive();
-    return markup;
+    return (markup, Uri.parse('$currentUrl'));
   } finally {
     browser.navigationState.removeListener(observeNavigation);
     await errors.cancel();
   }
 }
 
-Future<String> _navigateJableMobileDocument(
+Future<(String, Uri)> _navigateJableMobileDocument(
   WebViewController controller,
   Uri uri,
   Future<void> cancelled, {
@@ -541,7 +569,7 @@ Future<String> _navigateJableMobileDocument(
   );
   final markup = jableDocumentMarkup(raw, android: Platform.isAndroid);
   ensureActive();
-  return markup;
+  return (markup, Uri.parse(currentUrl!));
 }
 
 Future<T> _awaitJableOperation<T>(
@@ -698,12 +726,11 @@ class _JableVerificationState extends State<_JableVerification> {
   bool _starting = true;
   bool _checking = false;
   bool _failed = false;
+  VideoLoginPhase? _loginFailurePhase;
   bool _proxyUnsupported = false;
   bool _closed = false;
   bool _finished = false;
-  late final _browserConnectionCancellation = JableBrowserConnectionLifetime(
-    widget.client,
-  );
+  final _browserConnectionCancellation = _JableBrowserConnectionLifetime();
 
   bool get _isDesktop =>
       defaultTargetPlatform == TargetPlatform.windows ||
@@ -771,7 +798,7 @@ class _JableVerificationState extends State<_JableVerification> {
         unawaited(
           browser.onClose.then((_) {
             _closed = true;
-            unawaited(_browserConnectionCancellation.cancel());
+            _browserConnectionCancellation.cancel();
             if (!_checking) _finish(false);
           }),
         );
@@ -813,7 +840,10 @@ class _JableVerificationState extends State<_JableVerification> {
     setState(() {
       _checking = true;
       _failed = false;
+      _loginFailurePhase = null;
     });
+    final elapsed = requireLogin ? (Stopwatch()..start()) : null;
+    var loginPhase = VideoLoginPhase.favoritesConfirmation;
     try {
       await client.initialize();
       if (!_isCurrent) return;
@@ -826,7 +856,7 @@ class _JableVerificationState extends State<_JableVerification> {
           if (!_isCurrent) throw StateError('Jable login was cancelled.');
         }
 
-        final markup = browser != null
+        final (markup, _) = browser != null
             ? await _navigateJableDesktopDocument(
                 browser,
                 uri,
@@ -846,9 +876,12 @@ class _JableVerificationState extends State<_JableVerification> {
           } else {
             await mobile!.loadRequest(Uri.parse(widget.sourceUrl));
           }
-          throw StateError('Jable sign-in is required.');
+          throw const JableLoginRequiredException(
+            sourceUrl: JableAccount.favoritesUrl,
+          );
         }
       }
+      loginPhase = VideoLoginPhase.browserHandoff;
       final cookies = browser != null
           ? jableVerificationCookieHeader(await browser.getAllCookies())
           : await _mobileCookieHeader();
@@ -860,35 +893,29 @@ class _JableVerificationState extends State<_JableVerification> {
       if (cookies.isEmpty || rawAgent is! String || rawAgent.trim().isEmpty) {
         throw StateError('Jable browser session is unavailable.');
       }
-      final generation = client.sessionGeneration;
-      await client.importVerifiedSession(
-        cookieHeader: cookies,
-        userAgent: rawAgent,
-        expectedGeneration: generation,
-      );
-      final importedGeneration = client.sessionGeneration;
-      _browserConnectionCancellation.sessionImported(importedGeneration);
-      if (!_isCurrent) {
-        await _browserConnectionCancellation.discardImportedSession();
-        return;
-      }
       await _connectJableBrowserSession(
         client,
-        expectedGeneration: importedGeneration,
+        expectedGeneration: client.sessionGeneration,
         androidProxyGeneration: widget.androidProxyGeneration,
-        cancelSignal: _browserConnectionCancellation,
+        verification: (
+          cookies: cookies,
+          userAgent: rawAgent,
+          requireLogin: requireLogin,
+          lifetime: _browserConnectionCancellation,
+          onPhase: (phase) => loginPhase = phase,
+        ),
       );
-      if (requireLogin && !await client.account.checkLogin()) {
-        throw StateError('Jable sign-in could not be confirmed.');
-      }
-      if (!_isCurrent) {
-        await _browserConnectionCancellation.discardImportedSession();
-        return;
-      }
       _finish(true);
-    } catch (_) {
-      await _browserConnectionCancellation.discardImportedSession();
-      if (_isCurrent) setState(() => _failed = true);
+    } catch (error) {
+      if (_isCurrent) {
+        if (elapsed != null) {
+          loginPhase.logFailure('Jable', error, elapsed.elapsedMilliseconds);
+        }
+        setState(() {
+          _failed = true;
+          _loginFailurePhase = elapsed != null ? loginPhase : null;
+        });
+      }
     } finally {
       if (mounted) {
         setState(() => _checking = false);
@@ -898,13 +925,9 @@ class _JableVerificationState extends State<_JableVerification> {
   }
 
   void _finish(bool verified) {
-    if (!mounted || _finished || (verified && _closed)) return;
+    if (!mounted || _finished) return;
     _finished = true;
-    if (verified) {
-      _browserConnectionCancellation.handoff();
-    } else {
-      unawaited(_browserConnectionCancellation.cancel());
-    }
+    if (!verified) _browserConnectionCancellation.cancel();
     Navigator.of(context).pop(verified);
   }
 
@@ -920,7 +943,7 @@ class _JableVerificationState extends State<_JableVerification> {
 
   @override
   void dispose() {
-    unawaited(_browserConnectionCancellation.cancel());
+    _browserConnectionCancellation.cancel();
     unawaited(_desktopLoadErrors?.cancel());
     unawaited(_closeDesktop());
     final mobile = _mobile;
@@ -935,7 +958,7 @@ class _JableVerificationState extends State<_JableVerification> {
       onPopInvokedWithResult: (didPop, _) {
         if (didPop && !_finished) {
           _finished = true;
-          unawaited(_browserConnectionCancellation.cancel());
+          _browserConnectionCancellation.cancel();
         }
       },
       child: AlertDialog(
@@ -969,9 +992,10 @@ class _JableVerificationState extends State<_JableVerification> {
               if (_failed) ...[
                 const SizedBox(height: 12),
                 Text(
-                  widget.requireLogin
-                      ? s.loginFailed
-                      : s.videoVerificationFailed,
+                  _loginFailurePhase?.failureMessage(s) ??
+                      (widget.requireLogin
+                          ? s.loginFailed
+                          : s.videoVerificationFailed),
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ],

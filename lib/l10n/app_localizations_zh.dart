@@ -504,7 +504,7 @@ class SZh extends S {
   String get downloadPath => '下载路径';
 
   @override
-  String get downloadPathSubtitle => '自定义下载文件保存位置';
+  String get downloadPathSubtitle => '设置音声、漫画和视频的下载位置';
 
   @override
   String get maxConcurrentDownloads => '最大同时下载数';
@@ -588,13 +588,6 @@ class SZh extends S {
   String get noBetaRelease => '暂无测试版';
 
   @override
-  String get updateChannelVersionAvailable => '所选渠道版本';
-
-  @override
-  String get crossChannelUpdateNotice =>
-      'Android 正式版与测试版是独立应用，数据分别保存。安装后不会替换当前应用。';
-
-  @override
   String get author => '作者';
 
   @override
@@ -626,7 +619,7 @@ class SZh extends S {
   String get view => '查看';
 
   @override
-  String get alreadyLatestVersion => '当前已是最新版本';
+  String get noNewerVersion => '此渠道暂无更新版本';
 
   @override
   String get checkUpdateFailed => '检查更新失败，请检查网络连接';
@@ -3363,7 +3356,7 @@ class SZh extends S {
 
   @override
   String activeDownloadsWarning(int count) {
-    return '有 $count 个下载任务正在进行中，请先取消或完成下载后再切换路径';
+    return '有 $count 个下载任务正在处理。请暂停下载，或等下载完成后再更改路径。';
   }
 
   @override
@@ -3375,7 +3368,7 @@ class SZh extends S {
   String get confirmMigrateFiles => '确认迁移下载文件';
 
   @override
-  String get migrateFilesToNewDir => '将把现有下载文件迁移到新目录：';
+  String get migrateFilesToNewDir => '已有下载和字幕库将迁移到以下目录。';
 
   @override
   String get migrationMayTakeTime => '此操作可能需要一些时间，具体取决于文件数量和大小。';
@@ -3387,7 +3380,7 @@ class SZh extends S {
   String get restoreDefaultPath => '恢复默认路径';
 
   @override
-  String get restoreDefaultPathConfirm => '将下载路径恢复为默认位置，并迁移所有文件。\n\n是否继续？';
+  String get restoreDefaultPathConfirm => '恢复默认路径会将已有下载和字幕库迁移到默认目录。';
 
   @override
   String get defaultPathRestored => '已恢复默认路径';
@@ -3419,11 +3412,14 @@ class SZh extends S {
   String get setCustomPath => '设置自定义路径';
 
   @override
+  String get saveDownloadsInFilesApp => '保存到“文件”App';
+
+  @override
   String get usageInstructions => '使用说明';
 
   @override
   String get downloadPathUsageDesc =>
-      '• 自定义路径后，所有现有文件将自动迁移到新位置\n• 迁移过程中请勿关闭应用\n• 建议选择空间充足的目录\n• 恢复默认路径时，文件也会自动迁移回去';
+      '音声、漫画和视频在下载路径下各用一个子目录。更换路径或恢复默认路径时，应用会迁移已有下载和字幕库。目标目录需要足够的可用空间。';
 
   @override
   String get llmTranslationSettings => 'LLM翻译设置';
@@ -4162,6 +4158,12 @@ class SZh extends S {
   String get libraryHistory => '历史';
 
   @override
+  String get localHistory => '本地历史';
+
+  @override
+  String get noLocalHistory => '暂无本地历史';
+
+  @override
   String get libraryFavorites => '收藏';
 
   @override
@@ -4289,9 +4291,6 @@ class SZh extends S {
   String get videoAccountEmail => '邮箱';
 
   @override
-  String get videoAccountHost => '登录线路';
-
-  @override
   String get videoAccountBrowserLogin => '网页登录';
 
   @override
@@ -4301,13 +4300,22 @@ class SZh extends S {
   String get videoJableLoginRequired => '登录 Jable 后可查看和管理视频收藏。';
 
   @override
+  String get videoJableMirrorSettings => 'Jable 线路';
+
+  @override
+  String get videoJableMirrorDescription => '手动选线适用于浏览、搜索和播放。已登录时，自动选线使用官方线路。';
+
+  @override
   String get videoMirrorSettings => 'MissAV 线路';
 
   @override
   String get videoMirrorDescription => '列出全部线路。不可用线路不能选择。浏览、搜索和播放使用所选线路。';
 
   @override
-  String get videoMirrorAutomatic => '自动选择最快线路';
+  String get videoSourceHost => '线路';
+
+  @override
+  String get videoMirrorAutomatic => '自动选择线路';
 
   @override
   String get videoMirrorUseFastest => '使用最快';
@@ -4328,7 +4336,7 @@ class SZh extends S {
   String get videoMirrorSelect => '使用';
 
   @override
-  String get videoMirrorInUse => '使用中';
+  String get videoMirrorSelected => '已选择';
 
   @override
   String videoMirrorCurrent(String host) {
@@ -4340,6 +4348,12 @@ class SZh extends S {
 
   @override
   String get videoLoginComplete => '完成';
+
+  @override
+  String get videoLoginConfirmationFailed => '未能通过收藏页确认登录。请在网页中确认已登录，再点击“完成”。';
+
+  @override
+  String get videoLoginHandoffFailed => '网页已确认登录。应用未能接管会话，请再次点击“完成”重试。';
 
   @override
   String get videoJableSignedIn => '已登录 Jable';
@@ -5505,7 +5519,7 @@ class SZhHant extends SZh {
   String get downloadPath => '下載路徑';
 
   @override
-  String get downloadPathSubtitle => '自訂下載檔案儲存位置';
+  String get downloadPathSubtitle => '設定音聲、漫畫和影片的下載位置';
 
   @override
   String get maxConcurrentDownloads => '最大同時下載數';
@@ -5589,13 +5603,6 @@ class SZhHant extends SZh {
   String get noBetaRelease => 'No beta release is available yet.';
 
   @override
-  String get updateChannelVersionAvailable => 'Selected channel version';
-
-  @override
-  String get crossChannelUpdateNotice =>
-      'Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.';
-
-  @override
   String get author => '作者';
 
   @override
@@ -5627,7 +5634,7 @@ class SZhHant extends SZh {
   String get view => '檢視';
 
   @override
-  String get alreadyLatestVersion => '目前已是最新版本';
+  String get noNewerVersion => '此更新管道目前沒有較新的版本';
 
   @override
   String get checkUpdateFailed => '檢查更新失敗，請檢查網路連線';
@@ -8364,7 +8371,7 @@ class SZhHant extends SZh {
 
   @override
   String activeDownloadsWarning(int count) {
-    return '有 $count 個下載任務正在進行中，請先取消或完成下載後再切換路徑';
+    return '有 $count 個下載任務正在處理。請暫停下載，或等下載完成後再變更路徑。';
   }
 
   @override
@@ -8376,7 +8383,7 @@ class SZhHant extends SZh {
   String get confirmMigrateFiles => '確認遷移下載檔案';
 
   @override
-  String get migrateFilesToNewDir => '將把現有下載檔案遷移到新目錄：';
+  String get migrateFilesToNewDir => '已有下載和字幕庫將搬移到以下目錄。';
 
   @override
   String get migrationMayTakeTime => '此操作可能需要一些時間，具體取決於檔案數量和大小。';
@@ -8388,7 +8395,7 @@ class SZhHant extends SZh {
   String get restoreDefaultPath => '恢復預設路徑';
 
   @override
-  String get restoreDefaultPathConfirm => '將下載路徑恢復為預設位置，並遷移所有檔案。\n\n是否繼續？';
+  String get restoreDefaultPathConfirm => '恢復預設路徑會將已有下載和字幕庫搬移到預設目錄。';
 
   @override
   String get defaultPathRestored => '已恢復預設路徑';
@@ -8420,11 +8427,14 @@ class SZhHant extends SZh {
   String get setCustomPath => '設定自訂路徑';
 
   @override
+  String get saveDownloadsInFilesApp => '儲存到“檔案”App';
+
+  @override
   String get usageInstructions => '使用說明';
 
   @override
   String get downloadPathUsageDesc =>
-      '• 自訂路徑後，所有現有檔案將自動遷移到新位置\n• 遷移過程中請勿關閉應用\n• 建議選擇空間充足的目錄\n• 恢復預設路徑時，檔案也會自動遷移回去';
+      '音聲、漫畫和影片在下載路徑下各用一個子目錄。變更路徑或恢復預設路徑時，應用程式會搬移已有下載和字幕庫。目標目錄需要足夠的可用空間。';
 
   @override
   String get llmTranslationSettings => 'LLM翻譯設定';
@@ -9163,6 +9173,12 @@ class SZhHant extends SZh {
   String get libraryHistory => '歷史';
 
   @override
+  String get localHistory => '本機歷史';
+
+  @override
+  String get noLocalHistory => '暫無本機歷史';
+
+  @override
   String get libraryFavorites => '收藏';
 
   @override
@@ -9290,9 +9306,6 @@ class SZhHant extends SZh {
   String get videoAccountEmail => '電子郵件';
 
   @override
-  String get videoAccountHost => '登入線路';
-
-  @override
   String get videoAccountBrowserLogin => '網頁登入';
 
   @override
@@ -9302,13 +9315,22 @@ class SZhHant extends SZh {
   String get videoJableLoginRequired => '登入 Jable 後可查看及管理影片收藏。';
 
   @override
+  String get videoJableMirrorSettings => 'Jable 線路';
+
+  @override
+  String get videoJableMirrorDescription => '手動選線適用於瀏覽、搜尋和播放。已登入時，自動選線使用官方線路。';
+
+  @override
   String get videoMirrorSettings => 'MissAV 線路';
 
   @override
   String get videoMirrorDescription => '列出全部線路。不可用線路不能選擇。瀏覽、搜尋和播放使用所選線路。';
 
   @override
-  String get videoMirrorAutomatic => '自動選擇最快線路';
+  String get videoSourceHost => '線路';
+
+  @override
+  String get videoMirrorAutomatic => '自動選擇線路';
 
   @override
   String get videoMirrorUseFastest => '使用最快';
@@ -9329,7 +9351,7 @@ class SZhHant extends SZh {
   String get videoMirrorSelect => '使用';
 
   @override
-  String get videoMirrorInUse => '使用中';
+  String get videoMirrorSelected => '已選擇';
 
   @override
   String videoMirrorCurrent(String host) {
@@ -9341,6 +9363,12 @@ class SZhHant extends SZh {
 
   @override
   String get videoLoginComplete => '完成';
+
+  @override
+  String get videoLoginConfirmationFailed => '無法透過收藏頁確認登入。請在網頁上確認已登入，再按一下“完成”。';
+
+  @override
+  String get videoLoginHandoffFailed => '網頁已確認登入。應用程式未能接管工作階段，請再次按一下“完成”。';
 
   @override
   String get videoJableSignedIn => '已登入 Jable';

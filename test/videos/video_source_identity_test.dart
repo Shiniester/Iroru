@@ -1,10 +1,12 @@
-import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:iroru/src/services/local_history_database.dart';
 import 'package:iroru/src/videos/video_library.dart';
 import 'package:iroru/src/videos/video_models.dart';
 import 'package:iroru/src/videos/ui/video_details_screen.dart';
+
+import 'local_history_database_fake.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -52,7 +54,11 @@ void main() {
     () async {
       SharedPreferences.setMockInitialValues({});
       final preferences = await SharedPreferences.getInstance();
-      final library = VideoLibrary(preferences: preferences);
+      final historyDatabase = FakeLocalHistoryDatabase();
+      final library = VideoLibrary(
+        preferences: preferences,
+        historyDatabase: historyDatabase,
+      );
       await library.initialize();
       final missav = VideoItem.fromJson({
         'id': 'shared-native-id',
@@ -69,8 +75,13 @@ void main() {
       await library.savePosition(
         missav.storageKey,
         const Duration(seconds: 11),
+        details: const {'title': 'MissAV video'},
       );
-      await library.savePosition(jable.storageKey, const Duration(seconds: 23));
+      await library.savePosition(
+        jable.storageKey,
+        const Duration(seconds: 23),
+        details: const {'title': 'Jable video'},
+      );
 
       expect(missav.storageKey, 'shared-native-id');
       expect(jable.storageKey, 'jable:shared-native-id');
@@ -82,10 +93,19 @@ void main() {
         library.positionFor(jable.storageKey),
         const Duration(seconds: 23),
       );
-      expect(jsonDecode(preferences.getString('video_resume_positions_v1')!), {
-        'shared-native-id': 11000,
-        'jable:shared-native-id': 23000,
-      });
+      expect(
+        historyDatabase
+            .entry(LocalHistoryType.video, missav.storageKey)
+            ?.position,
+        11000,
+      );
+      expect(
+        historyDatabase
+            .entry(LocalHistoryType.video, jable.storageKey)
+            ?.position,
+        23000,
+      );
+      expect(preferences.getString('video_resume_positions_v1'), isNull);
       library.dispose();
     },
   );

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:iroru/src/videos/jable_mirrors.dart';
 import 'package:iroru/src/videos/missav_mirrors.dart';
 
 class _Adapter implements HttpClientAdapter {
@@ -97,6 +98,33 @@ void main() {
 
     expect(results.every((result) => !result.isAvailable), isTrue);
   });
+
+  test(
+    'Jable probes the release catalog and rejects placeholder HTML',
+    () async {
+      final dio = Dio()
+        ..httpClientAdapter = _Adapter((request) {
+          expect(request.uri.path, '/new-release/');
+          expect(request.headers['Cookie'], isNull);
+          return ResponseBody.fromString(
+            request.uri.host == jableMirrors.first.host
+                ? '<html><div id="site-content">'
+                      '<div id="list_videos_new_release"></div></div></html>'
+                : '<html><h1>Unavailable</h1></html>',
+            HttpStatus.ok,
+          );
+        });
+      addTearDown(() => dio.close(force: true));
+
+      final results = await createJableMirrorProber(
+        dio: dio,
+      ).probeAll(jableMirrors.take(2));
+
+      expect(results.first.mirror, jableMirrors.first);
+      expect(results.first.isAvailable, isTrue);
+      expect(results.last.isAvailable, isFalse);
+    },
+  );
 
   test('aborts the timed-out request before probing the next mirror', () async {
     final firstRequest = Completer<RequestOptions>();

@@ -21,6 +21,7 @@ import 'package:iroru/src/services/storage_service.dart';
 import 'package:iroru/src/videos/ui/video_collection_view.dart';
 import 'package:iroru/src/videos/ui/video_details_screen.dart';
 import 'package:iroru/src/videos/ui/video_downloads_screen.dart';
+import 'package:iroru/src/videos/ui/video_local_history_screen.dart';
 import 'package:iroru/src/videos/ui/video_playback_panel.dart';
 import 'package:iroru/src/videos/ui/jable_account_screen.dart';
 import 'package:iroru/src/videos/missav_browser_adapter.dart';
@@ -37,6 +38,8 @@ import 'package:iroru/src/videos/video_models.dart';
 import 'package:iroru/src/videos/video_providers.dart';
 import 'package:iroru/src/widgets/app_bottom_dock.dart';
 import 'package:iroru/src/widgets/pagination_bar.dart';
+
+import 'local_history_database_fake.dart';
 
 typedef _RecommendationHandler =
     Future<VideoRecommendationPage> Function(
@@ -2799,6 +2802,70 @@ void main() {
   );
 
   testWidgets(
+    'Jable session route changes reload the catalog and ignore stale pages',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final account = _TestJableAccount(loggedIn: false, revision: 0);
+      final signedInResponse = Completer<VideoCatalogPage>();
+      var browseCount = 0;
+      final jable = _TestJableClient(
+        account: account,
+        browseHandler: (url) {
+          browseCount++;
+          if (browseCount == 1) {
+            return Future.value(
+              VideoCatalogPage(title: 'Signed-out catalog', url: url),
+            );
+          }
+          if (browseCount == 2) return signedInResponse.future;
+          return Future.value(
+            VideoCatalogPage(title: 'Current public catalog', url: url),
+          );
+        },
+      );
+      final missav = _TestMissavClient();
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: missav, library: library);
+      await tester.pumpWidget(
+        _app(
+          missav,
+          library,
+          downloads,
+          const VideoScreen(),
+          selectedVideoSource: 'jable',
+          jableClient: jable,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Signed-out catalog'), findsOneWidget);
+
+      account.confirmLogin();
+      await tester.pump();
+      expect(browseCount, 2);
+      account.expireSession();
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(browseCount, 3);
+      expect(find.text('Current public catalog'), findsOneWidget);
+
+      signedInResponse.complete(
+        VideoCatalogPage(
+          title: 'Stale signed-in catalog',
+          url: jable.browsedUrls.first,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Current public catalog'), findsOneWidget);
+      expect(find.text('Stale signed-in catalog'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
     'Jable favorite catalog offers account login after auth failure',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -4361,6 +4428,85 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'automatic saved account restore publishes the first mirror request without replacement',
+    (tester) async {
+      const mirrorUrl = 'https://www.missav05.com/cn';
+      const nextUrl = 'https://missav.ai/cn?page=2';
+      const mirrorPage = VideoCatalogPage(
+        title: 'Mirror catalog',
+        url: mirrorUrl,
+        nextUrl: nextUrl,
+        videos: [
+          VideoItem(
+            id: 'mirror-video',
+            title: 'Mirror video',
+            pageUrl: 'https://www.missav05.com/cn/mirror-video',
+          ),
+        ],
+      );
+      const nextPage = VideoCatalogPage(
+        title: 'Official catalog',
+        url: nextUrl,
+        videos: [
+          VideoItem(
+            id: 'official-video',
+            title: 'Official video',
+            pageUrl: 'https://missav.ai/cn/official-video',
+          ),
+        ],
+      );
+      final firstResult = Completer<VideoCatalogPage>();
+      final browseStarted = Completer<void>();
+      var requests = 0;
+      final client = _TestMissavClient(
+        sourceHomeUrl: mirrorUrl,
+        catalog: mirrorPage,
+        browseStarted: browseStarted,
+        browseHandler: (_, _) {
+          requests++;
+          return requests == 1 ? firstResult.future : Future.value(nextPage);
+        },
+      );
+      addTearDown(() {
+        if (!firstResult.isCompleted) firstResult.complete(mirrorPage);
+        client.dispose();
+      });
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+
+      await tester.pumpWidget(
+        _app(client, library, downloads, const VideoScreen()),
+      );
+      await tester.runAsync(
+        () => browseStarted.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw StateError('Mirror browse did not start.'),
+        ),
+      );
+
+      client.restoreAutomaticSavedAccount('Saved account');
+      await tester.pump();
+
+      expect(client.browsedRoutes, ['mirror']);
+      expect(requests, 1);
+
+      firstResult.complete(mirrorPage);
+      await tester.pumpAndSettle();
+
+      expect(client.browsedRoutes, ['mirror']);
+      expect(find.text('Mirror video'), findsOneWidget);
+      expect(find.text('Official video'), findsNothing);
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await _tapNextPage(tester, l10n);
+
+      expect(client.browsedRoutes, ['mirror', 'official']);
+      expect(find.text('Official video'), findsOneWidget);
+      expect(find.text('Mirror video'), findsNothing);
+    },
+  );
+
   for (final covered in [false, true]) {
     testWidgets(
       'account confirmation retains public catalog and scroll (covered=$covered)',
@@ -4575,9 +4721,12 @@ void main() {
     browser = MissavBrowserAdapter(
       currentUrl: () async => '${MissavClient.origin}/en',
       navigateDocument: (uri, _) async => switch (uri.path) {
+        '/en' || '/en/release' => '<main></main>',
         '/en/playlists' =>
           '<main><a href="/en/playlists/saved-list">Saved playlist</a></main>',
         '/en/history' => catalog,
+        '/en/signed-in-video' =>
+          '<main><h1>Detail from account host</h1></main>',
         _ => fail('Unexpected account page ${uri.path}'),
       },
       runJavaScript: (script) async {
@@ -4657,7 +4806,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(VideoDetailsScreen), findsOneWidget);
-    expect(find.text('Detail from content host').hitTestable(), findsWidgets);
+    expect(find.text('Detail from account host').hitTestable(), findsWidgets);
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
@@ -5229,6 +5378,48 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
   });
+
+  testWidgets('local history sidebar entry opens offline history', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Video catalog',
+        url: 'https://missav.ai/cn',
+      ),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    final s = S.of(tester.element(find.byType(VideoScreen)));
+
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    expect(find.text(s.videoWatchHistory), findsOneWidget);
+
+    final localHistory = find.byKey(const ValueKey('video-local-history'));
+    final drawer = find.byKey(
+      const PageStorageKey<String>('library-drawer-scroll'),
+    );
+    await tester.scrollUntilVisible(
+      localHistory,
+      200,
+      scrollable: find.descendant(
+        of: drawer,
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(s.localHistory), findsOneWidget);
+    await tester.tap(localHistory);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(VideoLocalHistoryScreen), findsOneWidget);
+    expect(find.text(s.noLocalHistory), findsOneWidget);
+  });
 }
 
 Widget _app(
@@ -5299,6 +5490,9 @@ class _TestJableClient extends JableClient {
   JableAccount get account => _testAccount ?? super.account;
 
   @override
+  int get contentGeneration => account.contentGeneration;
+
+  @override
   Future<void> initialize() async {}
 
   @override
@@ -5344,6 +5538,9 @@ class _TestJableAccount extends ChangeNotifier implements JableAccount {
   int revision;
 
   @override
+  int contentGeneration = 0;
+
+  @override
   bool get isLoggedIn => loggedIn;
 
   @override
@@ -5355,6 +5552,14 @@ class _TestJableAccount extends ChangeNotifier implements JableAccount {
   void expireSession() {
     loggedIn = false;
     revision++;
+    contentGeneration++;
+    notifyListeners();
+  }
+
+  void confirmLogin() {
+    loggedIn = true;
+    revision++;
+    contentGeneration++;
     notifyListeners();
   }
 
@@ -5364,7 +5569,10 @@ class _TestJableAccount extends ChangeNotifier implements JableAccount {
 
 Future<VideoLibrary> _testLibrary() async {
   SharedPreferences.setMockInitialValues({});
-  return VideoLibrary(preferences: await SharedPreferences.getInstance());
+  return VideoLibrary(
+    preferences: await SharedPreferences.getInstance(),
+    historyDatabase: FakeLocalHistoryDatabase(),
+  );
 }
 
 class _EmptyVideoSecureStorage implements FlutterSecureStorage {
@@ -5471,6 +5679,8 @@ class _TestMissavClient extends MissavClient {
   final VideoDetails? detailsResult;
   bool loggedIn;
   int _testSessionGeneration = 0;
+  int _testContentGeneration = 0;
+  String _testContentRoute = 'mirror';
   @override
   String? accountName;
   final List<bool> actorFavoriteChanges = [];
@@ -5478,6 +5688,7 @@ class _TestMissavClient extends MissavClient {
   int clearHistoryCalls = 0;
   int collectionSearchCalls = 0;
   final List<String> browsedUrls = [];
+  final List<String> browsedRoutes = [];
   final recommendationRequests = <({String? cursor, int count})>[];
   bool browseFinished = false;
   bool mirrorProbeScheduled = false;
@@ -5507,6 +5718,9 @@ class _TestMissavClient extends MissavClient {
   @override
   int get sessionGeneration => _testSessionGeneration;
 
+  @override
+  int get contentGeneration => _testContentGeneration;
+
   void advanceSessionGeneration() {
     _testSessionGeneration++;
     notifyListeners();
@@ -5515,6 +5729,14 @@ class _TestMissavClient extends MissavClient {
   void confirmAccount(String name) {
     loggedIn = true;
     accountName = name;
+    notifyListeners();
+  }
+
+  void restoreAutomaticSavedAccount(String name) {
+    loggedIn = true;
+    accountName = name;
+    _testContentGeneration++;
+    _testContentRoute = 'official';
     notifyListeners();
   }
 
@@ -5543,6 +5765,7 @@ class _TestMissavClient extends MissavClient {
     void Function(VideoCatalogPage page)? onParsed,
   }) async {
     browsedUrls.add(url);
+    browsedRoutes.add(_testContentRoute);
     onBrowse?.call(url);
     if (browseError != null) throw browseError!;
     final parsedPage =

@@ -21,13 +21,12 @@ downloads.
 
 History and downloads combine entries from both sources and identify their
 origin. A work's identity includes its source: even when both catalogs contain
-the same release, each retains its own history and downloads. Existing Kikoeru
-records and downloaded files remain usable.
+the same release, each retains its own history and downloads.
 
 Kikoeru keeps its positive integer work IDs. Japanese ASMR's positive page IDs
 map to negative internal work IDs; the real RJ code remains display metadata.
 This gives each provider a distinct namespace within the existing integer-keyed
-history, queue and download storage without rewriting legacy data or paths.
+history, queue and download storage.
 
 Browsing selection is independent of playback ownership. Changing the selected
 source preserves the current track and queue. Selecting a new track follows the
@@ -67,7 +66,9 @@ catalog, images, player and downloads never receive ASMR.ONE account credentials
   app's details, player and download flows.
 - Equal work IDs from different sources retain separate history, download
   metadata and files, with visible source labels in the combined collections.
-- Existing ASMR.ONE history and downloads remain accessible after upgrade.
+- Audio downloads use the `audio` subdirectory of the Download Root. Files from
+  the previous layout stay on disk. Download those works again for offline use.
+  [ADR 0016](0016-unified-local-history.md) defines the upgrade behavior for history.
 - Switching browsing sources preserves playback and the queue, including the
   origin used for subsequent track and download operations.
 - Adding audio from either source respects the existing Audio Add Mode.

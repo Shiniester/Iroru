@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide LocalHistoryEntry;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:iroru/l10n/app_localizations.dart';
 import 'package:iroru/src/providers/audio_provider.dart';
+import 'package:iroru/src/services/local_history_database.dart';
 import 'package:iroru/src/services/remote_asset_cache.dart';
 import 'package:iroru/src/videos/jable_client.dart';
 import 'package:iroru/src/videos/missav_client.dart';
@@ -23,6 +24,8 @@ import 'package:iroru/src/videos/video_playback_settings.dart';
 import 'package:iroru/src/videos/video_player_platform.dart';
 import 'package:iroru/src/videos/video_providers.dart';
 import 'package:iroru/src/widgets/app_navigation_scope.dart';
+
+import 'local_history_database_fake.dart';
 
 typedef _MissavAccessVerifier =
     Future<bool> Function(
@@ -102,6 +105,54 @@ void main() {
     expect(find.text(s.videoRelated), findsNothing);
     expect(find.text('stale-html'), findsNothing);
     expect(find.byType(VideoCard), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('video history keeps stable card metadata without URL secrets', (
+    tester,
+  ) async {
+    const video = VideoItem(
+      id: 'history-metadata',
+      title: 'Stable title',
+      pageUrl: 'https://missav.ai/cn/history-metadata?token=page-secret',
+      cover: 'https://covers.example/history-metadata.jpg?token=cover-secret',
+      durationSeconds: 125,
+    );
+    final historyDatabase = FakeLocalHistoryDatabase();
+    final client = _FakeMissavClient({video.id: _details(video)});
+    final sessions = await _pumpDetails(
+      tester,
+      client: client,
+      video: video,
+      historyDatabase: historyDatabase,
+    );
+    await tester.pump(const Duration(seconds: 5));
+    expect(
+      historyDatabase.entry(LocalHistoryType.video, video.storageKey),
+      isNull,
+    );
+    await sessions.single.play();
+    sessions.single.emitSnapshot(
+      position: const Duration(seconds: 42),
+      duration: const Duration(seconds: 150),
+    );
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+
+    final saved = historyDatabase.entry(
+      LocalHistoryType.video,
+      video.storageKey,
+    );
+    expect(saved?.position, 42000);
+    expect(saved?.details['title'], 'Stable title');
+    expect(
+      saved?.details['cover'],
+      'https://covers.example/history-metadata.jpg',
+    );
+    expect(saved?.details['pageUrl'], 'https://missav.ai/cn/history-metadata');
+    expect(saved?.details['durationMs'], 150000);
+    expect(saved?.updatedAt, isNotNull);
     expect(tester.takeException(), isNull);
   });
 
@@ -436,6 +487,7 @@ Future<List<_FakePlaybackSession>> _pumpDetails(
   AppNavigationController? navigation,
   ValueListenable<VideoItem>? videoListenable,
   Map<String, Object> preferences = const {},
+  FakeLocalHistoryDatabase? historyDatabase,
 }) async {
   SharedPreferences.setMockInitialValues(preferences);
   tester.view.physicalSize = const Size(400, 800);
@@ -449,6 +501,7 @@ Future<List<_FakePlaybackSession>> _pumpDetails(
 
   final library = VideoLibrary(
     preferences: await SharedPreferences.getInstance(),
+    historyDatabase: historyDatabase ?? FakeLocalHistoryDatabase(),
   );
   final downloads = _FakeVideoDownloads(client: client, library: library);
   final sessions = <_FakePlaybackSession>[];
@@ -636,6 +689,13 @@ class _FakePlaybackSession implements VideoPlaybackSession {
 
   void complete() {
     _snapshot.value = _snapshot.value.copyWith(completed: true, playing: false);
+  }
+
+  void emitSnapshot({Duration? position, Duration? duration}) {
+    _snapshot.value = _snapshot.value.copyWith(
+      position: position,
+      duration: duration,
+    );
   }
 
   @override

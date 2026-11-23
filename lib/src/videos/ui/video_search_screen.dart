@@ -158,6 +158,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   final Set<(VideoSearchFilterKind, String)> _verifyingFilterPages = {};
   VideoSearchResults? _results;
   String _resultsQuery = '';
+  ({String query, List<VideoLink> filters})? _submittedSearch;
   _VideoSearchInputType _inputType = _VideoSearchInputType.keyword;
   int _highlightedSuggestionIndex = -1;
   int _localPage = 1;
@@ -171,7 +172,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   int _request = 0;
   Future<void> Function()? _retryAction;
   ({bool loggedIn, String? accountName})? _accountIdentity;
-  ({bool loggedIn, int revision})? _jableAccountIdentity;
+  ({bool loggedIn, int revision, int contentGeneration})? _jableAccountIdentity;
   late final UnifiedSearchHistorySession _historySession =
       UnifiedSearchHistorySession(
         ref.read(unifiedSearchHistoryProvider.notifier),
@@ -268,11 +269,14 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       ? null
       : (loggedIn: client.isLoggedIn, accountName: client.accountName);
 
-  ({bool loggedIn, int revision})? _readJableAccountIdentity(
-    JableAccount? account,
-  ) => account == null
+  ({bool loggedIn, int revision, int contentGeneration})?
+  _readJableAccountIdentity(JableAccount? account) => account == null
       ? null
-      : (loggedIn: account.isLoggedIn, revision: account.revision);
+      : (
+          loggedIn: account.isLoggedIn,
+          revision: account.revision,
+          contentGeneration: account.contentGeneration,
+        );
 
   bool _sameFilterKinds(
     List<VideoSearchFilterKind> first,
@@ -325,8 +329,14 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     if (identity == _jableAccountIdentity) return;
     final previousIdentity = _jableAccountIdentity;
     _jableAccountIdentity = identity;
-    if (widget.sourceKey != 'jable' ||
-        widget.historyContext.entryScope != 'favorites') {
+    if (widget.sourceKey != 'jable') return;
+    final favoriteScope = widget.historyContext.entryScope == 'favorites';
+    final generationChanged =
+        identity?.contentGeneration != previousIdentity?.contentGeneration;
+    final favoritesChanged = identity?.revision != previousIdentity?.revision;
+    if (!generationChanged && (!favoriteScope || !favoritesChanged)) return;
+    if (!favoriteScope) {
+      if (generationChanged) _refreshPublicJableSearch();
       return;
     }
     // Session import must keep the pending verification retry current.
@@ -345,7 +355,6 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
         identity?.loggedIn == true) {
       return;
     }
-
     final query = _query.text.trim();
     final filters = List<VideoLink>.unmodifiable(_filters);
     _invalidateAccountResults(
@@ -361,6 +370,25 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
         }
       });
     }
+  }
+
+  void _refreshPublicJableSearch() {
+    final submittedSearch = _submittedSearch;
+    _invalidateAccountResults();
+    final request = _request;
+    _loadFocusedFilterPageAfterFrame();
+    if (submittedSearch == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && request == _request) {
+        unawaited(
+          _runSearch(
+            submittedSearch.query,
+            filters: submittedSearch.filters,
+            recordHistory: false,
+          ),
+        );
+      }
+    });
   }
 
   void _invalidateAccountResults({Object? error}) {
@@ -410,6 +438,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   void _clearLoadedFilterPages() {
     _filterScopeRevision++;
     _loadedFilterPages.clear();
+    _filterPageRequests.clear();
     _filterPageErrors.clear();
     _verifyingFilterPages.clear();
   }
@@ -564,6 +593,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     final query = value.trim();
     final filtersSnapshot = List<VideoLink>.unmodifiable(filters ?? _filters);
     if (query.isEmpty && filtersSnapshot.isEmpty) {
+      _submittedSearch = null;
       _request++;
       _retryAction = null;
       setState(() {
@@ -578,6 +608,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       if (_scrollController.hasClients) _scrollController.jumpTo(0);
       return;
     }
+    _submittedSearch = (query: query, filters: filtersSnapshot);
     _retryAction = () =>
         _runSearch(query, filters: filtersSnapshot, recordHistory: false);
     final request = ++_request;
@@ -654,6 +685,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   void _clearInput() {
     _request++;
     _retryAction = null;
+    _submittedSearch = null;
     _query.clear();
     _filterQuery.clear();
     _filters.clear();

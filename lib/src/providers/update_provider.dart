@@ -296,6 +296,7 @@ class UpdateController extends StateNotifier<UpdateState> {
       final file = await _updateService.downloadUpdate(
         downloadUrl: downloadUrl,
         fileName: fileName,
+        assetDigest: info.assetDigest,
         cancelToken: cancelToken,
         onProgress: (received, total) {
           if (!_isCurrentDownload(cancelToken) || cancelToken.isCancelled) {
