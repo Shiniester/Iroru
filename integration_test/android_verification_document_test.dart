@@ -9,13 +9,27 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:iroru/src/videos/missav_client.dart';
 import 'package:iroru/src/videos/missav_verification.dart';
 
+// The mobile source menu uses a named dropdown and a modified Alpine event.
+const _mobileMenu = '''
+<nav x-data="{showDropdown:null,user:null}">
+  <a href="#" @click.prevent="showDropdown = showDropdown === 'mobile' ? null : 'mobile'">Menu</a>
+  <div x-show="showDropdown === 'mobile'" style="display:none">
+    <div GUEST_GUARD><a href="/logout">Sign out</a></div>
+  </div>
+</nav>
+''';
+
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
-  for (final guest in [false, true]) {
+  for (final (state, guard) in [
+    ('signed in', ''),
+    ('guest', 'x-show="user" style="display:none"'),
+    ('awaiting initialization', 'x-cloak x-show="user"'),
+  ]) {
     testWidgets(
-      'Android confirms a collapsed favorites menu only for its account (guest: $guest)',
+      'Android checks a collapsed mobile Favorites menu ($state)',
       (tester) async {
         final browser = WebViewController();
         await browser.setJavaScriptMode(JavaScriptMode.unrestricted);
@@ -35,14 +49,10 @@ void main() {
           uri,
           Completer<void>().future,
           navigate: (_) async {
-            await browser.loadHtmlString('''<nav x-data="{open:false}">
-                <button @click="open = !open">Menu</button>
-                <div x-show="open" style="display:none">
-                  <div ${guest ? 'x-show="user" style="display:none"' : ''}>
-                    <a href="/logout">Sign out</a>
-                  </div>
-                </div>
-              </nav>''', baseUrl: uri.toString());
+            await browser.loadHtmlString(
+              _mobileMenu.replaceFirst('GUEST_GUARD', guard),
+              baseUrl: uri.toString(),
+            );
             await loaded.future.timeout(const Duration(seconds: 15));
           },
           read: browser.runJavaScriptReturningResult,
@@ -50,7 +60,7 @@ void main() {
         );
         expect(
           MissavClient.readFavoritesAccountFromMarkup(markup, uri) != null,
-          !guest,
+          state == 'signed in',
         );
       },
       skip: !Platform.isAndroid,

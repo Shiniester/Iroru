@@ -3130,7 +3130,7 @@ void main() {
         dio: Dio()..httpClientAdapter = native,
         metadataDio: _emptyMetadataDio(),
         secureStorage: storage,
-        restoreSavedSession: (client, expectedGeneration, _) async {
+        restoreSavedSession: (client, expectedGeneration, _, _) async {
           restoreCalls++;
           client.useVerifiedBrowserTransport(
             browser,
@@ -4515,7 +4515,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
         metadataDio: _emptyMetadataDio(),
         secureStorage: _storedBrowserSession(),
         contentHosts: [mirror],
-        restoreSavedSession: (client, _, _) async {
+        restoreSavedSession: (client, _, _, _) async {
           await finishBrowserRestore.future;
           client.useVerifiedBrowserTransport(browser, forAccountRestore: true);
         },
@@ -4638,7 +4638,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = native,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (client, expectedGeneration, _) async {
+      restoreSavedSession: (client, expectedGeneration, _, _) async {
         restorations++;
         expect(client.sessionGeneration, expectedGeneration);
         client.useVerifiedBrowserTransport(
@@ -5196,7 +5196,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       final client = MissavClient(
         dio: Dio()..httpClientAdapter = native,
         secureStorage: storage,
-        restoreSavedSession: (client, _, _) async => client
+        restoreSavedSession: (client, _, _, _) async => client
             .useVerifiedBrowserTransport(browser, forAccountRestore: true),
       );
       addTearDown(client.dispose);
@@ -5216,7 +5216,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       final client = MissavClient(
         dio: Dio()..httpClientAdapter = native,
         secureStorage: storage,
-        restoreSavedSession: (_, _, _) async =>
+        restoreSavedSession: (_, _, _, _) async =>
             throw StateError('WebView runtime unavailable'),
       );
       addTearDown(client.dispose);
@@ -5229,6 +5229,35 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       );
     },
   );
+
+  testWidgets('logs the browser operation pending at the restore deadline', (
+    tester,
+  ) async {
+    final storage = _storedBrowserSession();
+    final client = MissavClient(
+      dio: Dio()
+        ..httpClientAdapter = _Adapter((_) => _response('<main></main>')),
+      secureStorage: storage,
+      restoreSavedSession: (_, _, cancel, onStage) async {
+        onStage('browserNavigation');
+        await cancel.whenCancel;
+      },
+    );
+    addTearDown(client.dispose);
+    LogService.instance.clear();
+    final failed = expectLater(
+      client.restoreAccount(),
+      throwsA(isA<TimeoutException>()),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 30));
+    await failed;
+    expect(
+      LogService.instance.logs.single.message,
+      contains('stage=browserNavigation reason=timeout'),
+    );
+    expect(storage.cookie, 'session=saved');
+  });
 
   for (final challenged in [false, true]) {
     test('only a challenged background favorites page requests verification '
@@ -5248,7 +5277,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
             (_) => _response('<main>Favorites</main>'),
           ),
         secureStorage: storage,
-        restoreSavedSession: (client, _, _) async => client
+        restoreSavedSession: (client, _, _, _) async => client
             .useVerifiedBrowserTransport(browser, forAccountRestore: true),
       );
       addTearDown(client.dispose);
@@ -5292,7 +5321,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       final client = MissavClient(
         dio: Dio()..httpClientAdapter = native,
         secureStorage: storage,
-        restoreSavedSession: (_, _, _) async {
+        restoreSavedSession: (_, _, _, _) async {
           requestsBeforeRestore.addAll(
             native.requests.map((request) => request.uri.path),
           );
@@ -5350,7 +5379,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       final client = MissavClient(
         dio: Dio()..httpClientAdapter = native,
         secureStorage: storage,
-        restoreSavedSession: (client, _, _) async {
+        restoreSavedSession: (client, _, _, _) async {
           client.useVerifiedBrowserTransport(browser, forAccountRestore: true);
         },
       );
@@ -5728,7 +5757,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = nativeAdapter,
       secureStorage: storage,
-      restoreSavedSession: (_, _, _) async {
+      restoreSavedSession: (_, _, _, _) async {
         restoreCalls++;
       },
     );
@@ -5825,7 +5854,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = adapter,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _, _) async {},
+      restoreSavedSession: (_, _, _, _) async {},
     );
     addTearDown(client.dispose);
 
@@ -5863,7 +5892,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = adapter,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _, _) async {},
+      restoreSavedSession: (_, _, _, _) async {},
     );
     addTearDown(client.dispose);
 
@@ -6038,7 +6067,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = adapter,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _, _) async {},
+      restoreSavedSession: (_, _, _, _) async {},
     );
     addTearDown(client.dispose);
 
@@ -6115,7 +6144,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = adapter,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _, _) async {},
+      restoreSavedSession: (_, _, _, _) async {},
     );
     addTearDown(client.dispose);
     await client.initialize();
@@ -6145,7 +6174,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = adapter,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _, _) async {},
+      restoreSavedSession: (_, _, _, _) async {},
     );
     addTearDown(client.dispose);
     await client.initialize();
@@ -6173,7 +6202,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = adapter,
       metadataDio: _emptyMetadataDio(),
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _, _) async {},
+      restoreSavedSession: (_, _, _, _) async {},
     );
     addTearDown(client.dispose);
     await client.initialize();
@@ -6272,7 +6301,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       dio: Dio()..httpClientAdapter = nativeAdapter,
       secureStorage: _storedBrowserSession(),
       contentHosts: [mirror.baseUrl],
-      restoreSavedSession: (client, expectedGeneration, _) async {
+      restoreSavedSession: (client, expectedGeneration, _, _) async {
         restoreCalls++;
       },
     );
@@ -6300,7 +6329,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _, _) async => restoreCalls++,
+      restoreSavedSession: (_, _, _, _) async => restoreCalls++,
     );
     addTearDown(client.dispose);
 
@@ -6334,7 +6363,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = nativeAdapter,
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (client, expectedGeneration, _) async {
+      restoreSavedSession: (client, expectedGeneration, _, _) async {
         restoreCalls++;
       },
     );
@@ -6415,7 +6444,7 @@ eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/
       metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: _MemorySecureStorage(),
-      restoreSavedSession: (_, _, _) async {
+      restoreSavedSession: (_, _, _, _) async {
         restoreCalls++;
       },
     );

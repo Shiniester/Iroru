@@ -138,6 +138,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     MissavClient client,
     int expectedGeneration,
     CancelToken cancelToken,
+    void Function(String stage) onStage,
   )?
   restoreSavedSession;
   final Dio _dio;
@@ -676,6 +677,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     var stage = restoringBrowser == null
         ? 'nativeFavorites'
         : 'browserFavorites';
+    final elapsed = Stopwatch()..start();
+    var stageStartedMs = 0;
+    void setStage(String next) {
+      stage = next;
+      stageStartedMs = elapsed.elapsedMilliseconds;
+    }
 
     Future<bool> restore() async {
       try {
@@ -690,15 +697,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         }
         _checkGeneration(generation, uri);
         _checkCancelled(cancelToken, uri);
-        stage = 'browserSetup';
-        await restorer(this, generation, cancelToken);
+        setStage('browserSetup');
+        await restorer(this, generation, cancelToken, setStage);
         _checkGeneration(generation, uri);
         _checkCancelled(cancelToken, uri);
         restoringBrowser = _browserAdapter;
         if (restoringBrowser == null) {
           throw StateError('MissAV background browser was not attached.');
         }
-        stage = 'browserFavorites';
+        setStage('browserFavorites');
         return _restoreAccount(generation, cancelToken);
       }
     }
@@ -726,7 +733,8 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
           !_disposed &&
           (!cancelToken.isCancelled || error is TimeoutException)) {
         LogService.instance.error(
-          'MissAV restore failed: stage=$stage reason=${_restoreFailureReason(error)}',
+          'MissAV restore failed: stage=$stage reason=${_restoreFailureReason(error)} '
+          'stageElapsedMs=${elapsed.elapsedMilliseconds - stageStartedMs} elapsedMs=${elapsed.elapsedMilliseconds}',
         );
         if (_browserAccountUnconfirmed && restoringBrowser != null) {
           restoreNativeTransport(expectedAdapter: restoringBrowser);

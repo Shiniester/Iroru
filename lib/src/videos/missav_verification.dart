@@ -281,8 +281,9 @@ Future<void> waitForMissavMobilePage(
         }
       },
       onWebResourceError: (error) {
-        if (error.isForMainFrame != false &&
-            isMissavVerificationUrl(error.url ?? '')) {
+        if ((error.isForMainFrame != false &&
+                isMissavVerificationUrl(error.url ?? '')) ||
+            (error.isForMainFrame == true && error.url == null)) {
           final failure = restoringAccount
               ? PlatformException(
                   code:
@@ -318,19 +319,11 @@ Future<void> waitForMissavMobilePage(
       cancelSignal,
     );
     ensureActive();
-    const readyScript =
-        '''
-($_verificationPageScript) ? 'challenge' : (
-location.origin === '${MissavClient.origin}' &&
-document.readyState !== 'loading' && !!document.documentElement &&
-document.documentElement.id !== 'kikoflu-browser-bridge' &&
-window.__kikofluMissavNavigationPending !== true)
-''';
     await _waitForBrowserVerification(
       () {
         final error = mainFrameError;
         if (error != null) throw error;
-        return controller.runJavaScriptReturningResult(readyScript);
+        return controller.runJavaScriptReturningResult(_documentReadyScript);
       },
       url,
       cancelSignal,
@@ -422,6 +415,15 @@ document.readyState === 'complete' && !!document.documentElement &&
 document.documentElement.id !== 'kikoflu-browser-bridge')
 ''';
 
+const _documentReadyScript =
+    '''
+($_verificationPageScript) ? 'challenge' : (
+location.origin === '${MissavClient.origin}' &&
+document.readyState !== 'loading' && !!document.documentElement &&
+document.documentElement.id !== 'kikoflu-browser-bridge' &&
+window.__kikofluMissavNavigationPending !== true)
+''';
+
 Future<void> _waitForBrowserVerification(
   Future<Object?> Function() ready,
   String url,
@@ -483,17 +485,30 @@ const _documentMarkupScript = r'''
       .some(toggle => visible(toggle) &&
         toggle.getAttribute('aria-controls').split(/\s+/).includes(panel.id))) return true;
     const state = panel.getAttribute('x-show')?.trim();
-    if (!state || !/^[\w$]+$/.test(state)) return false;
+    if (!state) return false;
+    const named = /^(showDropdown|showCollapse)\s*===\s*(['"])([\w-]+)\2$/.exec(state);
+    if (!named && !/^[\w$]+$/.test(state)) return false;
     const scope = panel.closest('[x-data]');
     if (!scope) return false;
-    return Array.from(scope.querySelectorAll('[\\@click], [x-on\\:click]')).some(toggle => {
-      if (toggle.closest('[x-data]') !== scope || !visible(toggle)) return false;
-      const action = (toggle.getAttribute('@click') || toggle.getAttribute('x-on:click'))
-        ?.replace(/\s+/g, '').replace(/;$/, '');
+    const toggles = scope.querySelectorAll(
+      '[\\@click], [\\@click\\.prevent], [x-on\\:click], [x-on\\:click\\.prevent]');
+    return Array.from(toggles).some(toggle => {
+      if (toggle.closest('[x-data]') !== scope) return false;
+      if (!visible(toggle) && !(named && toggle.parentElement === panel.parentElement)) return false;
+      const event = toggle.getAttributeNames().find(name => /^(?:@click|x-on:click)(?:\.prevent)?$/.test(name));
+      if (!event) return false;
+      const action = toggle.getAttribute(event).replace(/\s+/g, '').replace(/;$/, '');
+      if (named) {
+        const key = named[1], value = "'" + named[3] + "'";
+        const assignment = action.replace(/"/g, "'");
+        return assignment === key + '=' + value ||
+          assignment === key + '=' + key + '===' + value + '?null:' + value;
+      }
       return action === state + '=!' + state || action === state + '=true';
     });
   };
   const availableSignOut = control => {
+    if (control.closest('[x-cloak]')) return false;
     if (visible(control)) return true;
     if (getComputedStyle(control).visibility !== 'visible') return false;
     let inCollapsedMenu = false;
@@ -707,7 +722,7 @@ Future<bool> _canReuseMissavFavorites(
   if (!_isMissavFavoritesPage(await _cancelable(currentUrl(), cancellation))) {
     return false;
   }
-  final ready = await _cancelable(read(_verificationReadyScript), cancellation);
+  final ready = await _cancelable(read(_documentReadyScript), cancellation);
   return ready == true || ready == 'true';
 }
 
@@ -1010,6 +1025,7 @@ connectMissavBrowserSession(
   FutureOr<void> Function()? retainMobileBrowser,
   Future<Object?> Function(String script)? readLoginPage,
   void Function(VideoLoginPhase phase)? onLoginPhase,
+  void Function(String stage)? onRestoreStage,
   bool forAccountRestore = false,
 }) async {
   if (expectedGeneration != null &&
@@ -1177,6 +1193,7 @@ connectMissavBrowserSession(
       );
     }
     if (Platform.isAndroid) {
+      onRestoreStage?.call('androidProxy');
       proxyGeneration ??= await configureMissavAndroidProxy();
       if (proxyGeneration != _androidProxyConfigurationGeneration) {
         throw StateError('MissAV browser proxy was replaced.');
@@ -1326,6 +1343,7 @@ connectMissavBrowserSession(
           }
         }
       } else {
+        onRestoreStage?.call('browserNavigation');
         await _awaitConnectionPhase(
           () => _waitForDesktopPage(
             browser,
@@ -1339,6 +1357,7 @@ connectMissavBrowserSession(
           clientGeneration: clientGeneration,
         );
       }
+      onRestoreStage?.call('browserCookies');
       cookieHeader = missavVerificationCookieHeader(
         await _awaitConnectionPhase(
           browser.getAllCookies,
@@ -1348,6 +1367,7 @@ connectMissavBrowserSession(
           clientGeneration: clientGeneration,
         ),
       );
+      onRestoreStage?.call('browserUserAgent');
       final browserAgent = await _awaitConnectionPhase(
         () => browser.evaluateJavaScript('navigator.userAgent'),
         connectionGeneration,
@@ -1436,6 +1456,7 @@ connectMissavBrowserSession(
         readCookieHeader: _mobileCookieHeader,
       );
       adapter = browserAdapter;
+      onRestoreStage?.call('browserChannel');
       await _awaitConnectionPhase(
         () => mobile.addJavaScriptChannel(
           MissavBrowserAdapter.channelName,
@@ -1453,6 +1474,7 @@ connectMissavBrowserSession(
         );
         onLoginPhase?.call(VideoLoginPhase.browserHandoff);
       } else {
+        onRestoreStage?.call('browserNavigation');
         await _awaitConnectionPhase(
           () => waitForMissavMobilePage(
             mobile,
@@ -1483,6 +1505,7 @@ connectMissavBrowserSession(
       if (!isMissavVerificationUrl(currentUrl ?? '')) {
         throw StateError('Source browser unavailable');
       }
+      onRestoreStage?.call('browserCookies');
       cookieHeader = await _awaitConnectionPhase(
         _mobileCookieHeader,
         connectionGeneration,
@@ -1490,6 +1513,7 @@ connectMissavBrowserSession(
         client: client,
         clientGeneration: clientGeneration,
       );
+      onRestoreStage?.call('browserUserAgent');
       userAgent = await _awaitConnectionPhase(
         mobile.getUserAgent,
         connectionGeneration,
@@ -1705,6 +1729,7 @@ Future<void> restoreMissavBrowserSession(
   MissavClient client,
   int expectedGeneration,
   CancelToken cancelToken,
+  void Function(String stage) onStage,
 ) async {
   final cancelSignal = Completer<void>();
   cancelToken.whenCancel.then((_) => cancelSignal.complete()).ignore();
@@ -1716,6 +1741,7 @@ Future<void> restoreMissavBrowserSession(
       preserveMobilePageOnFailure: false,
       checkAccess: false,
       forAccountRestore: true,
+      onRestoreStage: onStage,
     );
     return;
   }
@@ -1728,6 +1754,7 @@ Future<void> restoreMissavBrowserSession(
     clientGeneration: expectedGeneration,
   );
   ensureCurrent();
+  onStage('browserMount');
   final overlay = rootNavigatorKey.currentState?.overlay;
   if (overlay == null) throw StateError('Application overlay unavailable');
   final mobile = WebViewController();
@@ -1751,6 +1778,7 @@ Future<void> restoreMissavBrowserSession(
     overlay.insert(entry);
     await _cancelable(WidgetsBinding.instance.endOfFrame, cancelSignal);
     ensureCurrent();
+    onStage('browserSetup');
     await connectMissavBrowserSession(
       client,
       mobile: mobile,
@@ -1759,6 +1787,7 @@ Future<void> restoreMissavBrowserSession(
       preserveMobilePageOnFailure: false,
       checkAccess: false,
       forAccountRestore: true,
+      onRestoreStage: onStage,
     );
     if (_activeBrowser == null || !identical(_activeBrowserClient, client)) {
       throw StateError('MissAV browser recovery was replaced.');

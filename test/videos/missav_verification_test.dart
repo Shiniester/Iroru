@@ -887,11 +887,11 @@ void main() {
         }
         if (failWithMainFrameError) {
           browser._navigationDelegate!.webResourceError!(
-            const WebResourceError(
+            WebResourceError(
               errorCode: -2,
               description: 'Main document failed.',
               isForMainFrame: true,
-              url: url,
+              url: pendingLoadRequest ? url : null,
             ),
           );
         } else {
@@ -1935,6 +1935,7 @@ void main() {
 
   for (final evidence in [
     'runtime user',
+    'interactive Favorites',
     'delayed sign-out',
     'fresh page',
     'unprefixed Favorites redirect',
@@ -2001,6 +2002,9 @@ void main() {
         }
         if (evidence == 'unprefixed Favorites redirect') {
           sourcePage.redirectOnReadUrl = '${MissavClient.origin}/saved';
+        }
+        if (evidence == 'interactive Favorites') {
+          sourcePage.documentReadyState = 'interactive';
         }
 
         await tester.tap(find.widgetWithText(FilledButton, 'Done'));
